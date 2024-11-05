@@ -8,6 +8,9 @@ packages = [{include = "mlx_omni_server", from = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+fastapi = "^0.115.4"
+python-multipart = "^0.0.17"
+pydantic = "^2.9.2"
 
 
 [build-system]
