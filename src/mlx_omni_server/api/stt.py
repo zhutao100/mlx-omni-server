@@ -3,9 +3,10 @@ from typing import List, Optional
 from ..models.stt import ResponseFormat, TimestampGranularity, TranscriptionResponse
 from ..services.stt_service import STTService
 
-router = APIRouter(prefix="/audio", tags=["speech-to-text"])
+router = APIRouter(tags=["speech-to-text"])
 
 @router.post("/transcriptions", response_model=TranscriptionResponse)
+@router.post("/v1/transcriptions", response_model=TranscriptionResponse)
 async def create_transcription(
     file: UploadFile = File(...),
     model: str = Form(...),
