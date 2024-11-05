@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "mlx-omni-server"
+version = "0.1.0"
+description = ""
+authors = ["madroid <madroidmaq@gmail.com>"]
+readme = "README.md"
+packages = [{include = "mlx_omni_server", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
