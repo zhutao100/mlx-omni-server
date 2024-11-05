@@ -1,20 +1,17 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import List, Optional
-from ..models.stt import ResponseFormat, TimestampGranularity, TranscriptionResponse
+
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+
+from ..models.stt import ResponseFormat, TimestampGranularity, TranscriptionResponse, STTRequestForm
 from ..services.stt_service import STTService
 
 router = APIRouter(tags=["speech-to-text"])
 
-@router.post("/transcriptions", response_model=TranscriptionResponse)
-@router.post("/v1/transcriptions", response_model=TranscriptionResponse)
+
+@router.post("/audio/transcriptions", response_model=TranscriptionResponse)
+@router.post("/v1/audio/transcriptions", response_model=TranscriptionResponse)
 async def create_transcription(
-    file: UploadFile = File(...),
-    model: str = Form(...),
-    language: Optional[str] = Form(None),
-    prompt: Optional[str] = Form(None),
-    response_format: ResponseFormat = Form(ResponseFormat.json),
-    temperature: float = Form(0.0),
-    timestamp_granularities: Optional[List[TimestampGranularity]] = Form(None)
+    request: STTRequestForm = Depends()  # Use FastAPI's Depends to inject and validate the form
 ):
     """
     Transcribe audio file to text.
@@ -28,31 +25,17 @@ async def create_transcription(
             detail=f"File type not supported. Must be one of: {', '.join(allowed_extensions)}"
         )
 
-    # Validate model
-    if model != "whisper-1":
-        raise HTTPException(
-            status_code=400,
-            detail="Only whisper-1 model is currently supported"
-        )
-
-    # Validate temperature
-    if not 0 <= temperature <= 1:
-        raise HTTPException(
-            status_code=400,
-            detail="Temperature must be between 0 and 1"
-        )
-
     # Process transcription
     stt_service = STTService()
     try:
         result = await stt_service.transcribe(
             file=file,
-            model=model,
-            language=language,
-            prompt=prompt,
-            response_format=response_format,
-            temperature=temperature,
-            timestamp_granularities=timestamp_granularities
+            model=request.model,
+            language=request.language,
+            prompt=request.prompt,
+            response_format=request.response_format,
+            temperature=request.temperature,
+            timestamp_granularities=request.timestamp_granularities
         )
         return result
     except Exception as e:

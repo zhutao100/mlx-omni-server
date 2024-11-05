@@ -1,10 +1,30 @@
 from pathlib import Path
+
+from f5_tts_mlx.generate import generate
+
 from ..models.tts import AudioFormat
 
-class TTSService:
+
+class F5Model():
+
     def __init__(self):
+        pass
+
+    def generate(self, text: str, speed, output_path):
+        generate(
+            generation_text=text,
+            speed=speed,
+            output_path=output_path,
+        )
+
+
+class TTSService:
+    model: F5Model
+
+    def __init__(self):
+        self.model = F5Model()
         # 直接指定本地音频文件路径
-        self.sample_audio_path = Path("/Users/madroid/Desktop/sample.wav")
+        self.sample_audio_path = Path("sample.wav")
 
         # 检查文件是否存在
         if not self.sample_audio_path.exists():
@@ -15,7 +35,7 @@ class TTSService:
         model: str,
         input_text: str,
         voice: str,
-        response_format: AudioFormat = AudioFormat.MP3,
+        response_format: AudioFormat = AudioFormat.WAV,
         speed: float = 1.0
     ) -> bytes:
         """
@@ -31,8 +51,9 @@ class TTSService:
         Returns:
             bytes: The generated audio content
         """
+
         try:
-            # 读取本地音频文件
+            self.model.generate(text=input_text, speed=speed, output_path=self.sample_audio_path)
             with open(self.sample_audio_path, 'rb') as audio_file:
                 audio_content = audio_file.read()
             return audio_content

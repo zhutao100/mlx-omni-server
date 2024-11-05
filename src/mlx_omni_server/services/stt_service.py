@@ -1,20 +1,38 @@
 from typing import List, Optional
 
 from fastapi import UploadFile
+from mlx_omni_server.models.stt import STTRequestForm
+# from mlx_whisper import transcribe
 
 from ..models.stt import ResponseFormat, TimestampGranularity, TranscriptionResponse, TranscriptionWord
+
+
+# class WhisperModel:
+
+#     def __init__(self):
+#         pass
+
+#     def generate(self, audio_path, model, language=None):
+#         result = transcribe(
+#             audio_path,
+#             path_or_hf_repo=model,
+#             **args,
+#         )
+#         writer(result, audio_path, **writer_args)
+#         pass
 
 
 class STTService:
     async def transcribe(
         self,
-        file: UploadFile,
-        model: str,
-        language: Optional[str] = None,
-        prompt: Optional[str] = None,
-        response_format: ResponseFormat = ResponseFormat.json,
-        temperature: float = 0.0,
-        timestamp_granularities: Optional[List[TimestampGranularity]] = None
+        request: STTRequestForm,
+        # file: UploadFile,
+        # model: str,
+        # language: Optional[str] = None,
+        # prompt: Optional[str] = None,
+        # response_format: ResponseFormat = ResponseFormat.json,
+        # temperature: float = 0.0,
+        # timestamp_granularities: Optional[List[TimestampGranularity]] = None
     ) -> TranscriptionResponse:
         """
         Placeholder for actual transcription implementation.

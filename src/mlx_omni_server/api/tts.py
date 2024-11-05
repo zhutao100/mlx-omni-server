@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from typing import Optional
-from ..models.tts import TTSRequest, AudioFormat
-from ..services.tts_service import TTSService
 import io
 
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+
+from ..models.tts import TTSRequest, AudioFormat
+from ..services.tts_service import TTSService
+
 router = APIRouter(tags=["text-to-speech"])
+
 
 @router.post("/audio/speech")
 @router.post("/v1/audio/speech")
