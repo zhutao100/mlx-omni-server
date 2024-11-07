@@ -13,6 +13,9 @@ python-multipart = "^0.0.17"
 pydantic = "^2.9.2"
 f5-tts-mlx = "^0.1.7"
 uvicorn = "^0.32.0"
+llvmlite = "^0.43.0"
+numba = ">=0.57.0"
+mlx-whisper = "^0.4.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"

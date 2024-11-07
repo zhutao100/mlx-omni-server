@@ -1,63 +1,142 @@
-from typing import List, Optional
+import os
+import tempfile
+from pathlib import Path
+from typing import Union
 
-from fastapi import UploadFile
-from mlx_omni_server.models.stt import STTRequestForm
-# from mlx_whisper import transcribe
+from mlx_whisper import transcribe
+from mlx_whisper.writers import WriteSRT, WriteVTT
 
-from ..models.stt import ResponseFormat, TimestampGranularity, TranscriptionResponse, TranscriptionWord
+from ..models.stt import STTRequestForm, ResponseFormat
+from ..models.stt import TranscriptionResponse, TranscriptionWord
 
 
-# class WhisperModel:
+class WhisperModel:
+    def __init__(self):
+        self.model_path = "mlx-community/whisper-tiny"  # 默认模型
 
-#     def __init__(self):
-#         pass
+    async def _save_upload_file(self, file) -> str:
+        suffix = Path(file.filename).suffix
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            return tmp.name
 
-#     def generate(self, audio_path, model, language=None):
-#         result = transcribe(
-#             audio_path,
-#             path_or_hf_repo=model,
-#             **args,
-#         )
-#         writer(result, audio_path, **writer_args)
-#         pass
+    def generate(self, audio_path: str, request: STTRequestForm):
+        """调用 MLX Whisper 进行转录"""
+        # 设置 word timestamps
+        word_timestamps = False
+        if request.timestamp_granularities:
+            word_timestamps = "word" in [g.value for g in request.timestamp_granularities]
+
+        print(f"word_timestamps: {word_timestamps}")
+        result = transcribe(
+            audio=audio_path,
+            path_or_hf_repo=self.model_path,
+            temperature=request.temperature,
+            initial_prompt=request.prompt,
+            language=request.language,
+            word_timestamps=word_timestamps,
+            verbose=False,  # 关闭详细输出
+            condition_on_previous_text=True,  # 启用上下文关联
+        )
+        return result
+
+    def _generate_subtitle_file(self, result: dict, format: str) -> str:
+        temp_dir = None
+        temp_file = None
+        try:
+            temp_dir = tempfile.mkdtemp()
+            temp_file = os.path.join(temp_dir, f"temp.{format}")
+
+            if format == 'srt':
+                writer = WriteSRT(temp_dir)
+            else:  # vtt
+                writer = WriteVTT(temp_dir)
+
+            writer(result, temp_file)
+
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                return f.read()
+
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                os.unlink(temp_file)
+            if temp_dir and os.path.exists(temp_dir):
+                os.rmdir(temp_dir)
+
+    def _format_response(self, result: dict, request: STTRequestForm) -> Union[dict, str, TranscriptionResponse]:
+        if request.response_format == ResponseFormat.TEXT:
+            return result["text"]
+
+        elif request.response_format == ResponseFormat.SRT:
+            return self._generate_subtitle_file(result, 'srt')
+
+        elif request.response_format == ResponseFormat.VTT:
+            return self._generate_subtitle_file(result, 'vtt')
+
+        elif request.response_format == ResponseFormat.VERBOSE_JSON:
+            return result
+
+        elif request.response_format == ResponseFormat.JSON:
+            return {"text": result["text"]}
+
+        else:
+            text = result.get("text", "")
+            language = result.get("language", "en")
+
+            # 计算总时长
+            duration = 0
+            if "segments" in result:
+                for segment in result["segments"]:
+                    if "end" in segment:
+                        duration = max(duration, segment["end"])
+
+            words = []
+            if (request.timestamp_granularities and
+                "word" in [g.value for g in request.timestamp_granularities]):
+                for segment in result.get("segments", []):
+                    for word_data in segment.get("words", []):
+                        word = TranscriptionWord(
+                            word=word_data["word"],
+                            start=word_data["start"],
+                            end=word_data["end"]
+                        )
+                        words.append(word)
+
+            return TranscriptionResponse(
+                task="transcribe",
+                language=language,
+                duration=duration,
+                text=text,
+                words=words if words else None
+            )
 
 
 class STTService:
+    def __init__(self):
+        self.model = WhisperModel()
+
     async def transcribe(
         self,
         request: STTRequestForm,
-        # file: UploadFile,
-        # model: str,
-        # language: Optional[str] = None,
-        # prompt: Optional[str] = None,
-        # response_format: ResponseFormat = ResponseFormat.json,
-        # temperature: float = 0.0,
-        # timestamp_granularities: Optional[List[TimestampGranularity]] = None
-    ) -> TranscriptionResponse:
-        """
-        Placeholder for actual transcription implementation.
-        In a real implementation, this would:
-        1. Process the audio file
-        2. Call the actual STT model
-        3. Format the response according to specifications
-        """
-        # This is a mock response for demonstration
-        return TranscriptionResponse(
-            task="transcribe",
-            language=language or "english",
-            duration=8.47,
-            text="This is a mock transcription response.",
-            words=[
-                TranscriptionWord(
-                    word="This",
-                    start=0.0,
-                    end=0.24
-                ),
-                TranscriptionWord(
-                    word="is",
-                    start=0.24,
-                    end=0.48
-                ),
-                # Add more words as needed
-            ]
-        )
+    ) -> Union[dict, str, TranscriptionResponse]:
+        try:
+            # 保存上传的文件
+            audio_path = await self.model._save_upload_file(request.file)
+
+            # 调用模型进行转录
+            result = self.model.generate(audio_path=audio_path, request=request)
+
+            # 格式化响应
+            response = self.model._format_response(result, request)
+
+            # 删除临时文件
+            Path(audio_path).unlink(missing_ok=True)
+
+            return response
+
+        except Exception as e:
+            # 确保清理临时文件
+            if 'audio_path' in locals():
+                Path(audio_path).unlink(missing_ok=True)
+            raise e
