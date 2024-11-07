@@ -4,6 +4,15 @@ version = "0.1.0"
 description = ""
 authors = ["madroid <madroidmaq@gmail.com>"]
 readme = "README.md"
+license = "MIT"
+repository = "https://github.com/madroidmaq/mlx-omni-server"
+keywords = ["mlx", "ai", "agi", "aigc", "server", "openai", "tts", "stt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+]
 packages = [{ include = "mlx_omni_server", from = "src" }]
 
 [tool.poetry.dependencies]
@@ -23,6 +32,7 @@ httpx = "^0.27.2"
 
 [tool.poetry.scripts]
 start = "mlx_omni_server.main:start"
+mlx-omni-server = "mlx_omni_server.main:start"
 
 [build-system]
 requires = ["poetry-core"]
