@@ -22,11 +22,7 @@ async def create_speech(request: TTSRequest):
 
     try:
         audio_content = await tts_service.generate_speech(
-            model=request.model,
-            input_text=request.input,
-            voice=request.voice,
-            response_format=request.response_format,
-            speed=request.speed
+            request = request,
         )
 
         # Create content type mapping
