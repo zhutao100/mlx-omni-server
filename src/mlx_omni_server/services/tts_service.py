@@ -2,7 +2,7 @@ from pathlib import Path
 
 from f5_tts_mlx.generate import generate
 
-from ..models.tts import TTSRequest
+from ..schemas.tts_schema import TTSRequest
 
 
 class F5Model():

@@ -1,14 +1,10 @@
-from fastapi import FastAPI
-from .api import stt, tts
-import sys
 import uvicorn
+from fastapi import FastAPI
+
+from .api.routers import api_router
 
 app = FastAPI(title="MLX Omni Server")
-
-# Register the STT router
-app.include_router(stt.router)
-app.include_router(tts.router)
-
+app.include_router(api_router)
 
 
 def start():

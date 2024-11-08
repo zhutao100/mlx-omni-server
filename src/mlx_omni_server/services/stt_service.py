@@ -6,8 +6,7 @@ from typing import Union
 from mlx_whisper import transcribe
 from mlx_whisper.writers import WriteSRT, WriteVTT
 
-from ..models.stt import STTRequestForm, ResponseFormat
-from ..models.stt import TranscriptionResponse, TranscriptionWord
+from ..schemas.stt_schema import TranscriptionResponse, TranscriptionWord, STTRequestForm, ResponseFormat
 
 
 class WhisperModel:

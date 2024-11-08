@@ -3,8 +3,8 @@ import io
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..models.tts import TTSRequest, AudioFormat
-from ..services.tts_service import TTSService
+from mlx_omni_server.schemas.tts_schema import AudioFormat, TTSRequest
+from mlx_omni_server.services.tts_service import TTSService
 
 router = APIRouter(tags=["text-to-speech"])
 
@@ -22,7 +22,7 @@ async def create_speech(request: TTSRequest):
 
     try:
         audio_content = await tts_service.generate_speech(
-            request = request,
+            request=request,
         )
 
         # Create content type mapping
