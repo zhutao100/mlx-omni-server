@@ -10,8 +10,6 @@ from ..schemas.stt_schema import TranscriptionResponse, TranscriptionWord, STTRe
 
 
 class WhisperModel:
-    def __init__(self):
-        self.model_path = "mlx-community/whisper-tiny"  # 默认模型
 
     async def _save_upload_file(self, file) -> str:
         suffix = Path(file.filename).suffix
@@ -21,8 +19,6 @@ class WhisperModel:
             return tmp.name
 
     def generate(self, audio_path: str, request: STTRequestForm):
-        """调用 MLX Whisper 进行转录"""
-        # 设置 word timestamps
         word_timestamps = False
         if request.timestamp_granularities:
             word_timestamps = "word" in [g.value for g in request.timestamp_granularities]
@@ -30,13 +26,13 @@ class WhisperModel:
         print(f"word_timestamps: {word_timestamps}")
         result = transcribe(
             audio=audio_path,
-            path_or_hf_repo=self.model_path,
+            path_or_hf_repo=request.model,
             temperature=request.temperature,
             initial_prompt=request.prompt,
             language=request.language,
             word_timestamps=word_timestamps,
-            verbose=False,  # 关闭详细输出
-            condition_on_previous_text=True,  # 启用上下文关联
+            verbose=False,
+            condition_on_previous_text=True,
         )
         return result
 
@@ -83,7 +79,6 @@ class WhisperModel:
             text = result.get("text", "")
             language = result.get("language", "en")
 
-            # 计算总时长
             duration = 0
             if "segments" in result:
                 for segment in result["segments"]:

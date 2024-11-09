@@ -33,7 +33,7 @@ OpenAI's [createTranscription](https://platform.openai.com/docs/api-reference/au
 ```shell
 curl -X POST "http://localhost:8000/v1/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo"
 ```
 
@@ -53,7 +53,7 @@ curl -X POST "http://localhost:8000/v1/audio/transcriptions" \
 ```shell
 curl -X POST "http://localhost:8000/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "response_format=text"
 ```
@@ -72,7 +72,7 @@ MLX Project is awesome!
 ```shell
 curl -X POST "http://localhost:8000/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "response_format=srt"
 ```
@@ -93,7 +93,7 @@ MLX Project is awesome!
 ```shell
 curl -X POST "http://localhost:8000/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "response_format=verbose_json"
 ```
@@ -127,7 +127,7 @@ curl -X POST "http://localhost:8000/audio/transcriptions" \
 ```shell
 curl -X POST "http://localhost:8000/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "timestamp_granularities[]=word" \
   -F "response_format=verbose_json"
@@ -184,7 +184,7 @@ curl -X POST "http://localhost:8000/audio/transcriptions" \
 ```shell
 curl -X POST "http://localhost:8000/v1/audio/transcriptions" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@/Users/madroid/Desktop/mlx.wav" \
+  -F "file=@mlx_example.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "response_format=vtt"
 ```
