@@ -40,8 +40,8 @@ async def create_speech(request: TTSRequest):
             io.BytesIO(audio_content),
             media_type=content_type_mapping[request.response_format],
             headers={
-                'Content-Disposition': f'attachment; filename="speech.{request.response_format.value}"'
-            }
+                "Content-Disposition": f'attachment; filename="speech.{request.response_format.value}"'
+            },
         )
 
     except Exception as e:

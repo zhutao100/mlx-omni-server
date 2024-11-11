@@ -6,7 +6,12 @@ from typing import Union
 from mlx_whisper import transcribe
 from mlx_whisper.writers import WriteSRT, WriteVTT
 
-from ..schemas.stt_schema import TranscriptionResponse, TranscriptionWord, STTRequestForm, ResponseFormat
+from ..schemas.stt_schema import (
+    ResponseFormat,
+    STTRequestForm,
+    TranscriptionResponse,
+    TranscriptionWord,
+)
 
 
 class WhisperModel:
@@ -21,7 +26,9 @@ class WhisperModel:
     def generate(self, audio_path: str, request: STTRequestForm):
         word_timestamps = False
         if request.timestamp_granularities:
-            word_timestamps = "word" in [g.value for g in request.timestamp_granularities]
+            word_timestamps = "word" in [
+                g.value for g in request.timestamp_granularities
+            ]
 
         print(f"word_timestamps: {word_timestamps}")
         result = transcribe(
@@ -43,14 +50,14 @@ class WhisperModel:
             temp_dir = tempfile.mkdtemp()
             temp_file = os.path.join(temp_dir, f"temp.{format}")
 
-            if format == 'srt':
+            if format == "srt":
                 writer = WriteSRT(temp_dir)
             else:  # vtt
                 writer = WriteVTT(temp_dir)
 
             writer(result, temp_file)
 
-            with open(temp_file, 'r', encoding='utf-8') as f:
+            with open(temp_file, "r", encoding="utf-8") as f:
                 return f.read()
 
         finally:
@@ -59,15 +66,17 @@ class WhisperModel:
             if temp_dir and os.path.exists(temp_dir):
                 os.rmdir(temp_dir)
 
-    def _format_response(self, result: dict, request: STTRequestForm) -> Union[dict, str, TranscriptionResponse]:
+    def _format_response(
+        self, result: dict, request: STTRequestForm
+    ) -> Union[dict, str, TranscriptionResponse]:
         if request.response_format == ResponseFormat.TEXT:
             return result["text"]
 
         elif request.response_format == ResponseFormat.SRT:
-            return self._generate_subtitle_file(result, 'srt')
+            return self._generate_subtitle_file(result, "srt")
 
         elif request.response_format == ResponseFormat.VTT:
-            return self._generate_subtitle_file(result, 'vtt')
+            return self._generate_subtitle_file(result, "vtt")
 
         elif request.response_format == ResponseFormat.VERBOSE_JSON:
             return result
@@ -86,14 +95,15 @@ class WhisperModel:
                         duration = max(duration, segment["end"])
 
             words = []
-            if (request.timestamp_granularities and
-                "word" in [g.value for g in request.timestamp_granularities]):
+            if request.timestamp_granularities and "word" in [
+                g.value for g in request.timestamp_granularities
+            ]:
                 for segment in result.get("segments", []):
                     for word_data in segment.get("words", []):
                         word = TranscriptionWord(
                             word=word_data["word"],
                             start=word_data["start"],
-                            end=word_data["end"]
+                            end=word_data["end"],
                         )
                         words.append(word)
 
@@ -102,7 +112,7 @@ class WhisperModel:
                 language=language,
                 duration=duration,
                 text=text,
-                words=words if words else None
+                words=words if words else None,
             )
 
 
@@ -131,6 +141,6 @@ class STTService:
 
         except Exception as e:
             # 确保清理临时文件
-            if 'audio_path' in locals():
+            if "audio_path" in locals():
                 Path(audio_path).unlink(missing_ok=True)
             raise e

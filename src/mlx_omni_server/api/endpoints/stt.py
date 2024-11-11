@@ -1,8 +1,12 @@
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import Response, JSONResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 from starlette.responses import PlainTextResponse
 
-from mlx_omni_server.schemas.stt_schema import TranscriptionResponse, STTRequestForm, ResponseFormat
+from mlx_omni_server.schemas.stt_schema import (
+    ResponseFormat,
+    STTRequestForm,
+    TranscriptionResponse,
+)
 from mlx_omni_server.services.stt_service import STTService
 
 router = APIRouter(tags=["speech-to-text"])
@@ -10,9 +14,7 @@ router = APIRouter(tags=["speech-to-text"])
 
 @router.post("/audio/transcriptions", response_model=TranscriptionResponse)
 @router.post("/v1/audio/transcriptions", response_model=TranscriptionResponse)
-async def create_transcription(
-    request: STTRequestForm = Depends()
-):
+async def create_transcription(request: STTRequestForm = Depends()):
     """
     Transcribe audio file to text.
     """
@@ -29,7 +31,7 @@ async def create_transcription(
                 media_type="text/plain",
                 headers={
                     "Content-Disposition": f'attachment; filename="transcription.{request.response_format.value.lower()}"'
-                }
+                },
             )
         else:  # JSON and VERBOSE_JSON
             return JSONResponse(content=result)

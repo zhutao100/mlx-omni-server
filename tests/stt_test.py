@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from src.mlx_omni_server.main import app
 
 client = TestClient(app)
@@ -10,8 +11,8 @@ def test_tts():
         json={
             "model": "lucasnewman/f5-tts-mlx",
             "input": "The quick brown fox jumped over the lazy dog.",
-            "voice": "alloy"
-        }
+            "voice": "alloy",
+        },
     )
     print(f"response: {response}")
 

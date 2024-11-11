@@ -197,8 +197,3 @@ MLX Project is awesome!
 ```
 
 </details>
-
-
-
-
-

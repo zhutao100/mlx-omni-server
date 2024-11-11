@@ -5,7 +5,7 @@ from f5_tts_mlx.generate import generate
 from ..schemas.tts_schema import TTSRequest
 
 
-class F5Model():
+class F5Model:
 
     def __init__(self):
         pass
@@ -39,8 +39,10 @@ class TTSService:
         """
 
         try:
-            self.model.generate_audio(request=request, output_path=self.sample_audio_path)
-            with open(self.sample_audio_path, 'rb') as audio_file:
+            self.model.generate_audio(
+                request=request, output_path=self.sample_audio_path
+            )
+            with open(self.sample_audio_path, "rb") as audio_file:
                 audio_content = audio_file.read()
             self.sample_audio_path.unlink(missing_ok=True)
             return audio_content
