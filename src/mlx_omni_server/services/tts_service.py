@@ -16,6 +16,7 @@ class F5Model:
             generation_text=request.input,
             speed=request.speed,
             output_path=output_path,
+            **(request.get_extra_params() or {}),
         )
 
 
