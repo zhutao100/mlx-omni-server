@@ -1,14 +1,23 @@
+import importlib
 import json
-from typing import Dict, List, Optional, Tuple
+import logging
+from typing import Dict, List, Optional, Tuple, Type
 
 from huggingface_hub import CachedRepoInfo, scan_cache_dir
 
 from ..schemas.models_schema import Model, ModelDeletion, ModelList
 
+MODEL_REMAPPING = {
+    "mistral": "llama",  # mistral is compatible with llama
+    "phi-msft": "phixtral",
+    "falcon_mamba": "mamba",
+}
+
 
 class ModelCacheScanner:
-    def __init__(self, target_architecture="CausalLM"):
-        self.target_architecture = target_architecture
+    """Scanner for finding and managing mlx-lm compatible models in the local cache."""
+
+    def __init__(self):
         self._cache_info = None
 
     @property
@@ -22,18 +31,43 @@ class ModelCacheScanner:
         """Force refresh the cache info"""
         self._cache_info = scan_cache_dir()
 
-    def is_model_supported(self, config_data: Dict) -> bool:
-        """Check if the model is supported based on its architecture"""
+    def _get_model_classes(self, config: dict) -> Optional[Tuple[Type, Type]]:
+        """
+        Try to retrieve the model and model args classes based on the configuration.
+        https://github.com/ml-explore/mlx-examples/blob/1e0766018494c46bc6078769278b8e2a360503dc/llms/mlx_lm/utils.py#L81
+
+        Args:
+            config (dict): The model configuration
+
+        Returns:
+            Optional tuple of (Model class, ModelArgs class) if model type is supported
+        """
         try:
-            architectures = config_data.get("architectures", [])
-            return any(self.target_architecture in arch for arch in architectures)
-        except Exception:
-            return False
+            model_type = config.get("model_type")
+            model_type = MODEL_REMAPPING.get(model_type, model_type)
+            if not model_type:
+                return None
+
+            # Try to import the model architecture module
+            arch = importlib.import_module(f"mlx_lm.models.{model_type}")
+            return arch.Model, arch.ModelArgs
+
+        except ImportError:
+            logging.debug(f"Model type {model_type} not supported by mlx-lm")
+            return None
+        except Exception as e:
+            logging.warning(f"Error checking model compatibility: {str(e)}")
+            return None
+
+    def is_model_supported(self, config_data: Dict) -> bool:
+        return self._get_model_classes(config_data) is not None
 
     def find_models_in_cache(self) -> List[Tuple[CachedRepoInfo, Dict]]:
         """
-        Scan local cache for available models
-        Returns: List of tuples containing (CachedRepoInfo, config_dict)
+        Scan local cache for available models that are compatible with mlx-lm.
+
+        Returns:
+            List of tuples containing (CachedRepoInfo, config_dict)
         """
         supported_models = []
 
@@ -57,12 +91,13 @@ class ModelCacheScanner:
                 if self.is_model_supported(config_data):
                     supported_models.append((repo_info, config_data))
             except Exception as e:
-                print(f"Error reading config.json for {repo_info.repo_id}: {str(e)}")
+                logging.error(
+                    f"Error reading config.json for {repo_info.repo_id}: {str(e)}"
+                )
 
         return supported_models
 
     def get_model_info(self, model_id: str) -> Optional[Tuple[CachedRepoInfo, Dict]]:
-        """Get model information from cache"""
         for repo_info in self.cache_info.repos:
             if repo_info.repo_id == model_id and repo_info.repo_type == "model":
                 first_revision = next(iter(repo_info.revisions), None)
@@ -79,16 +114,20 @@ class ModelCacheScanner:
                 try:
                     with open(config_file.file_path, "r") as f:
                         config_data = json.load(f)
-                    return (repo_info, config_data)
+                    if self.is_model_supported(config_data):
+                        return (repo_info, config_data)
+                    else:
+                        logging.warning(
+                            f"Model {model_id} found but not compatible with mlx-lm"
+                        )
                 except Exception as e:
-                    print(
+                    logging.error(
                         f"Error reading config.json for {repo_info.repo_id}: {str(e)}"
                     )
 
         return None
 
     def delete_model(self, model_id: str) -> bool:
-        """Delete model from local cache"""
         for repo_info in self.cache_info.repos:
             if repo_info.repo_id == model_id:
                 revision_hashes = [rev.commit_hash for rev in repo_info.revisions]
@@ -97,15 +136,15 @@ class ModelCacheScanner:
 
                 try:
                     delete_strategy = self.cache_info.delete_revisions(*revision_hashes)
-                    print(
+                    logging.info(
                         f"Model '{model_id}': Will free {delete_strategy.expected_freed_size_str}"
                     )
                     delete_strategy.execute()
-                    print(f"Model '{model_id}': Cache deletion completed")
+                    logging.info(f"Model '{model_id}': Cache deletion completed")
                     self._refresh_cache_info()
                     return True
                 except Exception as e:
-                    print(f"Error deleting model '{model_id}': {str(e)}")
+                    logging.error(f"Error deleting model '{model_id}': {str(e)}")
                     raise
 
         return False
@@ -113,7 +152,7 @@ class ModelCacheScanner:
 
 class ModelsService:
     def __init__(self):
-        self.scanner = ModelCacheScanner(target_architecture="CausalLM")
+        self.scanner = ModelCacheScanner()
         self.available_models = self._scan_models()
 
     def _scan_models(self) -> List[Tuple[CachedRepoInfo, Dict]]:
