@@ -2477,6 +2477,25 @@ cffi = ">=1.0"
 numpy = ["numpy"]
 
 [[package]]
+name = "sse-starlette"
+version = "2.1.3"
+description = "SSE plugin for Starlette"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "sse_starlette-2.1.3-py3-none-any.whl", hash = "sha256:8ec846438b4665b9e8c560fcdea6bc8081a3abf7942faa95e5a744999d219772"},
+    {file = "sse_starlette-2.1.3.tar.gz", hash = "sha256:9cd27eb35319e1414e3d2558ee7414487f9529ce3b3cf9b21434fd110e017169"},
+]
+
+[package.dependencies]
+anyio = "*"
+starlette = "*"
+uvicorn = "*"
+
+[package.extras]
+examples = ["fastapi"]
+
+[[package]]
 name = "starlette"
 version = "0.41.2"
 description = "The little ASGI library that shines."
@@ -3058,4 +3077,4 @@ workspaces = ["wandb-workspaces"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "158f7ff547e86b5c226ffd5999be6d6b94962c6baad66e589f0d1769de458e0c"
+content-hash = "092f52c8238d3e354fc746bc189e95026f2d9f8da9cccac377e53e8c7a9a4398"
