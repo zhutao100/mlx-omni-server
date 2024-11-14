@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ...schemas.chat_schema import ChatCompletion, ChatCompletionRequest
 from ...services.chat_service import ChatService
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(tags=["chat—completions"])
 
 
 @router.post("/chat/completions", response_model=ChatCompletion)

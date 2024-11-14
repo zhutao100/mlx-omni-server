@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import AsyncGenerator, Dict, List, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Tuple
 
 import mlx.core as mx
 from mlx_lm.utils import load, stream_generate
@@ -14,16 +14,20 @@ from ..schemas.chat_schema import (
     ChatCompletionMessage,
     ChatCompletionRequest,
     ChatCompletionUsage,
-    Message,
     Role,
 )
 
 
 class MLXChatModel:
+    """MLX Chat Model wrapper with internal parameter management"""
+
     def __init__(self):
         self._models = {}
         self._tokenizers = {}
         self._load_locks = {}
+        self._default_max_tokens = 256
+        self._default_temperature = 1.0
+        self._default_top_p = 1.0
 
     async def _ensure_model_loaded(self, model_name: str) -> Tuple[any, any]:
         """Ensures model is loaded, with locking to prevent concurrent loads"""
@@ -44,7 +48,7 @@ class MLXChatModel:
 
         return self._models[model_name], self._tokenizers[model_name]
 
-    def format_prompt(self, messages: List[Dict[str, str]], tokenizer) -> str:
+    def _format_messages(self, messages: List[Dict[str, str]], tokenizer) -> str:
         """Format messages into model prompt"""
         try:
             return tokenizer.apply_chat_template(
@@ -53,7 +57,7 @@ class MLXChatModel:
         except Exception as e:
             raise RuntimeError(f"Failed to format prompt: {str(e)}")
 
-    async def count_tokens(self, text: str, tokenizer) -> int:
+    async def _count_tokens(self, text: str, tokenizer) -> int:
         """Count tokens in text"""
         try:
             tokens = tokenizer.encode(text)
@@ -61,48 +65,53 @@ class MLXChatModel:
         except Exception as e:
             raise RuntimeError(f"Failed to count tokens: {str(e)}")
 
+    def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
+        """Extract and validate generation parameters from request"""
+        params = {
+            "max_tokens": request.max_tokens or self._default_max_tokens,
+            "temp": request.temperature or self._default_temperature,
+            "top_p": request.top_p or self._default_top_p,
+        }
+        # Add any extra parameters from request
+        params.update(request.get_extra_params())
+        return params
+
     async def generate(
         self,
-        model_name: str,
-        messages: List[Dict[str, str]],
-        max_tokens: int = 256,
-        temperature: float = 1.0,
-        top_p: float = 1.0,
+        request: ChatCompletionRequest,
     ) -> AsyncGenerator[Tuple[str, bool], None]:
-        """Generate completion text"""
+        """Generate completion text with parameters from request"""
         try:
-            model, tokenizer = await self._ensure_model_loaded(model_name)
-            prompt = self.format_prompt(messages, tokenizer)
+            model, tokenizer = await self._ensure_model_loaded(request.model)
+            messages = [
+                {"role": msg.role.value, "content": msg.content}
+                for msg in request.messages
+            ]
+            prompt = self._format_messages(messages, tokenizer)
 
             # Set random seed for generation
-            mx.random.seed(int(time.time()))
+            if request.seed is not None:
+                mx.random.seed(request.seed)
+            else:
+                mx.random.seed(int(time.time()))
+
+            # Get generation parameters including extra params
+            gen_params = self._get_generation_params(request)
 
             async for response in self._stream_generate(
-                model, tokenizer, prompt, max_tokens, temperature, top_p
+                model, tokenizer, prompt, **gen_params
             ):
                 yield response
 
         except Exception as e:
             raise RuntimeError(f"Generation failed: {str(e)}")
 
-    async def _stream_generate(
-        self, model, tokenizer, prompt, max_tokens, temperature, top_p
-    ):
+    async def _stream_generate(self, model, tokenizer, prompt, **params):
         """Wrapper around mlx_lm stream_generate to make it async-friendly"""
-        for response in stream_generate(
-            model,
-            tokenizer,
-            prompt,
-            max_tokens=max_tokens,
-            temp=temperature,
-            top_p=top_p,
-        ):
-            # Ensure we always have a tuple with two elements
+        for response in stream_generate(model, tokenizer, prompt, **params):
             if isinstance(response, tuple) and len(response) == 2:
                 text, finished = response
             else:
-                # If response is not a tuple or doesn't have 2 elements,
-                # assume it's just the text and not finished
                 text = str(response)
                 finished = False
 
@@ -111,31 +120,21 @@ class MLXChatModel:
     async def get_token_count(self, text: str, model_name: str) -> int:
         """Get token count for text"""
         _, tokenizer = await self._ensure_model_loaded(model_name)
-        return await self.count_tokens(text, tokenizer)
+        return await self._count_tokens(text, tokenizer)
 
 
 class ChatService:
     def __init__(self):
         self.model = MLXChatModel()
 
-    def _format_messages(self, messages: List[Message]) -> List[dict]:
-        return [{"role": msg.role.value, "content": msg.content} for msg in messages]
-
     async def generate_completion(
         self, request: ChatCompletionRequest
     ) -> ChatCompletion:
         try:
-            messages = self._format_messages(request.messages)
-            prompt = ""
             completion = ""
+            prompt = ""
 
-            async for text, _ in self.model.generate(
-                request.model,
-                messages,
-                request.max_tokens or 256,
-                request.temperature,
-                request.top_p,
-            ):
+            async for text, _ in self.model.generate(request):
                 completion += text
                 if not prompt:  # Get prompt token count on first iteration
                     prompt = text
@@ -172,17 +171,10 @@ class ChatService:
         self, request: ChatCompletionRequest
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         try:
-            messages = self._format_messages(request.messages)
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
             created = int(time.time())
 
-            async for response, finished in self.model.generate(
-                request.model,
-                messages,
-                request.max_tokens or 256,
-                request.temperature,
-                request.top_p,
-            ):
+            async for response, finished in self.model.generate(request):
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=created,
