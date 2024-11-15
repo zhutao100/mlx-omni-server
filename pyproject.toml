@@ -26,6 +26,7 @@ numba = ">=0.57.0"
 mlx-whisper = "^0.4.1"
 mlx-lm = "^0.19.3"
 huggingface-hub = "^0.26.2"
+diffusionkit = "^0.5.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.3"
