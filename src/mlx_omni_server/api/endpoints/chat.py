@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ...schemas.chat_schema import ChatCompletion, ChatCompletionRequest
+from ...services.chat.models import load_model
 from ...services.chat_service import ChatService
 
 router = APIRouter(tags=["chat—completions"])
@@ -14,7 +15,8 @@ router = APIRouter(tags=["chat—completions"])
 @router.post("/v1/chat/completions", response_model=ChatCompletion)
 async def create_chat_completion(request: ChatCompletionRequest):
     """Create a chat completion"""
-    chat_service = ChatService()
+
+    chat_service = _create_chat_service(request.model)
 
     if not request.stream:
         completion = await chat_service.generate_completion(request)
@@ -35,3 +37,11 @@ async def create_chat_completion(request: ChatCompletionRequest):
             "Connection": "keep-alive",
         },
     )
+
+
+_model_id = ""
+
+
+def _create_chat_service(model_id: str):
+    model = load_model(model_id)
+    return ChatService(model)

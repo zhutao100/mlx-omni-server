@@ -1,16 +1,13 @@
-from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Tuple
+from mlx_lm.utils import load
 
-from ...schemas.chat_schema import ChatCompletionRequest
+from .base_models import BaseMLXModel
+from .mlx_model import MLXModel
 
 
-class BaseModel(ABC):
-    """Base class for chat models"""
+def load_model(model_id: str) -> BaseMLXModel:
+    model, tokenizer = load(
+        model_id,
+        tokenizer_config={"trust_remote_code": True},
+    )
 
-    @abstractmethod
-    async def generate(
-        self,
-        request: ChatCompletionRequest,
-    ) -> AsyncGenerator[Tuple[str, bool], None]:
-        """Generate completion text with parameters from request"""
-        pass
+    return MLXModel(model, tokenizer)

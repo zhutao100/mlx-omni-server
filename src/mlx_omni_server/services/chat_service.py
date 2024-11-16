@@ -12,12 +12,14 @@ from ..schemas.chat_schema import (
     ChatCompletionUsage,
     Role,
 )
-from .chat.mlx_model import MLXModel
+from .chat.models import BaseMLXModel, load_model
 
 
 class ChatService:
-    def __init__(self):
-        self.model = MLXModel()
+    model: BaseMLXModel = None
+
+    def __init__(self, model: BaseMLXModel):
+        self.model = model
 
     async def generate_completion(
         self, request: ChatCompletionRequest
@@ -25,16 +27,15 @@ class ChatService:
         try:
             completion = ""
             prompt = ""
+            self.model = load_model(request.model)
 
             async for text, _ in self.model.generate(request):
                 completion += text
                 if not prompt:  # Get prompt token count on first iteration
                     prompt = text
 
-            prompt_tokens = await self.model.get_token_count(prompt, request.model)
-            completion_tokens = await self.model.get_token_count(
-                completion, request.model
-            )
+            prompt_tokens = await self.model.token_count(prompt)
+            completion_tokens = await self.model.token_count(completion)
 
             return ChatCompletion(
                 id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
