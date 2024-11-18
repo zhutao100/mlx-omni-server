@@ -8,4 +8,4 @@ app.include_router(api_router)
 
 
 def start():
-    uvicorn.run("mlx_omni_server.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("mlx_omni_server.main:app", host="0.0.0.0", port=10240, reload=True)
