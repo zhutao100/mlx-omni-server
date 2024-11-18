@@ -1,6 +1,7 @@
 # MLX Omni Server
 
-MLX Omni Server is a local inference server powered by Apple's MLX framework, specifically designed for Apple Silicon (M-series) chips. It implements OpenAI-compatible API endpoints, enabling seamless integration with existing OpenAI SDK clients while leveraging the power of local ML inference.
+MLX Omni Server is a local inference server powered by Apple's MLX framework, specifically designed for Apple Silicon (M-series) chips. It implements
+OpenAI-compatible API endpoints, enabling seamless integration with existing OpenAI SDK clients while leveraging the power of local ML inference.
 
 ## Features
 
@@ -68,12 +69,16 @@ transcript = client.audio.transcriptions.create(
 
 The server implements OpenAI-compatible endpoints:
 
-- `/v1/audio/speech` - Text-to-Speech
-- `/v1/audio/transcriptions` - Speech-to-Text
-- `/v1/models` - List models
-- `/v1/models/{model}` - Retrieve or Delete model
-- `/v1/chat/completions` - Chat completions (Coming Soon)
-- `/v1/images/generations` - Image generation (Coming Soon)
+- [Chat](https://platform.openai.com/docs/api-reference/chat)
+    - 🚧 `/v1/chat/completions` - Chat completions(Partial parameters)
+- [Audio](https://platform.openai.com/docs/api-reference/audio)
+    - ✅ `/v1/audio/speech` - Text-to-Speech
+    - ✅ `/v1/audio/transcriptions` - Speech-to-Text
+- [Models](https://platform.openai.com/docs/api-reference/models/list)
+    - ✅ `/v1/models` - List models
+    - ✅ `/v1/models/{model}` - Retrieve or Delete model
+- [Images](https://platform.openai.com/docs/api-reference/images)
+    - ✅ `/v1/images/generations` - Image generation
 
 ## Contributing
 
