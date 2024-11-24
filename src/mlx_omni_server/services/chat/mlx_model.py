@@ -2,7 +2,7 @@ import time
 from typing import Any, AsyncGenerator, Dict, Tuple
 
 import mlx.core as mx
-from mlx_lm.utils import stream_generate
+from mlx_lm.utils import GenerationResponse, stream_generate
 
 from ...schemas.chat_schema import ChatCompletionRequest
 from .base_models import BaseMLXModel
@@ -63,9 +63,17 @@ class MLXModel(BaseMLXModel):
     async def _stream_generate(self, model, tokenizer, prompt, **params):
         """Wrapper around mlx_lm stream_generate to make it async-friendly"""
         for response in stream_generate(model, tokenizer, prompt, **params):
-            if isinstance(response, tuple) and len(response) == 2:
-                text, finished = response
+            if isinstance(response, GenerationResponse):
+                # Extract text from GenerationResponse and determine if generation is finished
+                text = response.text
+                # 如果token是结束标记或者已达到最大生成长度，则认为生成结束
+                finished = (
+                    response.token == tokenizer.eos_token_id
+                    or response.generation_tokens
+                    >= params.get("max_tokens", self._default_max_tokens)
+                )
             else:
+                # 兼容其他可能的返回格式
                 text = str(response)
                 finished = False
 
