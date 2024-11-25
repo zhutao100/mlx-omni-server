@@ -1,5 +1,6 @@
+import json
 from enum import Enum
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,7 @@ class ToolType(str, Enum):
 
 class FunctionParameters(BaseModel):
     type: str = "object"
-    properties: Dict
+    properties: Dict[str, Any]
     required: Optional[List[str]] = None
 
 
@@ -36,10 +37,33 @@ class SpecificToolChoice(BaseModel):
     function: Dict[str, str]
 
 
-ToolChoiceType = Union[ToolChoice, SpecificToolChoice]
+class FunctionCall(BaseModel):
+    """Function call details within a tool call."""
+
+    name: str
+    arguments: str  # JSON string of arguments
 
 
 class ToolCall(BaseModel):
+    """Tool call from model output."""
+
     id: str
     type: ToolType = ToolType.FUNCTION
-    function: Dict[str, str]
+    function: FunctionCall
+
+    @classmethod
+    def from_llama_output(
+        cls, name: str, parameters: Dict[str, Any], call_id: str
+    ) -> "ToolCall":
+        """Create a ToolCall instance from Llama model output format."""
+        return cls(
+            id=call_id,
+            type=ToolType.FUNCTION,
+            function=FunctionCall(
+                name=name,
+                arguments=json.dumps(parameters),  # Convert parameters to JSON string
+            ),
+        )
+
+
+ToolChoiceType = Union[ToolChoice, SpecificToolChoice]

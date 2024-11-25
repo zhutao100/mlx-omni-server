@@ -6,6 +6,7 @@ from mlx_lm.utils import GenerationResponse, stream_generate
 
 from ...schemas.chat_schema import ChatCompletionRequest
 from .base_models import BaseMLXModel, GenerateResult
+from .tools_handler import DefaultToolsHandler
 
 
 class MLXModel(BaseMLXModel):
@@ -18,6 +19,7 @@ class MLXModel(BaseMLXModel):
         self._default_max_tokens = 256
         self._default_temperature = 1.0
         self._default_top_p = 1.0
+        self._tools_handler = DefaultToolsHandler(tokenizer)
 
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
         """Extract and validate generation parameters from request"""
@@ -70,10 +72,14 @@ class MLXModel(BaseMLXModel):
         self, model, tokenizer, prompt: str, request: ChatCompletionRequest, **params
     ) -> AsyncGenerator[GenerateResult, None]:
         """Stream generate with logprobs support"""
+        accumulated_text = ""
+
         for response in stream_generate(model, tokenizer, prompt, **params):
             if isinstance(response, GenerationResponse):
                 # Extract text and check if generation is finished
                 text = response.text
+                accumulated_text += text
+
                 finished = (
                     response.token == tokenizer.eos_token_id
                     or response.generation_tokens
@@ -87,11 +93,17 @@ class MLXModel(BaseMLXModel):
                         response, request.top_logprobs
                     )
 
+                # Check for tool calls if tools are enabled
+                tool_calls = None
+                if request.tools and accumulated_text:
+                    tool_calls = self._tools_handler.decode_tool_calls(accumulated_text)
+
                 yield GenerateResult(
                     text=text,
                     token=response.token,
                     finished=finished,
                     logprobs=logprobs_info,
+                    tool_calls=tool_calls,
                 )
             else:
                 # Handle other response formats
@@ -100,6 +112,7 @@ class MLXModel(BaseMLXModel):
                     token=-1,  # Invalid token ID to indicate non-token response
                     finished=False,
                     logprobs=None,
+                    tool_calls=None,
                 )
 
     async def generate(
@@ -111,8 +124,9 @@ class MLXModel(BaseMLXModel):
             model = self._model
             tokenizer = self._tokenizer
 
-            prompt = tokenizer.apply_chat_template(
-                request.messages, tokenize=False, add_generation_prompt=True
+            prompt = self._tools_handler.encode_tools(
+                conversation=request.messages,
+                tools=request.tools,
             )
 
             # Set random seed for generation
