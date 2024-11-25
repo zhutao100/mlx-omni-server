@@ -73,12 +73,12 @@ class ChatService:
 
     async def generate_stream(
         self, request: ChatCompletionRequest
-    ) -> AsyncGenerator[ChatCompletionResponse, None]:
+    ) -> AsyncGenerator[ChatCompletionChunk, None]:
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
             created = int(time.time())
 
-            async for response, finished in self.model.generate(request):
+            async for result in self.model.generate(request):
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=created,
@@ -86,8 +86,8 @@ class ChatService:
                     choices=[
                         ChatCompletionChunkChoice(
                             index=0,
-                            delta=ChatMessage(role=Role.ASSISTANT, content=response),
-                            finish_reason="stop" if finished else None,
+                            delta=ChatMessage(role=Role.ASSISTANT, content=result.text),
+                            finish_reason="stop" if result.finished else None,
                         )
                     ],
                 )
