@@ -88,6 +88,7 @@ class ChatService:
                             index=0,
                             delta=ChatMessage(role=Role.ASSISTANT, content=result.text),
                             finish_reason="stop" if result.finished else None,
+                            logprobs=result.logprobs,
                         )
                     ],
                 )
