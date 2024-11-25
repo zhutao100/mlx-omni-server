@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, Field, field_validator
 
+from .tools_schema import Tool, ToolCall, ToolChoiceType
+
 
 class Role(str, Enum):
     SYSTEM = "system"
@@ -12,8 +14,10 @@ class Role(str, Enum):
 
 class ChatMessage(BaseModel):
     role: Role
-    content: str
+    content: Optional[str] = None
     name: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+    tool_call_id: Optional[str] = None
 
     class Config:
         json_encoders = {bytes: lambda v: v.decode()}
@@ -48,6 +52,7 @@ class ChatCompletionChoice(BaseModel):
     message: ChatMessage
     finish_reason: str
     logprobs: Optional[ChoiceLogprobs] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 
 class ChatCompletionChunkChoice(BaseModel):
@@ -96,6 +101,8 @@ class ChatCompletionRequest(BaseModel):
         le=20,
     )
     n: Optional[int] = Field(1, ge=1, le=10)
+    tools: Optional[List[Tool]] = None
+    tool_choice: Optional[ToolChoiceType] = None
 
     # Allow any additional fields
     class Config:
@@ -130,5 +137,7 @@ class ChatCompletionRequest(BaseModel):
             "logprobs",
             "top_logprobs",
             "n",
+            "tools",
+            "tool_choice",
         }
         return {k: v for k, v in self.model_dump().items() if k not in standard_fields}

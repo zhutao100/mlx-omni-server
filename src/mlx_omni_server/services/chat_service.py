@@ -13,6 +13,7 @@ from ..schemas.chat_schema import (
     ChoiceLogprobs,
     Role,
 )
+from ..schemas.tools_schema import ToolCall, ToolChoice, ToolType
 from .chat.models import BaseMLXModel
 
 
@@ -30,8 +31,13 @@ class ChatService:
             completion = ""
             prompt = ""
             logprobs_result_list = []
+            tool_calls = None
 
             async for result in self.model.generate(request):
+                if result.tool_calls:
+                    tool_calls = result.tool_calls
+                    break
+
                 completion += result.text
 
                 if request.logprobs:
@@ -52,9 +58,10 @@ class ChatService:
                         index=0,
                         message=ChatMessage(
                             role=Role.ASSISTANT,
-                            content=completion,
+                            content=None if tool_calls else completion,
+                            tool_calls=tool_calls,
                         ),
-                        finish_reason="stop",
+                        finish_reason="tool_calls" if tool_calls else "stop",
                         logprobs=(
                             ChoiceLogprobs(content=logprobs_result_list)
                             if logprobs_result_list
