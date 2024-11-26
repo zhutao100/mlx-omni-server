@@ -2,51 +2,18 @@ import json
 import re
 import uuid
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Type
+
+from transformers import PreTrainedTokenizer
 
 from ...schemas.chat_schema import ChatMessage
 from ...schemas.tools_schema import Tool, ToolCall
 
 
 class BaseToolsHandler(ABC):
-    """Base class for handling tools functionality in different models."""
+    """Base class for tools handlers."""
 
-    @abstractmethod
-    def encode_tools(
-        self,
-        conversation: List[ChatMessage],
-        tools: Optional[List[ToolCall]] = None,
-        **kwargs,
-    ) -> str:
-        """Encode tools into the prompt format expected by the model.
-
-        Args:
-            conversation: List of chat messages
-            tools: Optional list of tools to include
-            **kwargs: Additional arguments passed to the template
-
-        Returns:
-            str: The formatted prompt including tools information
-        """
-        pass
-
-    @abstractmethod
-    def decode_tool_calls(self, text: str) -> Optional[List[ToolCall]]:
-        """Decode tool calls from model output.
-
-        Args:
-            text: The text output from the model
-
-        Returns:
-            Optional[List[ToolCall]]: List of tool calls if found, None otherwise
-        """
-        pass
-
-
-class DefaultToolsHandler(BaseToolsHandler):
-    """Default implementation of tools handler."""
-
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer: PreTrainedTokenizer):
         self.tokenizer = tokenizer
 
     def encode_tools(
@@ -55,10 +22,13 @@ class DefaultToolsHandler(BaseToolsHandler):
         tools: Optional[List[Tool]] = None,
         **kwargs,
     ) -> str:
-        """Default implementation using tokenizer's chat template."""
+        """Encode tools and conversation into a prompt string.
+
+        This is a common implementation that uses the tokenizer's chat template.
+        Subclasses can override this if they need different behavior.
+        """
         schema_tools = None
         if tools:
-            # Convert tools to dict using model_dump
             schema_tools = [tool.model_dump(exclude_none=True) for tool in tools]
 
         return self.tokenizer.apply_chat_template(
@@ -68,6 +38,15 @@ class DefaultToolsHandler(BaseToolsHandler):
             add_generation_prompt=True,
             **kwargs,
         )
+
+    @abstractmethod
+    def decode_tool_calls(self, text: str) -> Optional[List[ToolCall]]:
+        """Parse tool calls from model output."""
+        pass
+
+
+class LlamaToolsHandler(BaseToolsHandler):
+    """Tools handler for Llama models."""
 
     def decode_tool_calls(self, text: str) -> Optional[List[ToolCall]]:
         """Parse tool calls from Llama model output.
@@ -98,3 +77,18 @@ class DefaultToolsHandler(BaseToolsHandler):
                 continue
 
         return tool_calls if tool_calls else None
+
+
+def load_tools_handler(
+    model_id: str, tokenizer: PreTrainedTokenizer
+) -> BaseToolsHandler:
+    """Factory function to load appropriate tools handler based on model ID."""
+    handlers: dict[str, Type[BaseToolsHandler]] = {
+        # Llama models
+        "mlx-community/Llama-3.2-3B-Instruct-4bit": LlamaToolsHandler,
+        "mlx-community/Llama-2-7b-chat-mlx-4bit": LlamaToolsHandler,
+    }
+
+    # Get handler class based on model ID or use Llama handler as default
+    handler_class = handlers.get(model_id, LlamaToolsHandler)
+    return handler_class(tokenizer)
