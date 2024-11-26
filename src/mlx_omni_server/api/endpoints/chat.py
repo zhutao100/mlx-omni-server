@@ -4,15 +4,15 @@ from typing import Generator
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ...schemas.chat_schema import ChatCompletion, ChatCompletionRequest
+from ...schemas.chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from ...services.chat.models import load_model
 from ...services.chat_service import ChatService
 
 router = APIRouter(tags=["chat—completions"])
 
 
-@router.post("/chat/completions", response_model=ChatCompletion)
-@router.post("/v1/chat/completions", response_model=ChatCompletion)
+@router.post("/chat/completions", response_model=ChatCompletionResponse)
+@router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(request: ChatCompletionRequest):
     """Create a chat completion"""
 

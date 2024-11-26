@@ -3,16 +3,16 @@ import uuid
 from typing import AsyncGenerator
 
 from ..schemas.chat_schema import (
-    ChatCompletion,
     ChatCompletionChoice,
     ChatCompletionChunk,
     ChatCompletionChunkChoice,
-    ChatCompletionMessage,
     ChatCompletionRequest,
+    ChatCompletionResponse,
     ChatCompletionUsage,
+    ChatMessage,
     Role,
 )
-from .chat.models import BaseMLXModel, load_model
+from .chat.models import BaseMLXModel
 
 
 class ChatService:
@@ -23,28 +23,28 @@ class ChatService:
 
     async def generate_completion(
         self, request: ChatCompletionRequest
-    ) -> ChatCompletion:
+    ) -> ChatCompletionResponse:
+        """Generate a chat completion."""
         try:
             completion = ""
             prompt = ""
-            self.model = load_model(request.model)
 
-            async for text, _ in self.model.generate(request):
-                completion += text
+            async for result in self.model.generate(request):
+                completion += result.text
                 if not prompt:  # Get prompt token count on first iteration
-                    prompt = text
+                    prompt = result.text
 
             prompt_tokens = await self.model.token_count(prompt)
             completion_tokens = await self.model.token_count(completion)
 
-            return ChatCompletion(
+            return ChatCompletionResponse(
                 id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
                 created=int(time.time()),
                 model=request.model,
                 choices=[
                     ChatCompletionChoice(
                         index=0,
-                        message=ChatCompletionMessage(
+                        message=ChatMessage(
                             role=Role.ASSISTANT,
                             content=completion,
                         ),
@@ -62,7 +62,7 @@ class ChatService:
 
     async def generate_stream(
         self, request: ChatCompletionRequest
-    ) -> AsyncGenerator[ChatCompletionChunk, None]:
+    ) -> AsyncGenerator[ChatCompletionResponse, None]:
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
             created = int(time.time())
@@ -75,7 +75,7 @@ class ChatService:
                     choices=[
                         ChatCompletionChunkChoice(
                             index=0,
-                            delta={"role": "assistant", "content": response},
+                            delta=ChatMessage(role=Role.ASSISTANT, content=response),
                             finish_reason="stop" if finished else None,
                         )
                     ],

@@ -10,13 +10,24 @@ class Role(str, Enum):
     ASSISTANT = "assistant"
 
 
-class Message(BaseModel):
+class ChatMessage(BaseModel):
     role: Role
     content: str
     name: Optional[str] = None
 
     class Config:
         json_encoders = {bytes: lambda v: v.decode()}
+
+
+class TokenLogprobs(BaseModel):
+    token: str
+    logprob: float
+    bytes: Optional[List[int]]
+    top_logprobs: Optional[List[Dict[str, Any]]]
+
+
+class LogprobsResult(BaseModel):
+    content: List[TokenLogprobs]
 
 
 class ChatCompletionUsageDetails(BaseModel):
@@ -32,32 +43,16 @@ class ChatCompletionUsage(BaseModel):
     completion_tokens_details: Optional[ChatCompletionUsageDetails] = None
 
 
-class ChatCompletionMessage(BaseModel):
-    role: Role
-    content: str
-    name: Optional[str] = None
-
-
 class ChatCompletionChoice(BaseModel):
     index: int
-    message: ChatCompletionMessage
+    message: ChatMessage
     finish_reason: str
-    logprobs: Optional[Any] = None
-
-
-class ChatCompletion(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[ChatCompletionChoice]
-    usage: ChatCompletionUsage
-    system_fingerprint: Optional[str] = None
+    logprobs: Optional[LogprobsResult] = None
 
 
 class ChatCompletionChunkChoice(BaseModel):
     index: int
-    delta: Dict[str, Any]
+    delta: ChatMessage
     finish_reason: Optional[str] = None
     logprobs: Optional[Any] = None
 
@@ -71,10 +66,20 @@ class ChatCompletionChunk(BaseModel):
     system_fingerprint: Optional[str] = None
 
 
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]
+    usage: ChatCompletionUsage
+    system_fingerprint: Optional[str] = None
+
+
 class ChatCompletionRequest(BaseModel):
     # Standard OpenAI API fields
     model: str = Field(..., description="ID of the model to use")
-    messages: List[Message]
+    messages: List[ChatMessage]
     temperature: Optional[float] = Field(1.0, ge=0, le=2)
     top_p: Optional[float] = Field(1.0, ge=0, le=1)
     max_tokens: Optional[int] = None
@@ -84,6 +89,12 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = Field(0, ge=-2.0, le=2.0)
     frequency_penalty: Optional[float] = Field(0, ge=-2.0, le=2.0)
     logit_bias: Optional[Dict[str, float]] = None
+    logprobs: Optional[bool] = False
+    top_logprobs: Optional[int] = Field(
+        None,
+        ge=0,
+        le=20,
+    )
     n: Optional[int] = Field(1, ge=1, le=10)
 
     # Allow any additional fields
@@ -116,6 +127,8 @@ class ChatCompletionRequest(BaseModel):
             "presence_penalty",
             "frequency_penalty",
             "logit_bias",
+            "logprobs",
+            "top_logprobs",
             "n",
         }
         return {k: v for k, v in self.model_dump().items() if k not in standard_fields}

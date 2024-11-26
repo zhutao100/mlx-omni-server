@@ -1,11 +1,11 @@
 import time
-from typing import Any, AsyncGenerator, Dict, Tuple
+from typing import Any, AsyncGenerator, Dict
 
 import mlx.core as mx
 from mlx_lm.utils import GenerationResponse, stream_generate
 
 from ...schemas.chat_schema import ChatCompletionRequest
-from .base_models import BaseMLXModel
+from .base_models import BaseMLXModel, GenerateResult
 
 
 class MLXModel(BaseMLXModel):
@@ -33,7 +33,7 @@ class MLXModel(BaseMLXModel):
     async def generate(
         self,
         request: ChatCompletionRequest,
-    ) -> AsyncGenerator[Tuple[str, bool], None]:
+    ) -> AsyncGenerator[GenerateResult, None]:
         """Generate completion text with parameters from request"""
         try:
             model = self._model
@@ -77,7 +77,9 @@ class MLXModel(BaseMLXModel):
                 text = str(response)
                 finished = False
 
-            yield text, finished
+            yield GenerateResult(
+                text=text, token=response.token, finished=finished, logprobs=None
+            )
 
     async def token_count(self, prompt: str) -> int:
         tokens = self._tokenizer.encode(prompt)
