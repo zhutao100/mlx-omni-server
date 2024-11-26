@@ -10,6 +10,7 @@ from ..schemas.chat_schema import (
     ChatCompletionResponse,
     ChatCompletionUsage,
     ChatMessage,
+    ChoiceLogprobs,
     Role,
 )
 from .chat.models import BaseMLXModel
@@ -28,9 +29,14 @@ class ChatService:
         try:
             completion = ""
             prompt = ""
+            logprobs_result_list = []
 
             async for result in self.model.generate(request):
                 completion += result.text
+
+                if request.logprobs:
+                    logprobs_result_list.append(result.logprobs)
+
                 if not prompt:  # Get prompt token count on first iteration
                     prompt = result.text
 
@@ -49,6 +55,11 @@ class ChatService:
                             content=completion,
                         ),
                         finish_reason="stop",
+                        logprobs=(
+                            ChoiceLogprobs(content=logprobs_result_list)
+                            if logprobs_result_list
+                            else None
+                        ),
                     )
                 ],
                 usage=ChatCompletionUsage(

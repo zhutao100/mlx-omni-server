@@ -19,15 +19,15 @@ class ChatMessage(BaseModel):
         json_encoders = {bytes: lambda v: v.decode()}
 
 
-class TokenLogprobs(BaseModel):
+class ChatCompletionTokenLogprob(BaseModel):
     token: str
     logprob: float
     bytes: Optional[List[int]]
     top_logprobs: Optional[List[Dict[str, Any]]]
 
 
-class LogprobsResult(BaseModel):
-    content: List[TokenLogprobs]
+class ChoiceLogprobs(BaseModel):
+    content: List[ChatCompletionTokenLogprob]
 
 
 class ChatCompletionUsageDetails(BaseModel):
@@ -47,7 +47,7 @@ class ChatCompletionChoice(BaseModel):
     index: int
     message: ChatMessage
     finish_reason: str
-    logprobs: Optional[LogprobsResult] = None
+    logprobs: Optional[ChoiceLogprobs] = None
 
 
 class ChatCompletionChunkChoice(BaseModel):
