@@ -4,7 +4,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import List, Optional, Type
 
-from transformers import PreTrainedTokenizer
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from ...schemas.chat_schema import ChatMessage
 from ...schemas.tools_schema import Tool, ToolCall
@@ -13,7 +13,7 @@ from ...schemas.tools_schema import Tool, ToolCall
 class BaseToolsHandler(ABC):
     """Base class for tools handlers."""
 
-    def __init__(self, tokenizer: PreTrainedTokenizer):
+    def __init__(self, tokenizer: TokenizerWrapper):
         self.tokenizer = tokenizer
 
     def encode_tools(
@@ -79,9 +79,7 @@ class LlamaToolsHandler(BaseToolsHandler):
         return tool_calls if tool_calls else None
 
 
-def load_tools_handler(
-    model_id: str, tokenizer: PreTrainedTokenizer
-) -> BaseToolsHandler:
+def load_tools_handler(model_id: str, tokenizer: TokenizerWrapper) -> BaseToolsHandler:
     """Factory function to load appropriate tools handler based on model ID."""
     handlers: dict[str, Type[BaseToolsHandler]] = {
         # Llama models

@@ -1,7 +1,8 @@
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from mlx_lm.sample_utils import make_sampler
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import GenerationResponse, stream_generate
-from transformers import AutoTokenizer
 
 from ...schemas.chat_schema import ChatCompletionRequest, ChatMessage
 from ...schemas.tools_schema import Tool
@@ -12,11 +13,10 @@ from .tools_handler import load_tools_handler
 class MLXModel(BaseMLXModel):
     """MLX Chat Model wrapper with internal parameter management"""
 
-    def __init__(self, model_id: str, model, tokenizer: AutoTokenizer):
+    def __init__(self, model_id: str, model, tokenizer: TokenizerWrapper):
         self._model_id = model_id
         self._model = model
         self._tokenizer = tokenizer
-        self._load_locks = {}
         self._default_max_tokens = 2048
         self._default_temperature = 1.0
         self._default_top_p = 1.0
@@ -24,12 +24,7 @@ class MLXModel(BaseMLXModel):
 
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
         """Extract and validate generation parameters from request"""
-        params = {
-            "max_tokens": request.max_tokens or self._default_max_tokens,
-            "temp": request.temperature or self._default_temperature,
-            "top_p": request.top_p or self._default_top_p,
-        }
-        return params
+        return {}
 
     async def _stream_generate(
         self,
@@ -46,7 +41,14 @@ class MLXModel(BaseMLXModel):
         )
 
         accumulated_text = ""
-        for response in stream_generate(self._model, self._tokenizer, prompt, **kwargs):
+        for response in stream_generate(
+            model=self._model,
+            tokenizer=self._tokenizer,
+            prompt=prompt,
+            max_tokens=self._default_max_tokens,
+            sampler=make_sampler(self._default_temperature, self._default_top_p),
+            **kwargs,
+        ):
             if isinstance(response, GenerationResponse):
                 text = response.text
                 accumulated_text += text
@@ -71,12 +73,20 @@ class MLXModel(BaseMLXModel):
             tool_calls=tool_calls,
         )
 
+    def _update_generation_params(self, request: ChatCompletionRequest):
+        """Update generation parameters"""
+        self._default_max_tokens = request.max_tokens or self._default_max_tokens
+        self._default_temperature = request.temperature or self._default_temperature
+        self._default_top_p = request.top_p or self._default_top_p
+
     async def generate(
         self,
         request: ChatCompletionRequest,
         **kwargs,
     ) -> AsyncGenerator[GenerateResult, None]:
         """Generate text from the model."""
+        self._update_generation_params(request)
+
         try:
             # Get generation parameters
             params = self._get_generation_params(request)
