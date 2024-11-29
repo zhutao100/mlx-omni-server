@@ -1,6 +1,6 @@
 import time
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -17,7 +17,6 @@ from ...schemas.chat_schema import (
     ChoiceLogprobs,
     Role,
 )
-from ...schemas.tools_schema import Tool
 from ...utils.logger import logger
 from .base_models import BaseMLXModel, GenerateResult
 from .tools_handler import load_tools_handler
@@ -33,86 +32,49 @@ class MLXModel(BaseMLXModel):
         self._default_max_tokens = 2048
         self._default_temperature = 1.0
         self._default_top_p = 1.0
-        self._tools_handler = load_tools_handler(model_id, tokenizer)
+        self._chat_tokenizer = load_tools_handler(model_id, tokenizer)
         logger.info(f"Initialized MLXModel with model_id: {model_id}")
 
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
         """Extract and validate generation parameters from request"""
-        logger.debug(f"Generation parameters: {request.model_dump()}")
         return {}
 
     async def _stream_generate(
         self,
-        messages: List[ChatMessage],
-        tools: Optional[List[Tool]] = None,
+        prompt: str,
+        request: ChatCompletionRequest,
         **kwargs,
     ) -> AsyncGenerator[GenerateResult, None]:
         """Stream generate text from the model."""
-        logger.info(f"Starting stream generation for {len(messages)} messages")
-        if tools:
-            logger.debug(f"Using {len(tools)} tools for generation")
-
-        # Format prompt with tools if provided
-        prompt = self._tools_handler.encode_tools(
-            conversation=messages,
-            tools=tools,
-            **kwargs,
-        )
-        logger.debug(f"Encoded prompt:\n{prompt}")
-
-        accumulated_text = ""
         try:
             for response in stream_generate(
                 model=self._model,
                 tokenizer=self._tokenizer,
                 prompt=prompt,
-                max_tokens=self._default_max_tokens,
-                sampler=make_sampler(self._default_temperature, self._default_top_p),
+                max_tokens=request.max_completion_tokens
+                or request.max_tokens
+                or self._default_max_tokens,
+                sampler=make_sampler(
+                    request.temperature or self._default_temperature,
+                    request.top_p or self._default_top_p,
+                ),
                 **kwargs,
             ):
                 if isinstance(response, GenerationResponse):
                     text = response.text
-                    accumulated_text += text
-                    logger.debug(
-                        f"Current response token: {response.token}, text: {response.text}"
-                    )
-                    logger.debug(f"Current accumulated text: {accumulated_text}")
-
-                    # Try to detect tool calls
-                    tool_calls = self._tools_handler.decode_tool_calls(accumulated_text)
 
                     yield GenerateResult(
-                        text=accumulated_text,
+                        text=text,
                         token=response.token,
                         finished=False,
-                        tool_calls=tool_calls,
+                        prompt_tokens=response.prompt_tokens,
+                        generation_tokens=response.generation_tokens,
+                        logprobs=response.logprobs,
                     )
-
-            # Final check for tool calls
-            tool_calls = self._tools_handler.decode_tool_calls(accumulated_text)
-
-            # 生成最终结果
-            final_result = GenerateResult(
-                text=accumulated_text,
-                token=None,
-                finished=True,
-                tool_calls=tool_calls,
-            )
-            logger.debug(
-                f"Yielding final result with text length: {len(final_result.text)}"
-            )
-            yield final_result
-            logger.debug("Final result yielded successfully")
 
         except Exception as e:
             logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
             raise
-
-    def _update_generation_params(self, request: ChatCompletionRequest):
-        """Update generation parameters"""
-        self._default_max_tokens = request.max_tokens or self._default_max_tokens
-        self._default_temperature = request.temperature or self._default_temperature
-        self._default_top_p = request.top_p or self._default_top_p
 
     def _build_chat_response(
         self,
@@ -143,22 +105,22 @@ class MLXModel(BaseMLXModel):
         """Generate a chat completion response."""
         try:
             completion = ""
-            prompt = ""
             logprobs_result_list = []
-            tool_calls = None
 
-            self._update_generation_params(request)
+            # Format prompt with tools if provided
+            prompt = self._chat_tokenizer.encode(
+                messages=request.messages,
+                tools=request.tools,
+            )
+            logger.debug(f"Encoded prompt:\n{prompt}")
+
             params = self._get_generation_params(request)
 
             async for result in self._stream_generate(
-                messages=request.messages,
-                tools=request.tools,
+                prompt=prompt,
+                request=request,
                 **params,
             ):
-                if result.tool_calls:
-                    tool_calls = result.tool_calls
-                    break
-
                 completion += result.text
 
                 if request.logprobs:
@@ -167,20 +129,17 @@ class MLXModel(BaseMLXModel):
                 if not prompt:  # Get prompt token count on first iteration
                     prompt = result.text
 
-            prompt_tokens = await self.token_count(prompt)
-            completion_tokens = await self.token_count(completion)
+            logger.debug(f"Model Response:\n{completion}")
+
+            message = self._chat_tokenizer.decode(completion)
 
             return self._build_chat_response(
                 model=request.model,
-                message=ChatMessage(
-                    role=Role.ASSISTANT,
-                    content=None if tool_calls else completion,
-                    tool_calls=tool_calls,
-                ),
+                message=message,
                 usage=ChatCompletionUsage(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.generation_tokens,
+                    total_tokens=result.prompt_tokens + result.generation_tokens,
                 ),
                 logprobs=(
                     ChoiceLogprobs(content=logprobs_result_list)
@@ -201,12 +160,18 @@ class MLXModel(BaseMLXModel):
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
             created = int(time.time())
 
-            self._update_generation_params(request)
             params = self._get_generation_params(request)
 
-            async for result in self._stream_generate(
+            # Format prompt with tools if provided
+            prompt = self._chat_tokenizer.encode(
                 messages=request.messages,
                 tools=request.tools,
+            )
+            logger.debug(f"Encoded prompt:\n{prompt}")
+
+            async for result in self._stream_generate(
+                prompt=prompt,
+                request=request,
                 **params,
             ):
                 yield ChatCompletionChunk(
@@ -222,6 +187,7 @@ class MLXModel(BaseMLXModel):
                         )
                     ],
                 )
+
         except Exception as e:
             logger.error(f"Failed to stream generate: {str(e)}", exc_info=True)
             raise RuntimeError(f"Failed to stream generate: {str(e)}")

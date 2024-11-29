@@ -88,6 +88,7 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = Field(1.0, ge=0, le=2)
     top_p: Optional[float] = Field(1.0, ge=0, le=1)
     max_tokens: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
     stream: Optional[bool] = False
     seed: Optional[int] = None
     stop: Optional[Union[str, List[str]]] = None

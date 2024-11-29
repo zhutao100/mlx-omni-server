@@ -1,13 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from ...schemas.chat_schema import (
     ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
 )
-from ...schemas.tools_schema import ToolCall
 
 
 @dataclass
@@ -17,8 +16,9 @@ class GenerateResult:
     text: str
     token: int
     finished: bool
+    prompt_tokens: int
+    generation_tokens: int
     logprobs: Optional[Dict[str, Any]] = None
-    tool_calls: Optional[List[ToolCall]] = None
 
 
 class BaseMLXModel(ABC):
