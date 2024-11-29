@@ -75,7 +75,6 @@ class LlamaChatTokenizer(ChatTokenizer):
         """
         # Look for JSON patterns in the text
         tool_calls = []
-        logger.debug(f"text:\n{text}")
 
         if text.startswith(self.start_tool_calls):
             json_pattern = (
