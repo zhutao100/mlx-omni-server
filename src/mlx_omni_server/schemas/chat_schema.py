@@ -23,17 +23,6 @@ class ChatMessage(BaseModel):
         json_encoders = {bytes: lambda v: v.decode()}
 
 
-class ChatCompletionTokenLogprob(BaseModel):
-    token: str
-    logprob: float
-    bytes: Optional[List[int]]
-    top_logprobs: Optional[List[Dict[str, Any]]]
-
-
-class ChoiceLogprobs(BaseModel):
-    content: List[ChatCompletionTokenLogprob]
-
-
 class ChatCompletionUsageDetails(BaseModel):
     reasoning_tokens: int = 0
     accepted_prediction_tokens: int = 0
@@ -51,7 +40,7 @@ class ChatCompletionChoice(BaseModel):
     index: int
     message: ChatMessage
     finish_reason: str
-    logprobs: Optional[ChoiceLogprobs] = None
+    logprobs: Optional[Dict[str, Any]] = None
     tool_calls: Optional[List[ToolCall]] = None
 
 

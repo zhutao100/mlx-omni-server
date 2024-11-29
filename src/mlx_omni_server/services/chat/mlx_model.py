@@ -2,6 +2,7 @@ import time
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional
 
+import mlx.core as mx
 from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import GenerationResponse, stream_generate
@@ -14,7 +15,6 @@ from ...schemas.chat_schema import (
     ChatCompletionResponse,
     ChatCompletionUsage,
     ChatMessage,
-    ChoiceLogprobs,
     Role,
 )
 from ...utils.logger import logger
@@ -38,6 +38,42 @@ class MLXModel(BaseMLXModel):
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
         """Extract and validate generation parameters from request"""
         return {}
+
+    def _process_logprobs(
+        self, response: GenerationResponse, top_k: Optional[int]
+    ) -> Optional[Dict[str, Any]]:
+        """Process logprobs information from generation response to match OpenAI format"""
+        current_token = response.token
+        current_logprobs = response.logprobs
+
+        # Get current token info
+        token_str = self._tokenizer.decode([current_token])
+        token_logprob = current_logprobs[current_token].item()
+        token_bytes = token_str.encode("utf-8")
+
+        # Base token info
+        token_info = {
+            "token": token_str,
+            "logprob": token_logprob,
+            "bytes": list(token_bytes),
+        }
+
+        # Process top logprobs
+        top_logprobs = []
+        if top_k is not None:
+            # Get indices of top_k tokens
+            top_indices = mx.argpartition(-current_logprobs, kth=top_k - 1)[:top_k]
+            top_probs = current_logprobs[top_indices]
+
+            # Create detailed token information for each top token
+            for idx, logprob in zip(top_indices.tolist(), top_probs.tolist()):
+                token = self._tokenizer.decode([idx])
+                token_bytes = token.encode("utf-8")
+                top_logprobs.append(
+                    {"token": token, "logprob": logprob, "bytes": list(token_bytes)}
+                )
+
+        return {**token_info, "top_logprobs": top_logprobs}
 
     async def _stream_generate(
         self,
@@ -63,13 +99,20 @@ class MLXModel(BaseMLXModel):
                 if isinstance(response, GenerationResponse):
                     text = response.text
 
+                    # Process logprobs if available
+                    logprobs = None
+                    if request.logprobs:
+                        logprobs = self._process_logprobs(
+                            response, request.top_logprobs
+                        )
+
                     yield GenerateResult(
                         text=text,
                         token=response.token,
                         finished=False,
                         prompt_tokens=response.prompt_tokens,
                         generation_tokens=response.generation_tokens,
-                        logprobs=response.logprobs,
+                        logprobs=logprobs,
                     )
 
         except Exception as e:
@@ -81,7 +124,7 @@ class MLXModel(BaseMLXModel):
         model: str,
         message: ChatMessage,
         usage: ChatCompletionUsage,
-        logprobs: Optional[ChoiceLogprobs] = None,
+        logprobs: Optional[Dict[str, Any]] = None,
     ) -> ChatCompletionResponse:
         return ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
@@ -142,9 +185,7 @@ class MLXModel(BaseMLXModel):
                     total_tokens=result.prompt_tokens + result.generation_tokens,
                 ),
                 logprobs=(
-                    ChoiceLogprobs(content=logprobs_result_list)
-                    if logprobs_result_list
-                    else None
+                    {"content": logprobs_result_list} if logprobs_result_list else None
                 ),
             )
         except Exception as e:
