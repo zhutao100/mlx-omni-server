@@ -1,19 +1,10 @@
-import time
-import uuid
 from typing import AsyncGenerator
 
 from ..schemas.chat_schema import (
-    ChatCompletionChoice,
     ChatCompletionChunk,
-    ChatCompletionChunkChoice,
     ChatCompletionRequest,
     ChatCompletionResponse,
-    ChatCompletionUsage,
-    ChatMessage,
-    ChoiceLogprobs,
-    Role,
 )
-from ..schemas.tools_schema import ToolCall, ToolChoice, ToolType
 from .chat.models import BaseMLXModel
 
 
@@ -27,77 +18,11 @@ class ChatService:
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """Generate a chat completion."""
-        try:
-            completion = ""
-            prompt = ""
-            logprobs_result_list = []
-            tool_calls = None
-
-            async for result in self.model.generate(request):
-                if result.tool_calls:
-                    tool_calls = result.tool_calls
-                    break
-
-                completion += result.text
-
-                if request.logprobs:
-                    logprobs_result_list.append(result.logprobs)
-
-                if not prompt:  # Get prompt token count on first iteration
-                    prompt = result.text
-
-            prompt_tokens = await self.model.token_count(prompt)
-            completion_tokens = await self.model.token_count(completion)
-
-            return ChatCompletionResponse(
-                id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
-                created=int(time.time()),
-                model=request.model,
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatMessage(
-                            role=Role.ASSISTANT,
-                            content=None if tool_calls else completion,
-                            tool_calls=tool_calls,
-                        ),
-                        finish_reason="tool_calls" if tool_calls else "stop",
-                        logprobs=(
-                            ChoiceLogprobs(content=logprobs_result_list)
-                            if logprobs_result_list
-                            else None
-                        ),
-                    )
-                ],
-                usage=ChatCompletionUsage(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=prompt_tokens + completion_tokens,
-                ),
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to generate completion: {str(e)}")
+        return await self.model.generate(request)
 
     async def generate_stream(
         self, request: ChatCompletionRequest
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
-        try:
-            chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
-            created = int(time.time())
-
-            async for result in self.model.generate(request):
-                yield ChatCompletionChunk(
-                    id=chat_id,
-                    created=created,
-                    model=request.model,
-                    choices=[
-                        ChatCompletionChunkChoice(
-                            index=0,
-                            delta=ChatMessage(role=Role.ASSISTANT, content=result.text),
-                            finish_reason="stop" if result.finished else None,
-                            logprobs=result.logprobs,
-                        )
-                    ],
-                )
-        except Exception as e:
-            raise RuntimeError(f"Failed to generate stream: {str(e)}")
+        """Generate a streaming chat completion."""
+        async for chunk in self.model.stream_generate(request):
+            yield chunk

@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from ...schemas.chat_schema import ChatCompletionRequest
+from ...schemas.chat_schema import (
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+)
 from ...schemas.tools_schema import ToolCall
 
 
@@ -24,8 +28,14 @@ class BaseMLXModel(ABC):
     async def generate(
         self,
         request: ChatCompletionRequest,
-    ) -> AsyncGenerator[GenerateResult, None]:
+    ) -> ChatCompletionResponse:
         """Generate completion text with parameters from request"""
+        pass
+
+    async def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+    ) -> AsyncGenerator[ChatCompletionChunk, None]:
         pass
 
     @abstractmethod
