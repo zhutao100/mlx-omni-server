@@ -39,9 +39,6 @@ async def create_chat_completion(request: ChatCompletionRequest):
     )
 
 
-_model_id = ""
-
-
 def _create_chat_service(model_id: str):
     model = load_model(model_id)
     return ChatService(model)
