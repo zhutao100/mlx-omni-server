@@ -7,7 +7,7 @@ from typing import List, Optional, Type
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from ...schemas.chat_schema import ChatMessage, Role
-from ...schemas.tools_schema import Tool, ToolCall
+from ...schemas.tools_schema import FunctionCall, Tool, ToolCall
 
 
 class ChatTokenizer(ABC):
@@ -158,16 +158,39 @@ class MistralChatTokenizer(ChatTokenizer):
                     for call in tool_data:
                         if not isinstance(call, dict) or "name" not in call:
                             continue
-                        params = call.get("arguments", call.get("parameters", {}))
+
+                        # Get arguments and ensure they're a JSON string
+                        args = call.get("arguments", call.get("parameters", {}))
+                        if isinstance(args, str):
+                            # Already a JSON string
+                            arguments = args
+                        else:
+                            # Convert dict to JSON string
+                            arguments = json.dumps(args)
+
                         tool_calls.append(
-                            ToolCall.from_llama_output(
-                                name=call["name"],
-                                parameters=params,
-                                call_id=f"call_{uuid.uuid4().hex[:8]}",
+                            ToolCall(
+                                id=f"call_{uuid.uuid4().hex[:8]}",
+                                function=FunctionCall(
+                                    name=call["name"],
+                                    arguments=arguments,
+                                ),
                             )
                         )
+                else:
+                    # Invalid format, return original text
+                    return ChatMessage(
+                        role=Role.ASSISTANT,
+                        content=text,
+                        tool_calls=None,
+                    )
             except (json.JSONDecodeError, KeyError, ValueError) as e:
                 print(f"Error parsing tool call: {e}")
+                return ChatMessage(
+                    role=Role.ASSISTANT,
+                    content=text,
+                    tool_calls=None,
+                )
 
         return ChatMessage(
             role=Role.ASSISTANT,
