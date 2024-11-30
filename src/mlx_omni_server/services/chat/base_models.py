@@ -37,8 +37,3 @@ class BaseMLXModel(ABC):
         request: ChatCompletionRequest,
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         pass
-
-    @abstractmethod
-    async def token_count(self, prompt: str) -> int:
-        """Count the number of tokens in the text"""
-        pass

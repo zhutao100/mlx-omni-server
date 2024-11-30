@@ -19,20 +19,19 @@ from ...schemas.chat_schema import (
 )
 from ...utils.logger import logger
 from .base_models import BaseMLXModel, GenerateResult
-from .tools_handler import load_tools_handler
+from .tools.chat_tokenizer import ChatTokenizer
 
 
 class MLXModel(BaseMLXModel):
     """MLX Chat Model wrapper with internal parameter management"""
 
-    def __init__(self, model_id: str, model, tokenizer: TokenizerWrapper):
+    def __init__(self, model_id: str, model, tokenizer: ChatTokenizer):
         self._model_id = model_id
         self._model = model
-        self._tokenizer = tokenizer
         self._default_max_tokens = 2048
         self._default_temperature = 1.0
         self._default_top_p = 1.0
-        self._chat_tokenizer = load_tools_handler(model_id, tokenizer)
+        self._chat_tokenizer = tokenizer
         logger.info(f"Initialized MLXModel with model_id: {model_id}")
 
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
@@ -40,14 +39,17 @@ class MLXModel(BaseMLXModel):
         return {}
 
     def _process_logprobs(
-        self, response: GenerationResponse, top_k: Optional[int]
+        self,
+        tokenizer: TokenizerWrapper,
+        response: GenerationResponse,
+        top_k: Optional[int],
     ) -> Optional[Dict[str, Any]]:
         """Process logprobs information from generation response to match OpenAI format"""
         current_token = response.token
         current_logprobs = response.logprobs
 
         # Get current token info
-        token_str = self._tokenizer.decode([current_token])
+        token_str = tokenizer.decode([current_token])
         token_logprob = current_logprobs[current_token].item()
         token_bytes = token_str.encode("utf-8")
 
@@ -67,7 +69,7 @@ class MLXModel(BaseMLXModel):
 
             # Create detailed token information for each top token
             for idx, logprob in zip(top_indices.tolist(), top_probs.tolist()):
-                token = self._tokenizer.decode([idx])
+                token = tokenizer.decode([idx])
                 token_bytes = token.encode("utf-8")
                 top_logprobs.append(
                     {"token": token, "logprob": logprob, "bytes": list(token_bytes)}
@@ -83,9 +85,10 @@ class MLXModel(BaseMLXModel):
     ) -> AsyncGenerator[GenerateResult, None]:
         """Stream generate text from the model."""
         try:
+            tokenizer = self._chat_tokenizer.tokenizer
             for response in stream_generate(
                 model=self._model,
-                tokenizer=self._tokenizer,
+                tokenizer=tokenizer,
                 prompt=prompt,
                 max_tokens=request.max_completion_tokens
                 or request.max_tokens
@@ -103,7 +106,7 @@ class MLXModel(BaseMLXModel):
                     logprobs = None
                     if request.logprobs:
                         logprobs = self._process_logprobs(
-                            response, request.top_logprobs
+                            tokenizer, response, request.top_logprobs
                         )
 
                     yield GenerateResult(
@@ -232,7 +235,3 @@ class MLXModel(BaseMLXModel):
         except Exception as e:
             logger.error(f"Failed to stream generate: {str(e)}", exc_info=True)
             raise RuntimeError(f"Failed to stream generate: {str(e)}")
-
-    async def token_count(self, text: str) -> int:
-        """Count tokens in text."""
-        return len(self._tokenizer.encode(text))
