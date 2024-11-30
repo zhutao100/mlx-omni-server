@@ -11,11 +11,26 @@ OpenAI-compatible API endpoints, enabling seamless integration with existing Ope
     - Audio Processing:
         - Text-to-Speech (TTS)
         - Speech-to-Text (STT/ASR)
-    - Chat Completion (Coming Soon)
-    - Image Generation (Coming Soon)
+    - Chat Completion
+    - Image Generation
 - ⚡ **High Performance**: Local inference with hardware acceleration
 - 🔐 **Privacy-First**: All processing happens locally on your machine
 - 🛠 **SDK Support**: Works with official OpenAI SDK and other compatible clients
+
+## Support API Endpoints
+
+The server implements OpenAI-compatible endpoints:
+
+- [Chat](https://platform.openai.com/docs/api-reference/chat)
+    - 🚧 `/v1/chat/completions` - Chat completions
+- [Audio](https://platform.openai.com/docs/api-reference/audio)
+    - ✅ `/v1/audio/speech` - Text-to-Speech
+    - ✅ `/v1/audio/transcriptions` - Speech-to-Text
+- [Models](https://platform.openai.com/docs/api-reference/models/list)
+    - ✅ `/v1/models` - List models
+    - ✅ `/v1/models/{model}` - Retrieve or Delete model
+- [Images](https://platform.openai.com/docs/api-reference/images)
+    - ✅ `/v1/images/generations` - Image generation
 
 ## Installation
 
@@ -63,22 +78,24 @@ transcript = client.audio.transcriptions.create(
     file=audio_file
 )
 
+# Chat Completion Example
+chat_completion = client.chat.completions.create(
+    model="meta-llama/Llama-3.2-3B-Instruct",
+    messages=[
+        {"role": "user", "content": "What can you do?"}
+    ]
+)
+
+# Image Generation Example
+image_response = client.images.generate(
+    model="argmaxinc/mlx-FLUX.1-schnell",
+    prompt="A serene landscape with mountains and a lake",
+    n=1,
+    size="512x512"
+)
 ```
 
-## API Endpoints
-
-The server implements OpenAI-compatible endpoints:
-
-- [Chat](https://platform.openai.com/docs/api-reference/chat)
-    - 🚧 `/v1/chat/completions` - Chat completions(Partial parameters)
-- [Audio](https://platform.openai.com/docs/api-reference/audio)
-    - ✅ `/v1/audio/speech` - Text-to-Speech
-    - ✅ `/v1/audio/transcriptions` - Speech-to-Text
-- [Models](https://platform.openai.com/docs/api-reference/models/list)
-    - ✅ `/v1/models` - List models
-    - ✅ `/v1/models/{model}` - Retrieve or Delete model
-- [Images](https://platform.openai.com/docs/api-reference/images)
-    - ✅ `/v1/images/generations` - Image generation
+You can view more examples in [examples](examples).
 
 ## Contributing
 
