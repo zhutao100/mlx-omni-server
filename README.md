@@ -17,12 +17,15 @@ OpenAI-compatible API endpoints, enabling seamless integration with existing Ope
 - 🔐 **Privacy-First**: All processing happens locally on your machine
 - 🛠 **SDK Support**: Works with official OpenAI SDK and other compatible clients
 
-## Support API Endpoints
+## Supported API Endpoints
 
 The server implements OpenAI-compatible endpoints:
 
-- [Chat](https://platform.openai.com/docs/api-reference/chat)
-    - 🚧 `/v1/chat/completions` - Chat completions
+- [Chat completions](https://platform.openai.com/docs/api-reference/chat): `/v1/chat/completions`
+    - ✅ Chat
+    - ✅ Tools, Function Calling
+    - ✅ LogProbs
+    - 🚧 Vision
 - [Audio](https://platform.openai.com/docs/api-reference/audio)
     - ✅ `/v1/audio/speech` - Text-to-Speech
     - ✅ `/v1/audio/transcriptions` - Speech-to-Text
