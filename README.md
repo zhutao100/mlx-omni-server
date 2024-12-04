@@ -10,9 +10,7 @@ OpenAI-compatible API endpoints, enabling seamless integration with existing Ope
 - 🚀 **Apple Silicon Optimized**: Built on MLX framework, optimized for M1/M2/M3/M4 series chips
 - 🔌 **OpenAI API Compatible**: Drop-in replacement for OpenAI API endpoints
 - 🎯 **Multiple AI Capabilities**:
-    - Audio Processing:
-        - Text-to-Speech (TTS)
-        - Speech-to-Text (STT/ASR)
+    - Audio Processing (TTS & STT)
     - Chat Completion
     - Image Generation
 - ⚡ **High Performance**: Local inference with hardware acceleration
@@ -42,9 +40,6 @@ The server implements OpenAI-compatible endpoints:
 ```bash
 # Install using pip
 pip install mlx-omni-server
-
-# Or install using poetry
-poetry add mlx-omni-server
 ```
 
 ## Quick Start
@@ -54,10 +49,10 @@ poetry add mlx-omni-server
 ```bash
 # If installed via pip as a package
 mlx-omni-server start
-
-# If installed via poetry (recommended during development)
-poetry run start
 ```
+
+you can use `--port` to specify a different port,such as: `mlx-omni-server start --port 10240`, default port is 10240.
+
 
 2. Use with OpenAI SDK:
 
@@ -116,8 +111,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Built with [MLX](https://github.com/ml-explore/mlx) by Apple
 - API design inspired by [OpenAI](https://openai.com)
 - Uses [FastAPI](https://fastapi.tiangolo.com/) for the server implementation
-- Text-to-Speech powered by [lucasnewman/f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx)
-- Speech-to-Text powered by [mlx-lm](https://github.com/ml-explore/mlx-examples/tree/main/llms/mlx_lm)
+- Chat(text generation) by [mlx-lm](https://github.com/ml-explore/mlx-examples/tree/main/llms/mlx_lm)
+- Image generation by [diffusionkit](https://github.com/argmaxinc/DiffusionKit)
+- Text-to-Speech by [lucasnewman/f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx)
+- Speech-to-Text by [mlx-whisper](https://github.com/ml-explore/mlx-examples/blob/main/whisper/README.md)
 
 ## Disclaimer
 
