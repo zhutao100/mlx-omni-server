@@ -24,10 +24,9 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
     async def event_generator() -> Generator[str, None, None]:
         async for chunk in chat_service.generate_stream(request):
-            if chunk.choices[0].finish_reason == "stop":
-                yield "data: [DONE]\n\n"
-            else:
-                yield f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
+            yield f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
+
+        yield "data: [DONE]\n\n"
 
     return StreamingResponse(
         event_generator(),
