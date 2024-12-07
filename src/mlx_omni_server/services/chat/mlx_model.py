@@ -83,7 +83,6 @@ class MLXModel(BaseMLXModel):
         request: ChatCompletionRequest,
         **kwargs,
     ) -> AsyncGenerator[GenerateResult, None]:
-        """Stream generate text from the model."""
         try:
             tokenizer = self._chat_tokenizer.tokenizer
             for response in stream_generate(
@@ -212,12 +211,14 @@ class MLXModel(BaseMLXModel):
                 tools=request.tools,
             )
             logger.debug(f"Encoded prompt:\n{prompt}")
-
+            completion = ""
             async for result in self._stream_generate(
                 prompt=prompt,
                 request=request,
                 **params,
             ):
+                completion += result.text
+
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=created,
@@ -231,6 +232,7 @@ class MLXModel(BaseMLXModel):
                         )
                     ],
                 )
+            logger.debug(f"Stream Model Response:\n{completion}")
 
         except Exception as e:
             logger.error(f"Failed to stream generate: {str(e)}", exc_info=True)
