@@ -4,8 +4,8 @@ from typing import Generator
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from .chat_schema import ChatCompletionRequest, ChatCompletionResponse
 from .mlx.models import load_model
+from .schema import ChatCompletionRequest, ChatCompletionResponse
 from .text_models import BaseTextModel
 
 router = APIRouter(tags=["chat—completions"])

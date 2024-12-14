@@ -2,11 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, Optional
 
-from .chat_schema import (
-    ChatCompletionChunk,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-)
+from .schema import ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse
 
 
 @dataclass

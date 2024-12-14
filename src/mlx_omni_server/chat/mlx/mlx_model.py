@@ -8,7 +8,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import GenerationResponse, stream_generate
 
 from ...utils.logger import logger
-from ..chat_schema import (
+from ..schema import (
     ChatCompletionChoice,
     ChatCompletionChunk,
     ChatCompletionChunkChoice,

@@ -3,8 +3,8 @@ import re
 import uuid
 from typing import Optional
 
-from mlx_omni_server.chat.tools_schema import FunctionCall, ToolCall
-from mlx_omni_server.utils.logger import logger
+from ....utils.logger import logger
+from ...schema import FunctionCall, ToolCall
 
 
 def _extract_tools(text: str):

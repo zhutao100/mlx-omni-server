@@ -4,16 +4,16 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.chat_schema import ChatMessage, Role
-from mlx_omni_server.chat.tools_schema import (
+from ....utils.logger import logger
+from ...schema import (
+    ChatMessage,
     FunctionCall,
+    Role,
     SpecificToolChoice,
     Tool,
     ToolCall,
     ToolChoiceType,
 )
-from mlx_omni_server.utils.logger import logger
-
 from .chat_tokenizer import ChatTokenizer
 from .utils import parse_tool_calls
 

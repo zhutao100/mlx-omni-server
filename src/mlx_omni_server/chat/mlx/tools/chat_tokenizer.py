@@ -3,8 +3,7 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.chat_schema import ChatMessage, Role
-from mlx_omni_server.chat.tools_schema import Tool, ToolCall, ToolChoice, ToolChoiceType
+from ...schema import ChatMessage, Role, Tool, ToolCall, ToolChoice, ToolChoiceType
 
 
 class ChatTokenizer(ABC):
