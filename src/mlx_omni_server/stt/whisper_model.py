@@ -6,7 +6,7 @@ from typing import Union
 from mlx_whisper import transcribe
 from mlx_whisper.writers import WriteSRT, WriteVTT
 
-from ..schemas.stt_schema import (
+from .schema import (
     ResponseFormat,
     STTRequestForm,
     TranscriptionResponse,
@@ -125,22 +125,13 @@ class STTService:
         request: STTRequestForm,
     ) -> Union[dict, str, TranscriptionResponse]:
         try:
-            # 保存上传的文件
             audio_path = await self.model._save_upload_file(request.file)
-
-            # 调用模型进行转录
             result = self.model.generate(audio_path=audio_path, request=request)
-
-            # 格式化响应
             response = self.model._format_response(result, request)
-
-            # 删除临时文件
             Path(audio_path).unlink(missing_ok=True)
-
             return response
 
         except Exception as e:
-            # 确保清理临时文件
             if "audio_path" in locals():
                 Path(audio_path).unlink(missing_ok=True)
             raise e

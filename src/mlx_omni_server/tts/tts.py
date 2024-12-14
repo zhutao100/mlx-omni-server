@@ -3,8 +3,8 @@ import io
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from mlx_omni_server.schemas.tts_schema import AudioFormat, TTSRequest
-from mlx_omni_server.services.tts_service import TTSService
+from .schema import AudioFormat, TTSRequest
+from .tts_service import TTSService
 
 router = APIRouter(tags=["text-to-speech"])
 

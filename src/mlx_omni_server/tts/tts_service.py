@@ -2,7 +2,7 @@ from pathlib import Path
 
 from f5_tts_mlx.generate import generate
 
-from ..schemas.tts_schema import TTSRequest
+from .schema import TTSRequest
 
 
 class F5Model:
@@ -25,20 +25,12 @@ class TTSService:
 
     def __init__(self):
         self.model = F5Model()
-        # 直接指定本地音频文件路径
         self.sample_audio_path = Path("sample.wav")
 
     async def generate_speech(
         self,
         request: TTSRequest,
     ) -> bytes:
-        """
-        Generate speech from text.
-
-        Returns:
-            bytes: The generated audio content
-        """
-
         try:
             self.model.generate_audio(
                 request=request, output_path=self.sample_audio_path

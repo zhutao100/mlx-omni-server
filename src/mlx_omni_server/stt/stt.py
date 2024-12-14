@@ -2,12 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from starlette.responses import PlainTextResponse
 
-from mlx_omni_server.schemas.stt_schema import (
-    ResponseFormat,
-    STTRequestForm,
-    TranscriptionResponse,
-)
-from mlx_omni_server.services.stt_service import STTService
+from .schema import ResponseFormat, STTRequestForm, TranscriptionResponse
+from .whisper_model import STTService
 
 router = APIRouter(tags=["speech-to-text"])
 
