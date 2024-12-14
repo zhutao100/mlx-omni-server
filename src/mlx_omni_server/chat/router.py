@@ -4,9 +4,9 @@ from typing import Generator
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ...schemas.chat_schema import ChatCompletionRequest, ChatCompletionResponse
-from ...services.chat.models import load_model
-from ...services.chat_service import ChatService
+from .chat_schema import ChatCompletionRequest, ChatCompletionResponse
+from .mlx.models import load_model
+from .text_models import BaseTextModel
 
 router = APIRouter(tags=["chat—completions"])
 
@@ -16,14 +16,14 @@ router = APIRouter(tags=["chat—completions"])
 async def create_chat_completion(request: ChatCompletionRequest):
     """Create a chat completion"""
 
-    chat_service = _create_chat_service(request.model)
+    text_model = _create_text_model(request.model)
 
     if not request.stream:
-        completion = chat_service.generate_completion(request)
+        completion = text_model.generate(request)
         return JSONResponse(content=completion.model_dump(exclude_none=True))
 
     async def event_generator() -> Generator[str, None, None]:
-        for chunk in chat_service.generate_stream(request):
+        for chunk in text_model.stream_generate(request):
             yield f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
 
         yield "data: [DONE]\n\n"
@@ -39,15 +39,15 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
 
 _last_model_id = None
-_last_chat_service = None
+_last_text_model = None
 
 
-def _create_chat_service(model_id: str):
-    global _last_model_id, _last_chat_service
+def _create_text_model(model_id: str) -> BaseTextModel:
+    global _last_model_id, _last_text_model
     if model_id == _last_model_id:
-        return _last_chat_service
+        return _last_text_model
 
     model = load_model(model_id)
-    _last_chat_service = ChatService(model)
+    _last_text_model = model
     _last_model_id = model_id
-    return _last_chat_service
+    return model

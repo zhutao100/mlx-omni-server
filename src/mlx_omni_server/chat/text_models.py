@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, Generator, Optional
 
-from ...schemas.chat_schema import (
+from .chat_schema import (
     ChatCompletionChunk,
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -21,7 +21,7 @@ class GenerateResult:
     logprobs: Optional[Dict[str, Any]] = None
 
 
-class BaseMLXModel(ABC):
+class BaseTextModel(ABC):
     """Base class for chat models"""
 
     @abstractmethod

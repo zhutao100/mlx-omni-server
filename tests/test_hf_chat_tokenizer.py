@@ -5,8 +5,8 @@ from unittest.mock import Mock
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 # 更新导入路径指向 src 目录下的模块
-from mlx_omni_server.schemas.chat_schema import Role
-from mlx_omni_server.services.chat.tools.hugging_face import HuggingFaceChatTokenizer
+from mlx_omni_server.chat.chat_schema import Role
+from mlx_omni_server.chat.mlx.tools.hugging_face import HuggingFaceChatTokenizer
 
 
 class TestHuggingFaceChatTokenizer(unittest.TestCase):

@@ -3,7 +3,7 @@ from typing import Type
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import get_model_path, load, load_config
 
-from .base_models import BaseMLXModel
+from ..text_models import BaseTextModel
 from .mlx_model import MLXModel
 from .tools.chat_tokenizer import ChatTokenizer
 from .tools.hugging_face import HuggingFaceChatTokenizer
@@ -25,7 +25,7 @@ def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatToke
     return handler_class(tokenizer)
 
 
-def load_model(model_id: str) -> BaseMLXModel:
+def load_model(model_id: str) -> BaseTextModel:
     """Load a model and tokenizer from the given model ID."""
     model, tokenizer = load(
         model_id,

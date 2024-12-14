@@ -1,10 +1,10 @@
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from typing import AsyncGenerator, Dict, List, Optional, Union
 
 import mlx.core as mx
 from transformers import PreTrainedTokenizer
 
-from src.mlx_omni_server.schemas.chat_schema import ChatCompletionRequest
-from src.mlx_omni_server.services.chat.base_models import BaseMLXModel, GenerateResult
+from mlx_omni_server.chat.chat_schema import ChatCompletionRequest
+from mlx_omni_server.chat.mlx.base_models import BaseTextModel, GenerateResult
 
 
 class MockLayer:
@@ -18,7 +18,7 @@ class MockLayer:
         return x, None
 
 
-class MockModel(BaseMLXModel):
+class MockModel(BaseTextModel):
     """Mock MLX model for testing"""
 
     def __init__(self):

@@ -7,7 +7,8 @@ from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import GenerationResponse, stream_generate
 
-from ...schemas.chat_schema import (
+from ...utils.logger import logger
+from ..chat_schema import (
     ChatCompletionChoice,
     ChatCompletionChunk,
     ChatCompletionChunkChoice,
@@ -17,12 +18,11 @@ from ...schemas.chat_schema import (
     ChatMessage,
     Role,
 )
-from ...utils.logger import logger
-from .base_models import BaseMLXModel, GenerateResult
+from ..text_models import BaseTextModel, GenerateResult
 from .tools.chat_tokenizer import ChatTokenizer
 
 
-class MLXModel(BaseMLXModel):
+class MLXModel(BaseTextModel):
     """MLX Chat Model wrapper with internal parameter management"""
 
     def __init__(self, model_id: str, model, tokenizer: ChatTokenizer):

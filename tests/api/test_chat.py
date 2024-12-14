@@ -5,7 +5,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mlx_omni_server.main import app
-from mlx_omni_server.schemas.chat_schema import ChatCompletionRequest, ChatMessage, Role
 
 from .mock_models import MockModel, MockTokenizer
 

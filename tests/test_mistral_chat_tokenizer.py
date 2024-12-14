@@ -4,9 +4,9 @@ from unittest.mock import Mock
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.schemas.chat_schema import Role
-from mlx_omni_server.services.chat.tools.llama3 import Llama3ChatTokenizer
-from mlx_omni_server.services.chat.tools.mistral import MistralChatTokenizer
+from mlx_omni_server.chat.chat_schema import Role
+from mlx_omni_server.chat.mlx.tools.llama3 import Llama3ChatTokenizer
+from mlx_omni_server.chat.mlx.tools.mistral import MistralChatTokenizer
 
 
 class TestMistralChatTokenizer(unittest.TestCase):

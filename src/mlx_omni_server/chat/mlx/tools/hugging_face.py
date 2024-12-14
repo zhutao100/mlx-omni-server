@@ -4,31 +4,31 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from ....schemas.chat_schema import ChatMessage, Role
-from ....schemas.tools_schema import (
+from mlx_omni_server.chat.chat_schema import ChatMessage, Role
+from mlx_omni_server.chat.tools_schema import (
     FunctionCall,
     SpecificToolChoice,
     Tool,
     ToolCall,
     ToolChoiceType,
 )
-from ....utils.logger import logger
+from mlx_omni_server.utils.logger import logger
+
 from .chat_tokenizer import ChatTokenizer
 from .utils import parse_tool_calls
 
 
-class Llama3ChatTokenizer(ChatTokenizer):
-    """Tools handler for Llama models."""
+class HuggingFaceChatTokenizer(ChatTokenizer):
+    """Tools handler for Llama models.
+    https://huggingface.co/blog/unified-tool-use
+    """
 
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = "<|python_tag|>"
-        self.end_tool_calls = ""
+        self.start_tool_calls = "<tool_call>\n"
+        self.end_tool_calls = "</tool_call>"
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
-
-    def decode_stream(self, text: str, delta_text: str) -> Optional[List[ToolCall]]:
-        pass
 
     def encode(
         self,
@@ -36,7 +36,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
         tools: Optional[List[Tool]] = None,
         tool_choice: Optional[ToolChoiceType] = None,
         **kwargs,
-    ) -> str:
+    ):
         prompt = super().encode(messages, tools, tool_choice, **kwargs)
 
         if tools:
@@ -50,14 +50,22 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
         return prompt + self.pre_fill_tools_prompt
 
+    def decode_stream(self, text: str, delta_text: str) -> Optional[List[ToolCall]]:
+        pass
+
     def _parse_strict_tools(self, text: str) -> Optional[List[ToolCall]]:
         tool_calls = []
         logger.debug(f"_parse_strict_tools: {text}")
 
-        if text.strip().startswith(self.start_tool_calls):
+        if (
+            text.strip().startswith(self.start_tool_calls)
+            and self.end_tool_calls in text
+        ):
             try:
                 # Remove tool call tags and parse JSON directly
-                json_str = text[len(self.start_tool_calls) :].strip()
+                json_str = text[
+                    len(self.start_tool_calls) : text.find(self.end_tool_calls)
+                ].strip()
                 tool_data = json.loads(json_str)
 
                 if isinstance(tool_data, dict) and "name" in tool_data:
@@ -86,10 +94,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
         return tool_calls if tool_calls else None
 
     def decode(self, text: str) -> Optional[ChatMessage]:
-        """
-        Parse tool calls from model output.
-        The model outputs function calls in JSON format with 'name' and optional 'arguments' fields.
-        """
+        """Parse tool calls from model output."""
         response = self.pre_fill_tools_prompt + text
 
         if self.strict_mode:
