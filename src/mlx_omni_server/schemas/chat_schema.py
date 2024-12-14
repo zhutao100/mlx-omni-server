@@ -34,7 +34,6 @@ class ChatCompletionUsage(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    completion_tokens_details: Optional[ChatCompletionUsageDetails] = None
 
 
 class ChatCompletionChoice(BaseModel):
@@ -59,6 +58,7 @@ class ChatCompletionChunk(BaseModel):
     model: str
     choices: List[ChatCompletionChunkChoice]
     system_fingerprint: Optional[str] = None
+    usage: Optional[ChatCompletionUsage] = None
 
 
 class ChatCompletionResponse(BaseModel):
@@ -71,6 +71,10 @@ class ChatCompletionResponse(BaseModel):
     system_fingerprint: Optional[str] = None
 
 
+class StreamOptions(BaseModel):
+    include_usage: bool = False
+
+
 class ChatCompletionRequest(BaseModel):
     # Standard OpenAI API fields
     model: str = Field(..., description="ID of the model to use")
@@ -80,6 +84,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
     max_completion_tokens: Optional[int] = None
     stream: Optional[bool] = False
+    stream_options: Optional[StreamOptions] = None
     seed: Optional[int] = None
     stop: Optional[Union[str, List[str]]] = None
     presence_penalty: Optional[float] = Field(0, ge=-2.0, le=2.0)
@@ -130,5 +135,6 @@ class ChatCompletionRequest(BaseModel):
             "n",
             "tools",
             "tool_choice",
+            "stream_options",
         }
         return {k: v for k, v in self.model_dump().items() if k not in standard_fields}

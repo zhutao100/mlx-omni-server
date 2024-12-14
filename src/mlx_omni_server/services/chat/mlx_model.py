@@ -1,6 +1,6 @@
 import time
 import uuid
-from typing import Any, AsyncGenerator, Dict, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 
 import mlx.core as mx
 from mlx_lm.sample_utils import make_sampler
@@ -187,12 +187,10 @@ class MLXModel(BaseMLXModel):
     def stream_generate(
         self,
         request: ChatCompletionRequest,
-    ) -> AsyncGenerator[ChatCompletionChunk, None]:
+    ) -> Generator[ChatCompletionChunk, None, None]:
         """Stream generate chat completion chunks."""
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
-            created = int(time.time())
-
             params = self._get_generation_params(request)
 
             # Format prompt with tools if provided
@@ -207,6 +205,7 @@ class MLXModel(BaseMLXModel):
                 request=request,
                 **params,
             ):
+                created = int(time.time())
                 completion += result.text
 
                 yield ChatCompletionChunk(
@@ -222,6 +221,22 @@ class MLXModel(BaseMLXModel):
                         )
                     ],
                 )
+
+            # Send usage information if requested
+            if request.stream_options and request.stream_options.include_usage:
+                created = int(time.time())
+                yield ChatCompletionChunk(
+                    id=chat_id,
+                    created=created,
+                    model=request.model,
+                    choices=[],
+                    usage=ChatCompletionUsage(
+                        prompt_tokens=result.prompt_tokens,
+                        completion_tokens=result.generation_tokens,
+                        total_tokens=result.prompt_tokens + result.generation_tokens,
+                    ),
+                )
+
             logger.debug(f"Stream Model Response:\n{completion}")
 
         except Exception as e:
