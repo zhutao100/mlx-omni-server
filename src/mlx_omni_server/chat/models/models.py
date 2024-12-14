@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 
-from ...schemas.models_schema import Model, ModelDeletion, ModelList
-from ...services.models_service import ModelsService
+from .models_service import ModelsService
+from .schema import Model, ModelDeletion, ModelList
 
 router = APIRouter(tags=["models"])
 models_service = ModelsService()

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple, Type
 
 from huggingface_hub import CachedRepoInfo, scan_cache_dir
 
-from ..schemas.models_schema import Model, ModelDeletion, ModelList
+from .schema import Model, ModelDeletion, ModelList
 
 MODEL_REMAPPING = {
     "mistral": "llama",  # mistral is compatible with llama

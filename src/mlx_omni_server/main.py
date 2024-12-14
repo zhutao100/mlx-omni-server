@@ -4,8 +4,8 @@ import os
 import uvicorn
 from fastapi import FastAPI
 
-from .api.routers import api_router
 from .middleware.logging import RequestResponseLoggingMiddleware
+from .routers import api_router
 
 app = FastAPI(title="MLX Omni Server")
 
