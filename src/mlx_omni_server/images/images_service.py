@@ -7,7 +7,7 @@ from typing import List
 
 from diffusionkit.mlx import DiffusionPipeline, FluxPipeline
 
-from ..schemas.images_schema import ImageGenerationRequest, ImageObject, ResponseFormat
+from .schema import ImageGenerationRequest, ImageObject, ResponseFormat
 
 
 class MLXImageGenerator:

@@ -2,8 +2,8 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
-from ...schemas.images_schema import ImageGenerationRequest, ImageGenerationResponse
-from ...services.images_service import ImagesService
+from .images_service import ImagesService
+from .schema import ImageGenerationRequest, ImageGenerationResponse
 
 router = APIRouter(tags=["images"])
 

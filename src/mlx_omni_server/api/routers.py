@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
 from ..chat import router as chat_router
+from ..images import images
 from ..stt import stt as stt_router
 from ..tts import tts as tts_router
-from .endpoints import images, models
+from .endpoints import models
 
 api_router = APIRouter()
 api_router.include_router(stt_router.router)
