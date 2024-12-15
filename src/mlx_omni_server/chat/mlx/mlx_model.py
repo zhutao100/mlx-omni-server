@@ -19,6 +19,7 @@ from ..schema import (
     Role,
 )
 from ..text_models import BaseTextModel, GenerateResult
+from .stop_tokens_checker import StopTokensChecker
 from .tools.chat_tokenizer import ChatTokenizer
 
 
@@ -85,6 +86,15 @@ class MLXModel(BaseTextModel):
     ) -> Generator[GenerationResponse, None, None]:
         try:
             tokenizer = self._chat_tokenizer.tokenizer
+            stop_checker = None
+            if request.stop:
+                stop_checker = StopTokensChecker(
+                    stop_words=request.stop,
+                    tokenizer=tokenizer,
+                )
+
+            current_tokens = []
+            last_text = ""
             for response in stream_generate(
                 model=self._model,
                 tokenizer=tokenizer,
@@ -98,23 +108,42 @@ class MLXModel(BaseTextModel):
                 ),
                 **kwargs,
             ):
-                text = response.text
+                current_tokens.append(response.token)
 
-                # Process logprobs if available
                 logprobs = None
                 if request.logprobs:
                     logprobs = self._process_logprobs(
                         tokenizer, response, request.top_logprobs
                     )
 
-                yield GenerateResult(
-                    text=text,
-                    token=response.token,
-                    finish_reason=response.finish_reason,
-                    prompt_tokens=response.prompt_tokens,
-                    generation_tokens=response.generation_tokens,
-                    logprobs=logprobs,
-                )
+                finish_reason = response.finish_reason or "length"
+                should_trim = False
+                if request.stop and stop_checker:
+                    stop_condition = stop_checker.check_stop_condition(current_tokens)
+                    if stop_condition.stop_met:
+                        finish_reason = "stop"
+                        if stop_condition.trim_length > 0:
+                            current_tokens = current_tokens[
+                                : -stop_condition.trim_length
+                            ]
+                            should_trim = True
+
+                text = tokenizer.decode(current_tokens)
+                delta_text = text[len(last_text) :]
+
+                if delta_text or should_trim:
+                    yield GenerateResult(
+                        text=delta_text,
+                        token=response.token,
+                        finish_reason=finish_reason,
+                        prompt_tokens=response.prompt_tokens,
+                        generation_tokens=response.generation_tokens,
+                        logprobs=logprobs,
+                    )
+                    last_text = text
+
+                if should_trim:
+                    break
 
         except Exception as e:
             logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
@@ -124,12 +153,13 @@ class MLXModel(BaseTextModel):
         self,
         request: ChatCompletionRequest,
     ) -> ChatCompletionResponse:
-        """Generate a chat completion response."""
         try:
             completion = ""
             logprobs_result_list = []
+            current_tokens = []
+            finish_reason = "stop"
+            result = None
 
-            # Format prompt with tools if provided
             prompt = self._chat_tokenizer.encode(
                 messages=request.messages,
                 tools=request.tools,
@@ -138,22 +168,47 @@ class MLXModel(BaseTextModel):
             logger.debug(f"Encoded prompt:\n{prompt}")
 
             params = self._get_generation_params(request)
+            stop_checker = None
+            if request.stop:
+                stop_checker = StopTokensChecker(
+                    stop_words=request.stop,
+                    tokenizer=self._chat_tokenizer.tokenizer,
+                )
 
             for result in self._stream_generate(
                 prompt=prompt,
                 request=request,
                 **params,
             ):
-                completion += result.text
+                current_tokens.append(result.token)
+                completion = self._chat_tokenizer.tokenizer.decode(current_tokens)
 
                 if request.logprobs:
                     logprobs_result_list.append(result.logprobs)
 
-                if not prompt:  # Get prompt token count on first iteration
+                if not prompt:
                     prompt = result.text
 
-            logger.debug(f"Model Response:\n{completion}")
+                if result.finish_reason:
+                    finish_reason = result.finish_reason
 
+                if request.stop and stop_checker:
+                    stop_condition = stop_checker.check_stop_condition(current_tokens)
+                    if stop_condition.stop_met:
+                        finish_reason = "stop"
+                        if stop_condition.trim_length > 0:
+                            current_tokens = current_tokens[
+                                : -stop_condition.trim_length
+                            ]
+                            completion = self._chat_tokenizer.tokenizer.decode(
+                                current_tokens
+                            )
+                        break
+
+            if result is None:
+                raise RuntimeError("No tokens generated")
+
+            logger.debug(f"Model Response:\n{completion}")
             message = self._chat_tokenizer.decode(completion)
 
             return ChatCompletionResponse(
@@ -165,7 +220,7 @@ class MLXModel(BaseTextModel):
                         index=0,
                         message=message,
                         finish_reason=(
-                            "tool_calls" if message.tool_calls else result.finish_reason
+                            "tool_calls" if message.tool_calls else finish_reason
                         ),
                         logprobs=(
                             {"content": logprobs_result_list}
@@ -188,17 +243,24 @@ class MLXModel(BaseTextModel):
         self,
         request: ChatCompletionRequest,
     ) -> Generator[ChatCompletionChunk, None, None]:
-        """Stream generate chat completion chunks."""
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
             params = self._get_generation_params(request)
 
-            # Format prompt with tools if provided
             prompt = self._chat_tokenizer.encode(
                 messages=request.messages,
                 tools=request.tools,
             )
             logger.debug(f"Encoded prompt:\n{prompt}")
+
+            stop_checker = None
+            if request.stop:
+                stop_checker = StopTokensChecker(
+                    stop_words=request.stop,
+                    tokenizer=self._chat_tokenizer.tokenizer,
+                )
+
+            current_tokens = []
             completion = ""
             for result in self._stream_generate(
                 prompt=prompt,
@@ -206,8 +268,25 @@ class MLXModel(BaseTextModel):
                 **params,
             ):
                 created = int(time.time())
-                completion += result.text
+                current_tokens.append(result.token)
+                finish_reason = result.finish_reason
+                should_trim = False
 
+                if request.stop and stop_checker:
+                    stop_condition = stop_checker.check_stop_condition(current_tokens)
+                    if stop_condition.stop_met:
+                        finish_reason = "stop"
+                        if stop_condition.trim_length > 0:
+                            current_tokens = current_tokens[
+                                : -stop_condition.trim_length
+                            ]
+                            completion = self._chat_tokenizer.tokenizer.decode(
+                                current_tokens
+                            )
+                            should_trim = True
+                            break
+
+                completion += result.text
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=created,
@@ -216,20 +295,26 @@ class MLXModel(BaseTextModel):
                         ChatCompletionChunkChoice(
                             index=0,
                             delta=ChatMessage(role=Role.ASSISTANT, content=result.text),
-                            finish_reason=result.finish_reason,
+                            finish_reason=finish_reason,
                             logprobs=result.logprobs,
                         )
                     ],
                 )
 
-            # Send usage information if requested
             if request.stream_options and request.stream_options.include_usage:
                 created = int(time.time())
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=created,
                     model=request.model,
-                    choices=[],
+                    choices=[
+                        ChatCompletionChunkChoice(
+                            index=0,
+                            delta=ChatMessage(role=Role.ASSISTANT),
+                            finish_reason=None,
+                            logprobs=None,
+                        )
+                    ],
                     usage=ChatCompletionUsage(
                         prompt_tokens=result.prompt_tokens,
                         completion_tokens=result.generation_tokens,
@@ -237,8 +322,6 @@ class MLXModel(BaseTextModel):
                     ),
                 )
 
-            logger.debug(f"Stream Model Response:\n{completion}")
-
         except Exception as e:
-            logger.error(f"Failed to stream generate: {str(e)}", exc_info=True)
-            raise RuntimeError(f"Failed to stream generate: {str(e)}")
+            logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
+            raise
