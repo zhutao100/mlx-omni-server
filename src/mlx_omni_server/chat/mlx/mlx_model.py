@@ -99,9 +99,11 @@ class MLXModel(BaseTextModel):
                 model=self._model,
                 tokenizer=tokenizer,
                 prompt=prompt,
-                max_tokens=request.max_completion_tokens
-                or request.max_tokens
-                or self._default_max_tokens,
+                max_tokens=(
+                    request.max_completion_tokens
+                    or request.max_tokens
+                    or self._default_max_tokens
+                ),
                 sampler=make_sampler(
                     request.temperature or self._default_temperature,
                     request.top_p or self._default_top_p,
@@ -168,12 +170,6 @@ class MLXModel(BaseTextModel):
             logger.debug(f"Encoded prompt:\n{prompt}")
 
             params = self._get_generation_params(request)
-            stop_checker = None
-            if request.stop:
-                stop_checker = StopTokensChecker(
-                    stop_words=request.stop,
-                    tokenizer=self._chat_tokenizer.tokenizer,
-                )
 
             for result in self._stream_generate(
                 prompt=prompt,
@@ -191,19 +187,6 @@ class MLXModel(BaseTextModel):
 
                 if result.finish_reason:
                     finish_reason = result.finish_reason
-
-                if request.stop and stop_checker:
-                    stop_condition = stop_checker.check_stop_condition(current_tokens)
-                    if stop_condition.stop_met:
-                        finish_reason = "stop"
-                        if stop_condition.trim_length > 0:
-                            current_tokens = current_tokens[
-                                : -stop_condition.trim_length
-                            ]
-                            completion = self._chat_tokenizer.tokenizer.decode(
-                                current_tokens
-                            )
-                        break
 
             if result is None:
                 raise RuntimeError("No tokens generated")
@@ -253,14 +236,6 @@ class MLXModel(BaseTextModel):
             )
             logger.debug(f"Encoded prompt:\n{prompt}")
 
-            stop_checker = None
-            if request.stop:
-                stop_checker = StopTokensChecker(
-                    stop_words=request.stop,
-                    tokenizer=self._chat_tokenizer.tokenizer,
-                )
-
-            current_tokens = []
             completion = ""
             for result in self._stream_generate(
                 prompt=prompt,
@@ -268,24 +243,6 @@ class MLXModel(BaseTextModel):
                 **params,
             ):
                 created = int(time.time())
-                current_tokens.append(result.token)
-                finish_reason = result.finish_reason
-                should_trim = False
-
-                if request.stop and stop_checker:
-                    stop_condition = stop_checker.check_stop_condition(current_tokens)
-                    if stop_condition.stop_met:
-                        finish_reason = "stop"
-                        if stop_condition.trim_length > 0:
-                            current_tokens = current_tokens[
-                                : -stop_condition.trim_length
-                            ]
-                            completion = self._chat_tokenizer.tokenizer.decode(
-                                current_tokens
-                            )
-                            should_trim = True
-                            break
-
                 completion += result.text
                 yield ChatCompletionChunk(
                     id=chat_id,
@@ -295,7 +252,7 @@ class MLXModel(BaseTextModel):
                         ChatCompletionChunkChoice(
                             index=0,
                             delta=ChatMessage(role=Role.ASSISTANT, content=result.text),
-                            finish_reason=finish_reason,
+                            finish_reason=result.finish_reason,
                             logprobs=result.logprobs,
                         )
                     ],
