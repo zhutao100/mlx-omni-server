@@ -48,7 +48,7 @@ pip install mlx-omni-server
 
 ```bash
 # If installed via pip as a package
-mlx-omni-server start
+mlx-omni-server
 ```
 
 you can use `--port` to specify a different port,such as: `mlx-omni-server start --port 10240`, default port is 10240.
