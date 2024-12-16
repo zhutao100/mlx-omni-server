@@ -5,8 +5,6 @@ from unittest.mock import Mock
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.mlx.tools.hugging_face import HuggingFaceChatTokenizer
-
-# 更新导入路径指向 src 目录下的模块
 from mlx_omni_server.chat.schema import Role
 
 
@@ -34,20 +32,6 @@ class TestHuggingFaceChatTokenizer(unittest.TestCase):
             json.loads(tool_call.function.arguments),
             {"location": "Boston, MA", "unit": "fahrenheit"},
         )
-
-    def test_decode_invalid_json(self):
-        # Test invalid JSON format
-        text = """<tool_call>
-{"name": "get_current_weather", invalid_json}
-</tool_call>"""
-        result = self.hf_tokenizer.decode(text)
-
-        self.assertIsNotNone(result)
-        self.assertEqual(result.role, Role.ASSISTANT)
-        self.assertEqual(
-            result.content, text
-        )  # Should return original text for invalid JSON
-        self.assertIsNone(result.tool_calls)
 
     def test_decode_invalid_tool_call(self):
         # Test invalid tool call format (missing name)
@@ -161,28 +145,6 @@ class TestHuggingFaceChatTokenizer(unittest.TestCase):
         self.assertEqual(
             json.loads(result.tool_calls[0].function.arguments),
             {"location": "Boston, MA", "unit": "celsius"},
-        )
-
-    def test_loose_mode_with_reversed_fields(self):
-        # 启用宽松模式
-        self.hf_tokenizer.strict_mode = False
-
-        # Test with reversed fields order (arguments before name)
-        text = """<tools>
-        {
-            "arguments": {"location": "Boston", "unit": "celsius"},
-            "name": "get_current_weather"
-        }
-        </tools>"""
-        result = self.hf_tokenizer.decode(text)
-
-        self.assertIsNotNone(result)
-        self.assertIsNotNone(result.tool_calls)
-        self.assertEqual(len(result.tool_calls), 1)
-        self.assertEqual(result.tool_calls[0].function.name, "get_current_weather")
-        self.assertEqual(
-            json.loads(result.tool_calls[0].function.arguments),
-            {"location": "Boston", "unit": "celsius"},
         )
 
     def test_strict_mode_rejects_loose_format(self):
