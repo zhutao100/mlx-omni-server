@@ -120,3 +120,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 This project is not affiliated with or endorsed by OpenAI or Apple. It's an independent implementation that provides OpenAI-compatible APIs using
 Apple's MLX framework.
+
+## Star History 🌟
+
+[![Star History Chart](https://api.star-history.com/svg?repos=madroidmaq/mlx-omni-server&type=Date)](https://star-history.com/#madroidmaq/mlx-omni-server&Date)
