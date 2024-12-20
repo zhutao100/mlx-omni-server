@@ -18,7 +18,7 @@ packages = [{ include = "mlx_omni_server", from = "src" }]
 [tool.poetry.dependencies]
 python = "^3.11"
 fastapi = "^0.115.4"
-python-multipart = "^0.0.17"
+python-multipart = "^0.0.18"
 pydantic = "^2.9.2"
 f5-tts-mlx = "^0.1.7"
 uvicorn = "^0.32.0"
