@@ -7,33 +7,33 @@ OpenAI-compatible API endpoints, enabling seamless integration with existing Ope
 
 ## Features
 
-- **Apple Silicon Optimized**: Built on MLX framework, optimized for M1/M2/M3/M4 series chips
-- **OpenAI API Compatible**: Drop-in replacement for OpenAI API endpoints
-- **Multiple AI Capabilities**:
+- 🚀 **Apple Silicon Optimized**: Built on MLX framework, optimized for M1/M2/M3/M4 series chips
+- 🔌 **OpenAI API Compatible**: Drop-in replacement for OpenAI API endpoints
+- 🎯 **Multiple AI Capabilities**:
     - Audio Processing (TTS & STT)
     - Chat Completion
     - Image Generation
-- **High Performance**: Local inference with hardware acceleration
-- **Privacy-First**: All processing happens locally on your machine
-- **SDK Support**: Works with official OpenAI SDK and other compatible clients
+- ⚡ **High Performance**: Local inference with hardware acceleration
+- 🔐 **Privacy-First**: All processing happens locally on your machine
+- 🛠 **SDK Support**: Works with official OpenAI SDK and other compatible clients
 
 ## Supported API Endpoints
 
 The server implements OpenAI-compatible endpoints:
 
 - [Chat completions](https://platform.openai.com/docs/api-reference/chat): `/v1/chat/completions`
-    - Chat
-    - Tools, Function Calling
-    - LogProbs
-    - Vision
+    - ✅ Chat
+    - ✅ Tools, Function Calling
+    - ✅ LogProbs
+    - 🚧 Vision
 - [Audio](https://platform.openai.com/docs/api-reference/audio)
-    - `/v1/audio/speech` - Text-to-Speech
-    - `/v1/audio/transcriptions` - Speech-to-Text
+    - ✅ `/v1/audio/speech` - Text-to-Speech
+    - ✅ `/v1/audio/transcriptions` - Speech-to-Text
 - [Models](https://platform.openai.com/docs/api-reference/models/list)
-    - `/v1/models` - List models
-    - `/v1/models/{model}` - Retrieve or Delete model
+    - ✅ `/v1/models` - List models
+    - ✅ `/v1/models/{model}` - Retrieve or Delete model
 - [Images](https://platform.openai.com/docs/api-reference/images)
-    - `/v1/images/generations` - Image generation
+    - ✅ `/v1/images/generations` - Image generation
 
 ## Installation
 
@@ -54,7 +54,6 @@ mlx-omni-server
 you can use `--port` to specify a different port,such as: `mlx-omni-server --port 10240`, default port is 10240.
 
 You can view more startup parameters by using `mlx-omni-server --help`.
-
 
 2. Use with OpenAI SDK:
 
@@ -101,7 +100,8 @@ You can view more examples in [examples](examples).
 
 ## Contributing
 
-We welcome contributions! If you're interested in contributing to MLX Omni Server, please check out our [Development Guide](docs/development_guide.md) for detailed information about:
+We welcome contributions! If you're interested in contributing to MLX Omni Server, please check out our [Development Guide](docs/development_guide.md)
+for detailed information about:
 
 - Setting up the development environment
 - Running the server in development mode
