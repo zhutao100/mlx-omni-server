@@ -90,3 +90,42 @@ class TestStructuredOutput:
         except Exception as e:
             logger.error(f"Test error: {str(e)}")
             raise
+
+    def test_structured_output_with_beta(self, openai_client):
+        from pydantic import BaseModel
+
+        class Color(BaseModel):
+            name: str
+            hex: str
+
+        class ColorsModel(BaseModel):
+            colors: list[Color]
+
+        prompt = "List three colors and their hex codes."
+        model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+        try:
+            response = openai_client.beta.chat.completions.parse(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=ColorsModel,
+            )
+
+            logger.info(f"Chat Completion Response:\n{response}\n")
+
+            # Validate response
+            assert response.choices[0].message is not None, "No message in response"
+
+            # Get generated content
+            colors = response.choices[0].message.parsed
+            logger.info(f"Generated content: {colors}")
+
+            # Validate JSON structure
+            assert colors is not None, "Colors is None"
+            assert colors.colors is not None, "Colors list is None"
+            assert colors.colors[0].name is not None, "Color name is None"
+            assert colors.colors[0].hex is not None, "Color hex is None"
+
+        except Exception as e:
+            logger.error(f"Test error: {str(e)}")
+            raise
