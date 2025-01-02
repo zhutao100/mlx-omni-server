@@ -48,6 +48,46 @@ class TestChatCompletions:
             logger.error(f"Test error: {str(e)}")
             raise
 
+    def test_chat_completions_stop_word(self, openai_client):
+        """Test if stop words work correctly in chat completions"""
+        response = openai_client.chat.completions.create(
+            model="mlx-community/Llama-3.2-1B-Instruct-4bit",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a storyteller. Please tell a story that contains the words 'once' and 'end'.",
+                },
+                {
+                    "role": "user",
+                    "content": "Tell me a story.",
+                },
+            ],
+            stop=[",", ".", "end"],  # Set stop word
+            max_tokens=100,
+            temperature=0.7,  # Add randomness
+        )
+
+        # Validate basic response structure
+        assert response.model == "mlx-community/Llama-3.2-1B-Instruct-4bit"
+        assert response.object == "chat.completion"
+
+        # Log generated content
+        content = response.choices[0].message.content
+        logger.info(f"Generated content: {content}")
+
+        # Validate finish reason
+        assert (
+            response.choices[0].finish_reason == "stop"
+        ), f"Should stop because of stop word, but actual finish reason is: {response.choices[0].finish_reason}"
+
+        # Validate token usage
+        assert response.usage.completion_tokens > 0
+        assert response.usage.prompt_tokens > 0
+        assert (
+            response.usage.total_tokens
+            == response.usage.completion_tokens + response.usage.prompt_tokens
+        )
+
     def test_chat_completions_stream(self, openai_client):
         """Test basic streaming chat completion functionality"""
         try:
