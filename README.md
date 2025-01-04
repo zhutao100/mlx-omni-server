@@ -24,6 +24,7 @@ The server implements OpenAI-compatible endpoints:
 - [Chat completions](https://platform.openai.com/docs/api-reference/chat): `/v1/chat/completions`
     - ✅ Chat
     - ✅ Tools, Function Calling
+    - ✅ Structured Output
     - ✅ LogProbs
     - 🚧 Vision
 - [Audio](https://platform.openai.com/docs/api-reference/audio)
