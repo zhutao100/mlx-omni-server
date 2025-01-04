@@ -36,8 +36,8 @@ def build_parser():
     parser.add_argument(
         "--workers",
         type=int,
-        default=3,
-        help="Number of workers to use, defaults to 3",
+        default=1,
+        help="Number of workers to use, defaults to 1",
     )
     parser.add_argument(
         "--log-level",
