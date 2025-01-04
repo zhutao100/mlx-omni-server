@@ -1,0 +1,37 @@
+from pydantic import BaseModel
+from rich import print as rprint
+
+
+class Step(BaseModel):
+    explanation: str
+    output: str
+
+
+class MathReasoning(BaseModel):
+    steps: list[Step]
+    final_answer: str
+
+
+from openai import OpenAI
+
+# Use mlx-omni-server to provide local OpenAI service
+client = OpenAI(
+    base_url="http://localhost:10240/v1",
+    api_key="mlx-omni-server",  # not-needed
+)
+
+response = client.beta.chat.completions.parse(
+    model="Qwen/Qwen2.5-Coder-7B-Instruct",
+    messages=[
+        {
+            "role": "system",
+            "content": "You are a helpful math tutor. Guide the user through the solution step by step.",
+        },
+        {"role": "user", "content": "how can I solve 8x + 7 = -23"},
+    ],
+    response_format=MathReasoning,
+)
+
+# Get generated content
+result = response.choices[0].message.parsed
+rprint(result)
