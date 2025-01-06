@@ -21,7 +21,7 @@ client = OpenAI(
 )
 
 response = client.beta.chat.completions.parse(
-    model="Qwen/Qwen2.5-Coder-7B-Instruct",
+    model="mlx-community/smallthinker-3b-preview-q4",
     messages=[
         {
             "role": "system",

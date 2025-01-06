@@ -23,7 +23,7 @@ client = OpenAI(
 structured_output_agent = Agent(
     model=OpenAIChat(
         client=client,
-        id="Qwen/Qwen2.5-Coder-7B-Instruct",
+        id="mlx-community/smallthinker-3b-preview-q4",
     ),
     description="You are a helpful math tutor. Guide the user through the solution step by step.",
     response_model=MathReasoning,
