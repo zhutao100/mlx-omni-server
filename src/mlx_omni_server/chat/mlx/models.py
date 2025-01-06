@@ -25,11 +25,12 @@ def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatToke
     return handler_class(tokenizer)
 
 
-def load_model(model_id: str) -> BaseTextModel:
+def load_model(model_id: str, adapter_path: str = None) -> BaseTextModel:
     """Load a model and tokenizer from the given model ID."""
     model, tokenizer = load(
         model_id,
         tokenizer_config={"trust_remote_code": True},
+        adapter_path=adapter_path,
     )
 
     model_path = get_model_path(model_id)

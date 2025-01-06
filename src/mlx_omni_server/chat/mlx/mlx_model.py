@@ -43,6 +43,7 @@ class MLXModel(BaseTextModel):
             "top_k",
             "min_tokens_to_keep",
             "min_p",
+            "adapter_path",
         }
         return {k: v for k, v in params.items() if k not in known_params}
 

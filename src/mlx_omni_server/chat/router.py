@@ -16,7 +16,9 @@ router = APIRouter(tags=["chat—completions"])
 async def create_chat_completion(request: ChatCompletionRequest):
     """Create a chat completion"""
 
-    text_model = _create_text_model(request.model)
+    text_model = _create_text_model(
+        request.model, request.get_extra_params().get("adapter_path")
+    )
 
     if not request.stream:
         completion = text_model.generate(request)
@@ -42,12 +44,12 @@ _last_model_id = None
 _last_text_model = None
 
 
-def _create_text_model(model_id: str) -> BaseTextModel:
+def _create_text_model(model_id: str, adapter_path: str = None) -> BaseTextModel:
     global _last_model_id, _last_text_model
     if model_id == _last_model_id:
         return _last_text_model
 
-    model = load_model(model_id)
+    model = load_model(model_id, adapter_path)
     _last_text_model = model
     _last_model_id = model_id
     return model

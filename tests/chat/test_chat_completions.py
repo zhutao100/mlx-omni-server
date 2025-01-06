@@ -59,6 +59,7 @@ class TestChatCompletions:
                     "top_k": 50,
                     "min_p": 0.0,
                     "min_tokens_to_keep": 1,
+                    # "adapter_path": "../../adapters/",
                 },
             )
             logger.info(f"Chat Completion Response:\n{response}\n")
