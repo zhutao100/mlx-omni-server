@@ -48,6 +48,32 @@ class TestChatCompletions:
             logger.error(f"Test error: {str(e)}")
             raise
 
+    def test_chat_completions_extra_body(self, openai_client):
+        try:
+            model = "mlx-community/Llama-3.2-1B-Instruct-4bit"
+            response = openai_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "hello"}],
+                max_completion_tokens=50,
+                extra_body={
+                    "top_k": 50,
+                    "min_p": 0.0,
+                    "min_tokens_to_keep": 1,
+                },
+            )
+            logger.info(f"Chat Completion Response:\n{response}\n")
+
+            # Validate response
+            assert response.model == model, "Model name is not correct"
+            assert response.usage is not None, "No usage in response"
+            assert response.object == "chat.completion", "No usage in response"
+            choices = response.choices[0]
+            assert choices.logprobs is None, "logprobs is not None"
+            assert choices.message is not None, "No message in response"
+        except Exception as e:
+            logger.error(f"Test error: {str(e)}")
+            raise
+
     def test_chat_completions_stop_word(self, openai_client):
         """Test if stop words work correctly in chat completions"""
         response = openai_client.chat.completions.create(

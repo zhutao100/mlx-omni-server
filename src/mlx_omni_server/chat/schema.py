@@ -242,6 +242,7 @@ class ChatCompletionRequest(BaseModel):
             "temperature",
             "top_p",
             "max_tokens",
+            "max_completion_tokens",
             "stream",
             "seed",
             "stop",

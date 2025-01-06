@@ -33,12 +33,18 @@ class MLXModel(BaseTextModel):
         self._default_max_tokens = 2048
         self._default_temperature = 1.0
         self._default_top_p = 1.0
+        self._default_top_k = -1
         self._chat_tokenizer = tokenizer
         logger.info(f"Initialized MLXModel with model_id: {model_id}")
 
     def _get_generation_params(self, request: ChatCompletionRequest) -> Dict[str, Any]:
-        """Extract and validate generation parameters from request"""
-        return {}
+        params = request.get_extra_params()
+        known_params = {
+            "top_k",
+            "min_tokens_to_keep",
+            "min_p",
+        }
+        return {k: v for k, v in params.items() if k not in known_params}
 
     def _process_logprobs(
         self,
@@ -83,9 +89,10 @@ class MLXModel(BaseTextModel):
         self,
         prompt: str,
         request: ChatCompletionRequest,
-        **kwargs,
     ) -> Generator[GenerationResponse, None, None]:
         try:
+            params = self._get_generation_params(request)
+
             tokenizer = self._chat_tokenizer.tokenizer
             stop_checker = None
             if request.stop:
@@ -111,8 +118,11 @@ class MLXModel(BaseTextModel):
                 or self._default_max_tokens
             )
             sampler = make_sampler(
-                request.temperature or self._default_temperature,
-                request.top_p or self._default_top_p,
+                temp=request.temperature or self._default_temperature,
+                top_p=request.top_p or self._default_top_p,
+                min_p=params.get("min_p", 0.0),
+                min_tokens_to_keep=params.get("min_tokens_to_keep", 1),
+                top_k=params.get("top_k", self._default_top_k),
             )
 
             for response in stream_generate(
@@ -122,7 +132,7 @@ class MLXModel(BaseTextModel):
                 max_tokens=max_completion_tokens,
                 sampler=sampler,
                 logits_processors=logits_processors,
-                **kwargs,
+                **params,
             ):
                 if response.finish_reason is not None:
                     break
@@ -186,12 +196,9 @@ class MLXModel(BaseTextModel):
             )
             logger.debug(f"Encoded prompt:\n{prompt}")
 
-            params = self._get_generation_params(request)
-
             for result in self._stream_generate(
                 prompt=prompt,
                 request=request,
-                **params,
             ):
                 current_tokens.append(result.token)
                 completion = self._chat_tokenizer.tokenizer.decode(current_tokens)
@@ -248,7 +255,6 @@ class MLXModel(BaseTextModel):
     ) -> Generator[ChatCompletionChunk, None, None]:
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
-            params = self._get_generation_params(request)
 
             prompt = self._chat_tokenizer.encode(
                 messages=request.messages,
@@ -260,7 +266,6 @@ class MLXModel(BaseTextModel):
             for result in self._stream_generate(
                 prompt=prompt,
                 request=request,
-                **params,
             ):
                 created = int(time.time())
                 completion += result.text
