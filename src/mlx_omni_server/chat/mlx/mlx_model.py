@@ -3,7 +3,7 @@ import uuid
 from typing import Any, Dict, Generator, Optional
 
 import mlx.core as mx
-from mlx_lm.sample_utils import make_sampler
+from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import GenerationResponse, stream_generate
 
@@ -109,6 +109,11 @@ class MLXModel(BaseTextModel):
                         self._chat_tokenizer.tokenizer, request.response_format
                     )
                 ]
+            else:
+                if request.presence_penalty:
+                    logits_processors = make_logits_processors(
+                        repetition_penalty=request.presence_penalty
+                    )
 
             current_tokens = []
             last_text = ""
