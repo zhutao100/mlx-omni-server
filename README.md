@@ -84,7 +84,7 @@ transcript = client.audio.transcriptions.create(
 
 # Chat Completion Example
 chat_completion = client.chat.completions.create(
-    model="meta-llama/Llama-3.2-3B-Instruct",
+    model="mlx-community/Llama-3.2-1B-Instruct-4bit",
     messages=[
         {"role": "user", "content": "What can you do?"}
     ]
