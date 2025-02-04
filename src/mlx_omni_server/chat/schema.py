@@ -148,8 +148,8 @@ class JsonSchemaFormat(BaseModel):
         description="The name of the response format",
         pattern="^[a-zA-Z0-9_-]{1,64}$",
     )
-    schema: Optional[Dict[str, Any]] = Field(
-        None, description="The schema for the response format"
+    schema_def: Optional[Dict[str, Any]] = Field(
+        None, description="The schema for the response format", alias="schema"
     )
     strict: Optional[bool] = Field(
         False, description="Whether to enable strict schema adherence"
