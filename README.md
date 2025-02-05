@@ -69,6 +69,14 @@ client = OpenAI(
     api_key="not-needed"  # API key is not required for local server
 )
 
+# Chat Completion Example
+chat_completion = client.chat.completions.create(
+    model="mlx-community/Llama-3.2-1B-Instruct-4bit",
+    messages=[
+        {"role": "user", "content": "What can you do?"}
+    ]
+)
+
 # Text-to-Speech Example
 response = client.audio.speech.create(
     model="lucasnewman/f5-tts-mlx",
@@ -80,14 +88,6 @@ audio_file = open("speech.mp3", "rb")
 transcript = client.audio.transcriptions.create(
     model="mlx-community/whisper-large-v3-turbo",
     file=audio_file
-)
-
-# Chat Completion Example
-chat_completion = client.chat.completions.create(
-    model="mlx-community/Llama-3.2-1B-Instruct-4bit",
-    messages=[
-        {"role": "user", "content": "What can you do?"}
-    ]
 )
 
 # Image Generation Example
