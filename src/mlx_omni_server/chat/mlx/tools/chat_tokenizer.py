@@ -33,10 +33,18 @@ class ChatTokenizer(ABC):
 
         should_prefill = messages[-1].role == Role.ASSISTANT
 
+        conversation = []
+        for message in messages:
+            msg_dict = message.model_dump(exclude_none=True)
+            if isinstance(msg_dict.get("content"), list):
+                msg_dict["content"] = "\n\n".join(
+                    item["text"]
+                    for item in msg_dict["content"]
+                    if item.get("type") == "text"
+                )
+            conversation.append(msg_dict)
+
         if should_prefill:
-            conversation = [
-                message.model_dump(exclude_none=True) for message in messages
-            ]
             prompt = self.tokenizer.apply_chat_template(
                 conversation=conversation,
                 tools=schema_tools,
@@ -46,7 +54,7 @@ class ChatTokenizer(ABC):
             )
         else:
             prompt = self.tokenizer.apply_chat_template(
-                conversation=messages,
+                conversation=conversation,
                 tools=schema_tools,
                 tokenize=False,
                 add_generation_prompt=True,
