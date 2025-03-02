@@ -47,6 +47,10 @@ pip install mlx-omni-server
 
 ## Quick Start
 
+There are two ways to use MLX Omni Server:
+
+### Method 1: Using the HTTP Server
+
 1. Start the server:
 
 ```bash
@@ -54,11 +58,11 @@ pip install mlx-omni-server
 mlx-omni-server
 ```
 
-you can use `--port` to specify a different port,such as: `mlx-omni-server --port 10240`, default port is 10240.
+You can use `--port` to specify a different port, such as: `mlx-omni-server --port 10240`. The default port is 10240.
 
 You can view more startup parameters by using `mlx-omni-server --help`.
 
-2. Use with OpenAI SDK:
+2. Configure the OpenAI client to use your local server:
 
 ```python
 from openai import OpenAI
@@ -68,7 +72,28 @@ client = OpenAI(
     base_url="http://localhost:10240/v1",  # Point to local server
     api_key="not-needed"  # API key is not required for local server
 )
+```
 
+### Method 2: Using TestClient (No Server Required)
+
+For development or testing, you can use TestClient to interact directly with the application without starting a server:
+
+```python
+from openai import OpenAI
+from fastapi.testclient import TestClient
+from mlx_omni_server.main import app
+
+# Use TestClient to interact directly with the application
+client = OpenAI(
+    http_client=TestClient(app)  # Use TestClient directly, no network service needed
+)
+```
+
+### Example Usage
+
+Regardless of which method you choose, you can use the client in the same way:
+
+```python
 # Chat Completion Example
 chat_completion = client.chat.completions.create(
     model="mlx-community/Llama-3.2-1B-Instruct-4bit",
