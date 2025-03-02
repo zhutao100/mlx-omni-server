@@ -659,13 +659,13 @@ torch = ["torch (>=2)"]
 
 [[package]]
 name = "f5-tts-mlx"
-version = "0.1.9"
+version = "0.2.5"
 description = "F5-TTS - MLX"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "f5_tts_mlx-0.1.9-py3-none-any.whl", hash = "sha256:1f24f0382bc8d9469adb58097e8732f8f666587ba627cf2e9ec4f03475e04c48"},
-    {file = "f5_tts_mlx-0.1.9.tar.gz", hash = "sha256:7b0b075f44362af35cc76f7ed6d9f6ba6392cb064c1258964474fcca1c486516"},
+    {file = "f5_tts_mlx-0.2.5-py3-none-any.whl", hash = "sha256:ac07c1373e7ee491e246deac78c3cce8a2a8618759cd99376ba901ecc6f046f7"},
+    {file = "f5_tts_mlx-0.2.5.tar.gz", hash = "sha256:920cfe34eaf32e295ea8bea967c55fed828807081e3830d5682d501d46b4dd45"},
 ]
 
 [package.dependencies]
@@ -677,7 +677,9 @@ mlx = ">=0.18.1"
 numpy = "*"
 pypinyin = "*"
 setuptools = "*"
+sounddevice = "*"
 soundfile = "*"
+tqdm = "*"
 vocos-mlx = "*"
 
 [[package]]
@@ -3165,6 +3167,26 @@ files = [
 ]
 
 [[package]]
+name = "sounddevice"
+version = "0.5.1"
+description = "Play and Record Sound with Python"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "sounddevice-0.5.1-py3-none-any.whl", hash = "sha256:e2017f182888c3f3c280d9fbac92e5dbddac024a7e3442f6e6116bd79dab8a9c"},
+    {file = "sounddevice-0.5.1-py3-none-macosx_10_6_x86_64.macosx_10_6_universal2.whl", hash = "sha256:d16cb23d92322526a86a9490c427bf8d49e273d9ccc0bd096feecd229cde6031"},
+    {file = "sounddevice-0.5.1-py3-none-win32.whl", hash = "sha256:d84cc6231526e7a08e89beff229c37f762baefe5e0cc2747cbe8e3a565470055"},
+    {file = "sounddevice-0.5.1-py3-none-win_amd64.whl", hash = "sha256:4313b63f2076552b23ac3e0abd3bcfc0c1c6a696fc356759a13bd113c9df90f1"},
+    {file = "sounddevice-0.5.1.tar.gz", hash = "sha256:09ca991daeda8ce4be9ac91e15a9a81c8f81efa6b695a348c9171ea0c16cb041"},
+]
+
+[package.dependencies]
+CFFI = ">=1.0"
+
+[package.extras]
+numpy = ["NumPy"]
+
+[[package]]
 name = "soundfile"
 version = "0.13.1"
 description = "An audio library based on libsndfile, CFFI and NumPy"
@@ -3754,4 +3776,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "38c127fbf69e694b83eec2bbca2693a23131cef43caef92b723c8c01148193d7"
+content-hash = "402642aa9083114737cc2982bf60b83e96c751008d4991b1655e37585d1ed66c"
