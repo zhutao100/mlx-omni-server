@@ -3,8 +3,8 @@ from typing import AsyncGenerator, Dict, List, Optional, Union
 import mlx.core as mx
 from transformers import PreTrainedTokenizer
 
-from mlx_omni_server.chat.mlx.base_models import BaseTextModel, GenerateResult
 from mlx_omni_server.chat.schema import ChatCompletionRequest
+from mlx_omni_server.chat.text_models import BaseTextModel, GenerateResult
 
 
 class MockLayer:
