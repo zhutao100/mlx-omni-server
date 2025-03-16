@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from typing import override, Mapping, Type
+from typing import Mapping, Type
+from typing_extensions import override
 
 from f5_tts_mlx.generate import generate
 from mlx_audio.tts.models.kokoro import KokoroPipeline
