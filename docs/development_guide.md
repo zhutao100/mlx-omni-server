@@ -10,23 +10,18 @@ git clone https://github.com/madroidmaq/mlx-omni-server.git
 cd mlx-omni-server
 ```
 
-2. Install dependencies using Poetry:
+2. Install dependencies using uv:
 ```bash
-poetry install
+uv pip install -e .
 ```
 
 ## Running the Server in Development Mode
 
 There are two ways to run the server during development:
 
-### 1. Using Poetry with uvicorn (Recommended for development)
+### 1. Using uvicorn (Recommended for development)
 
 ```bash
-# Option 1: Using poetry run
-poetry run uvicorn mlx_omni_server.main:app --reload --host 0.0.0.0 --port 10240
-
-# Option 2: Using poetry shell
-poetry shell
 uvicorn mlx_omni_server.main:app --reload --host 0.0.0.0 --port 10240
 ```
 
@@ -35,7 +30,7 @@ The `--reload` flag enables hot-reload, which automatically restarts the server 
 ### 2. Using the standard entry point
 
 ```bash
-poetry run mlx-omni-server
+mlx-omni-server
 ```
 
 
@@ -68,7 +63,7 @@ poetry run mlx-omni-server
 
 Run the test suite:
 ```bash
-poetry run pytest
+pytest
 ```
 
 ## Building Documentation
