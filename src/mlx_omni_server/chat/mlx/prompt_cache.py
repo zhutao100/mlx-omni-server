@@ -57,7 +57,7 @@ def process_prompt_cache(
     prompt: List[int], prompt_cache: PromptCache, model_key: str, model: Any
 ) -> Tuple[List[int], int]:
     """
-    Process prompt cache using official implementation logic
+    Process prompt cache using official logic
 
     Args:
         prompt: List of encoded prompt tokens
@@ -70,51 +70,33 @@ def process_prompt_cache(
             1. List of prompt tokens to process (if cached, only returns uncached portion)
             2. Number of tokens retrieved from cache
     """
-    from mlx_lm.models.cache import (
-        can_trim_prompt_cache,
-        make_prompt_cache,
-        trim_prompt_cache,
-    )
+    from mlx_lm.models.cache import make_prompt_cache
 
     cache_len = len(prompt_cache.tokens)
     prompt_len = len(prompt)
-    prefix_len = min(cache_len, prompt_len)
-    cached_tokens = 0
+    logger.debug(f"Prompt length: {prompt_len}, Cache length: {cache_len}")
 
-    logger.debug(
-        f"Processing prompt cache: prompt_length={prompt_len}, cache_length={cache_len}"
-    )
+    if cache_len > 0 and prompt_len > 0:
+        prefix_len = min(10, cache_len, prompt_len)
+        logger.debug(f"Cache tokens prefix: {prompt_cache.tokens[:prefix_len]}")
+        logger.debug(f"Prompt tokens prefix: {prompt[:prefix_len]}")
 
     if (
         prompt_cache.model_key != model_key
-        or prompt[:prefix_len] != prompt_cache.tokens[:prefix_len]
+        or cache_len >= prompt_len
+        or prompt_cache.tokens != prompt[:cache_len]
     ):
-        logger.debug("Resetting cache due to model key or prefix mismatch")
+        logger.debug("Resetting cache based on official logic")
         prompt_cache.model_key = model_key
         prompt_cache.cache = make_prompt_cache(model)
         prompt_cache.tokens = []
-    elif cache_len >= prompt_len:
-        # If cache contains prompt as prefix, trim cache
-        if can_trim_prompt_cache(prompt_cache.cache):
-            num_to_trim = cache_len - prompt_len + 1
-            logger.debug(f"Trimming cache by {num_to_trim} tokens")
-            trim_prompt_cache(prompt_cache.cache, num_to_trim)
-            prompt_cache.tokens = prompt_cache.tokens[:-num_to_trim]
-            cached_tokens = prompt_len - 1
-            prompt = prompt[-1:]
-            logger.debug(
-                f"Using {cached_tokens} cached tokens, processing only the last token"
-            )
-        else:
-            logger.debug("Cannot trim cache, resetting cache")
-            prompt_cache.cache = make_prompt_cache(model)
-            prompt_cache.tokens = []
-    else:
-        cached_tokens = cache_len
-        prompt = prompt[cache_len:]
-        logger.debug(
-            f"Using {cached_tokens} cached tokens, processing remaining {len(prompt)} tokens"
-        )
 
-    prompt_cache.tokens.extend(prompt)
-    return prompt, cached_tokens
+        prompt_cache.tokens.extend(prompt)
+        return prompt, 0
+    else:
+        result_prompt = prompt[cache_len:]
+        cached_tokens = cache_len
+        logger.debug(f"Using cache. Cached tokens: {cached_tokens}")
+
+        prompt_cache.tokens.extend(result_prompt)
+        return result_prompt, cached_tokens
