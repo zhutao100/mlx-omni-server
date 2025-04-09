@@ -3,7 +3,7 @@ name = "mlx-omni-server"
 version = "0.3.4"
 description = ""
 authors = [{ name = "madroid", email = "madroidmaq@gmail.com" }]
-requires-python = "~=3.11"
+requires-python = ">=3.11,<3.12"
 readme = "README.md"
 license = "MIT"
 keywords = [
