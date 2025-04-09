@@ -4,9 +4,9 @@ from typing import Any, Dict, Generator, List, Optional
 
 import mlx.core as mx
 import mlx.nn as nn
+from mlx_lm.generate import GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
-from mlx_lm.utils import GenerationResponse, stream_generate
 
 from ...utils.logger import logger
 from ..schema import (
