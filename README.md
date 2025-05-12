@@ -37,6 +37,8 @@ The server implements OpenAI-compatible endpoints:
     - ✅ `/v1/models/{model}` - Retrieve or Delete model
 - [Images](https://platform.openai.com/docs/api-reference/images)
     - ✅ `/v1/images/generations` - Image generation
+- [Embeddings](https://platform.openai.com/docs/api-reference/embeddings)
+    - ✅ `/v1/embeddings` - Create embeddings for text
 
 
 
@@ -284,6 +286,34 @@ curl http://localhost:10240/v1/images/generations \
 
 </details>
 
+#### Embeddings
+
+```python
+# Generate embedding for a single text
+response = client.embeddings.create(
+    model="mlx-community/all-MiniLM-L6-v2-4bit", input="I like reading"
+)
+
+# Examine the response structure
+print(f"Response type: {type(response)}")
+print(f"Model used: {response.model}")
+print(f"Embedding dimension: {len(response.data[0].embedding)}")
+```
+
+<details>
+<summary>Curl Example</summary>
+
+```shell
+curl http://localhost:10240/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mlx-community/all-MiniLM-L6-v2-4bit",
+    "input": ["Hello world!", "Embeddings are useful for semantic search."]
+  }'
+```
+
+</details>
+
 
 For more detailed examples, check out the [examples](examples) directory.
 
@@ -387,6 +417,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Image generation by [diffusionkit](https://github.com/argmaxinc/DiffusionKit)
 - Text-to-Speech by [lucasnewman/f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx)
 - Speech-to-Text by [mlx-whisper](https://github.com/ml-explore/mlx-examples/blob/main/whisper/README.md)
+- Embeddings by [mlx-embeddings](https://github.com/Blaizzy/mlx-embeddings)
 
 ## Disclaimer
 
