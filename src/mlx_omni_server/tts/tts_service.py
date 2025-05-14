@@ -1,20 +1,11 @@
 from pathlib import Path
 
-from typing import Mapping, Type, Optional, Dict, Any
+from f5_tts_mlx.generate import generate
+from mlx_audio.tts.generate import generate_audio
+from pydantic import BaseModel, Field  # , PrivateAttr
 from typing_extensions import override
 
-from f5_tts_mlx.generate import generate
-from mlx_audio.tts.models.kokoro import KokoroPipeline
-from mlx_audio.tts.utils import load_model
-from mlx_audio.tts.generate import generate_audio
-
 from .schema import TTSRequest
-
-from pydantic import BaseModel, Field  # , PrivateAttr
-
-import mlx.nn as nn
-import numpy as np
-import soundfile as sf
 
 
 class TTSModelAdapter(BaseModel):
@@ -24,7 +15,7 @@ class TTSModelAdapter(BaseModel):
     def generate_audio(self, request: TTSRequest, output_path: str | Path) -> bool:
         """
         Generate audio from input text.
-        
+        ¨
         Args:
             request (TTSRequest): The request object containing the input text and other parameters.
             output_path (str | Path): The path to save the generated audio file.
@@ -39,7 +30,7 @@ class TTSModelAdapter(BaseModel):
         if path_or_hf_repo == "lucasnewman/f5-tts-mlx":
             return F5Model(path_or_hf_repo=path_or_hf_repo)
         else:
-            return MmlAudioModel(path_or_hf_repo=path_or_hf_repo)
+            return MlxAudioModel(path_or_hf_repo=path_or_hf_repo)
 
 
 class F5Model(TTSModelAdapter):
@@ -57,14 +48,14 @@ class F5Model(TTSModelAdapter):
         return Path(output_path).exists()
 
 
-class MmlAudioModel(TTSModelAdapter):
+class MlxAudioModel(TTSModelAdapter):
     path_or_hf_repo: str = Field("mlx-community/Kokoro-82M-4bit")
 
     @override
     def generate_audio(self, request: TTSRequest, output_path: str | Path) -> bool:
         self.path_or_hf_repo = request.model
         voice = request.voice if hasattr(request, "voice") else "af_sky"
-        lang_code = self.voice[:1]
+        lang_code = voice[:1]
 
         extra_params = request.get_extra_params() or {}
 
@@ -74,8 +65,8 @@ class MmlAudioModel(TTSModelAdapter):
             voice=voice,
             speed=request.speed,
             lang_code=lang_code,
-            file_prefix=str(output_path).rsplit(".", 1)[0], 
-            audio_format=request.response_format,
+            file_prefix=str(output_path).rsplit(".", 1)[0],
+            audio_format=request.response_format.value,
             sample_rate=24000,
             join_audio=True,
             verbose=False,
