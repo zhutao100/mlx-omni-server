@@ -10,7 +10,10 @@ from .schema import TTSRequest
 
 class TTSModelAdapter(BaseModel):
     """Base class to adapt different TTS models to support the audio endpoint."""
-    path_or_hf_repo: str | Path = Field(None, title="The path or the huggingface repository to load the model from.")
+
+    path_or_hf_repo: str | Path = Field(
+        None, title="The path or the huggingface repository to load the model from."
+    )
 
     def generate_audio(self, request: TTSRequest, output_path: str | Path) -> bool:
         """
@@ -19,14 +22,14 @@ class TTSModelAdapter(BaseModel):
         Args:
             request (TTSRequest): The request object containing the input text and other parameters.
             output_path (str | Path): The path to save the generated audio file.
-            
+
         Returns:
             bool: True if the audio was generated successfully, False otherwise.
         """
         pass
 
     @classmethod
-    def from_path_or_hf_repo(cls, path_or_hf_repo: str) -> 'TTSModelAdapter':
+    def from_path_or_hf_repo(cls, path_or_hf_repo: str) -> "TTSModelAdapter":
         if path_or_hf_repo == "lucasnewman/f5-tts-mlx":
             return F5Model(path_or_hf_repo=path_or_hf_repo)
         else:
@@ -70,7 +73,7 @@ class MlxAudioModel(TTSModelAdapter):
             sample_rate=24000,
             join_audio=True,
             verbose=False,
-            **extra_params
+            **extra_params,
         )
 
         return Path(output_path).exists()
@@ -84,8 +87,8 @@ class TTSService:
         self.sample_audio_path = Path("sample.wav")
 
     async def generate_speech(
-            self,
-            request: TTSRequest,
+        self,
+        request: TTSRequest,
     ) -> bytes:
         try:
             self.model.generate_audio(

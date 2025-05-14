@@ -1,13 +1,14 @@
-import numpy as np
 import re
-import tiktoken
-from mlx_embeddings import load, generate
-from typing import Dict, List, Union, Any, Optional, Tuple
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import mlx.core as mx
+import numpy as np
+import tiktoken
+from mlx_embeddings import generate, load
 
 from ..utils.logger import logger
-from .schema import EmbeddingRequest, EmbeddingData, EmbeddingResponse, EmbeddingUsage
+from .schema import EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage
 
 
 class EmbeddingsService:

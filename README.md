@@ -246,7 +246,7 @@ curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
   -F "model=mlx-community/whisper-large-v3-turbo"
 ```
 
-Response: 
+Response:
 
 ```json
 {
