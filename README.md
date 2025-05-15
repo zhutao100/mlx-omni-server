@@ -64,7 +64,7 @@ mlx-omni-server
 curl http://localhost:10240/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "mlx-community/Llama-3.2-1B-Instruct-4bit",
+    "model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
     "messages": [
       {
         "role": "user",
@@ -102,7 +102,7 @@ client = OpenAI(
 
 # Make a simple chat request
 response = client.chat.completions.create(
-    model="mlx-community/Llama-3.2-1B-Instruct-4bit",
+    model="mlx-community/gemma-3-1b-it-4bit-DWQ",
     messages=[{"role": "user", "content": "Hello, how are you?"}]
 )
 print(response.choices[0].message.content)
@@ -125,7 +125,7 @@ Access the server directly using HTTP requests:
 curl http://localhost:10240/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "mlx-community/Llama-3.2-1B-Instruct-4bit",
+    "model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 
@@ -330,7 +330,7 @@ MLX Omni Server uses Hugging Face for model downloading and management. When you
 ```python
 # Using a model from Hugging Face
 response = client.chat.completions.create(
-    model="mlx-community/Llama-3.2-1B-Instruct-4bit",  # Will download if not available
+    model="mlx-community/gemma-3-1b-it-4bit-DWQ",  # Will download if not available
     messages=[{"role": "user", "content": "Hello"}]
 )
 
@@ -354,7 +354,7 @@ Use the `model` parameter when creating a request:
 
 ```python
 response = client.chat.completions.create(
-    model="mlx-community/Llama-3.2-1B-Instruct-4bit",  # Specify model here
+    model="mlx-community/gemma-3-1b-it-4bit-DWQ",  # Specify model here
     messages=[{"role": "user", "content": "Hello"}]
 )
 ```
@@ -376,7 +376,7 @@ client = OpenAI(
 
 # Now you can use the client just like with a running server
 response = client.chat.completions.create(
-    model="mlx-community/Llama-3.2-1B-Instruct-4bit",
+    model="mlx-community/gemma-3-1b-it-4bit-DWQ",
     messages=[{"role": "user", "content": "Hello"}]
 )
 ```
