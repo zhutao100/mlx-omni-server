@@ -414,7 +414,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - API design inspired by [OpenAI](https://openai.com)
 - Uses [FastAPI](https://fastapi.tiangolo.com/) for the server implementation
 - Chat(text generation) by [mlx-lm](https://github.com/ml-explore/mlx-examples/tree/main/llms/mlx_lm)
-- Image generation by [diffusionkit](https://github.com/argmaxinc/DiffusionKit)
+- Image generation by [mflux](https://github.com/filipstrand/mflux)
 - Text-to-Speech by [lucasnewman/f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx) & [Blaizzy/mlx-audio](https://github.com/Blaizzy/mlx-audio)
 - Speech-to-Text by [mlx-whisper](https://github.com/ml-explore/mlx-examples/blob/main/whisper/README.md)
 - Embeddings by [mlx-embeddings](https://github.com/Blaizzy/mlx-embeddings)
