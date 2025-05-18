@@ -152,7 +152,7 @@ class MLXModel(BaseTextModel):
         prompt: str,
         request: ChatCompletionRequest,
         params: GenerationParams,
-    ) -> Generator[GenerationResponse, None, None]:
+    ) -> Generator[GenerateResult, None, None]:
         try:
             sampler_kwargs = {
                 "temp": request.temperature or self._default_temperature,
@@ -257,8 +257,6 @@ class MLXModel(BaseTextModel):
             logger.debug(
                 f"The generation is completed, with a total of {len(self._prompt_cache.tokens)} tokens cached."
             )
-
-            logger.debug(response)
         except Exception as e:
             logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
             raise
