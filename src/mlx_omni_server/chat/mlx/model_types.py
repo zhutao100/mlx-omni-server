@@ -1,9 +1,29 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Type
 
-from mlx_lm.utils import load
+import mlx.nn as nn
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+from mlx_lm.utils import get_model_path, load, load_config
 
 from ...utils.logger import logger
+from .tools.chat_tokenizer import ChatTokenizer
+from .tools.hugging_face import HuggingFaceChatTokenizer
+from .tools.llama3 import Llama3ChatTokenizer
+from .tools.mistral import MistralChatTokenizer
+
+
+def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatTokenizer:
+    """Factory function to load appropriate tools handler based on model ID."""
+    handlers: dict[str, Type[ChatTokenizer]] = {
+        # Llama models
+        "llama": Llama3ChatTokenizer,
+        "mistral": MistralChatTokenizer,
+        "qwen2": HuggingFaceChatTokenizer,
+    }
+
+    # Get handler class based on model ID or use Llama handler as default
+    handler_class = handlers.get(model_type, HuggingFaceChatTokenizer)
+    return handler_class(tokenizer)
 
 
 @dataclass(frozen=True)
@@ -35,17 +55,18 @@ class MlxModelCache:
     This class manages the cache of main models and draft models based on ModelId objects.
     """
 
-    def __init__(self, model_id: ModelId = None):
+    def __init__(self, model_id: ModelId):
         """Initialize the cache object.
 
         Args:
             model_id: Optional ModelId object for initialization
         """
-        self.model_id = model_id
-        self.model = None
-        self.tokenizer = None
-        self.draft_model = None
-        self.draft_tokenizer = None
+        self.model_id: ModelId = model_id
+        self.model: Optional[nn.Module] = None
+        self.tokenizer: Optional[TokenizerWrapper] = None
+        self.chat_tokenizer = None
+        self.draft_model: Optional[nn.Module] = None
+        self.draft_tokenizer: Optional[TokenizerWrapper] = None
 
         # If a model ID is provided, load the models directly
         if model_id:
@@ -60,6 +81,11 @@ class MlxModelCache:
             adapter_path=self.model_id.adapter_path,
         )
         logger.info(f"Loaded new model: {self.model_id.name}")
+
+        # Load configuration and create chat tokenizer
+        model_path = get_model_path(self.model_id.name)
+        config = load_config(model_path)
+        self.chat_tokenizer = load_tools_handler(config["model_type"], self.tokenizer)
 
         # If needed, load the draft model
         if self.model_id.draft_model:

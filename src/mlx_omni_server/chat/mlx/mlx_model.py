@@ -3,7 +3,6 @@ import uuid
 from typing import Any, Dict, Generator, List, Optional
 
 import mlx.core as mx
-import mlx.nn as nn
 from mlx_lm.generate import GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -20,11 +19,10 @@ from ..schema import (
     Role,
 )
 from ..text_models import BaseTextModel, GenerateResult, GenerationParams
-from .model_types import MlxModelCache, ModelId
+from .model_types import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCache
 from .stop_tokens_checker import StopTokensChecker
-from .tools.chat_tokenizer import ChatTokenizer
 from .tools.reasoning_decoder import ReasoningDecoder
 
 
@@ -33,24 +31,19 @@ class MLXModel(BaseTextModel):
 
     def __init__(
         self,
-        model_cache,
-        tokenizer: ChatTokenizer,
+        model_cache: MlxModelCache,
     ):
         """Initialize MLXModel with model cache object.
 
         Args:
             model_cache: MlxModelCache object containing models and tokenizers
-            tokenizer: Chat tokenizer for processing prompts
-            config: Optional model configuration dictionary
         """
         self._model_cache = model_cache
-        self._model_id = model_cache.model_id.name
-        self._model = model_cache.model
         self._default_max_tokens = 2048
-        self._chat_tokenizer = tokenizer
+        self._chat_tokenizer = model_cache.chat_tokenizer
         self._prompt_cache = PromptCache()
         self._prompt_cache_tokens_count = 0
-        self._reasoning_decoder = ReasoningDecoder(tokenizer)
+        self._reasoning_decoder = ReasoningDecoder(model_cache.tokenizer)
 
     def _get_generation_params(
         self, request: ChatCompletionRequest
