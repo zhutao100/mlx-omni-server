@@ -65,7 +65,7 @@ class PromptCache:
 
     def reset_prompt_cache(self, model_cache: MlxModelCache, prompt):
         logger.debug("*** Resetting cache. ***")
-        self.model_key = model_cache.model_id_obj.model_id
+        self.model_key = model_cache.model_id.name
         self.cache = make_prompt_cache(model_cache.model)
 
         if model_cache.draft_model is not None:
@@ -100,7 +100,7 @@ class PromptCache:
         com_prefix_len = min(com_prefix_len, len(prompt) - 1)
 
         # Condition 1: Model changed or no common prefix at all. Reset cache.
-        if self.model_key != model_cache.model_id_obj.model_id or com_prefix_len == 0:
+        if self.model_key != model_cache.model_id.name or com_prefix_len == 0:
             self.reset_prompt_cache(model_cache, prompt)
 
         # Condition 2: Common prefix exists and matches cache length. Process suffix.

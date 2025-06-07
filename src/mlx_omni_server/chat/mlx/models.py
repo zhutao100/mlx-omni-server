@@ -45,14 +45,14 @@ def load_model(model_id: ModelId) -> BaseTextModel:
     global _model_cache, _mlx_model_cache
 
     # Check if a new model needs to be loaded
-    model_needs_reload = _model_cache is None or _model_cache.model_id_obj != model_id
+    model_needs_reload = _model_cache is None or _model_cache.model_id != model_id
 
     if model_needs_reload:
         # Cache miss, create a new cache object
         _model_cache = MlxModelCache(model_id)
 
         # Load configuration and create chat tokenizer
-        model_path = get_model_path(model_id.model_id)
+        model_path = get_model_path(model_id.name)
         config = load_config(model_path)
         chat_tokenizer = load_tools_handler(
             config["model_type"], _model_cache.tokenizer

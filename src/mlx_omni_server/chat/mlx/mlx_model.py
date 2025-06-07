@@ -44,7 +44,7 @@ class MLXModel(BaseTextModel):
             config: Optional model configuration dictionary
         """
         self._model_cache = model_cache
-        self._model_id = model_cache.model_id_obj.model_id
+        self._model_id = model_cache.model_id.name
         self._model = model_cache.model
         self._default_max_tokens = 2048
         self._chat_tokenizer = tokenizer

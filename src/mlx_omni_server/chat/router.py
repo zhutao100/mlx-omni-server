@@ -54,7 +54,7 @@ def _create_text_model(
     The caching is handled inside the load_model function.
     """
     current_key = ModelId(
-        model_id=model_id, adapter_path=adapter_path, draft_model=draft_model
+        name=model_id, adapter_path=adapter_path, draft_model=draft_model
     )
 
     return load_model(current_key)
