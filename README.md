@@ -1,6 +1,7 @@
 # MLX Omni Server
 
 [![image](https://img.shields.io/pypi/v/mlx-omni-server.svg)](https://pypi.python.org/pypi/mlx-omni-server)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/madroidmaq/mlx-omni-server)
 
 ![alt text](docs/banner.png)
 
