@@ -1406,6 +1406,15 @@ wheels = [
 ]
 
 [[package]]
+name = "iso3166"
+version = "2.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/11/b5023c736a185a88ebd0d38646af6f4d1b4c9b91f2ca84e08e5d2bc7ac3c/iso3166-2.1.1.tar.gz", hash = "sha256:fcd551b8dda66b44e9f9e6d6bbbee3a1145a22447c0a556e5d0fb1ad1e491719", size = 12807, upload-time = "2022-07-12T04:07:57.294Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/d0/bf18725b8d47f37858ff801f8e4d40c6982730a899725bdb6ded62199954/iso3166-2.1.1-py3-none-any.whl", hash = "sha256:263660b36f8471c42acd1ff673d28a3715edbce7d24b1550d0cf010f6816c47f", size = 9829, upload-time = "2022-07-12T04:07:55.54Z" },
+]
+
+[[package]]
 name = "isodate"
 version = "0.7.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1495,6 +1504,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/64/33/60135848598c076ce4b231e1b1895170f45fbcaeaa2c9d5e38b04db70c35/joblib-1.4.2.tar.gz", hash = "sha256:2382c5816b2636fbd20a09e0f4e9dad4736765fdfb7dca582943b9c1366b3f0e", size = 2116621, upload-time = "2024-05-02T12:15:05.765Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/91/29/df4b9b42f2be0b623cbd5e2140cafcaa2bef0759a00b7b70104dcfe2fb51/joblib-1.4.2-py3-none-any.whl", hash = "sha256:06d478d5674cbc267e7496a410ee875abd68e4340feff4490bcb7afb88060ae6", size = 301817, upload-time = "2024-05-02T12:15:00.765Z" },
+]
+
+[[package]]
+name = "jsonpath-ng"
+version = "1.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ply" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/86/08646239a313f895186ff0a4573452038eed8c86f54380b3ebac34d32fb2/jsonpath-ng-1.7.0.tar.gz", hash = "sha256:f6f5f7fd4e5ff79c785f1573b394043b39849fb2bb47bcead935d12b00beab3c", size = 37838, upload-time = "2024-10-11T15:41:42.404Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/5a/73ecb3d82f8615f32ccdadeb9356726d6cae3a4bbc840b437ceb95708063/jsonpath_ng-1.7.0-py3-none-any.whl", hash = "sha256:f3d7f9e848cba1b6da28c55b1c26ff915dc9e0b1ba7e752a53d6da8d5cbd00b6", size = 30105, upload-time = "2024-11-20T17:58:30.418Z" },
 ]
 
 [[package]]
@@ -1865,7 +1886,7 @@ wheels = [
 
 [[package]]
 name = "mflux"
-version = "0.7.1"
+version = "0.9.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1876,6 +1897,7 @@ dependencies = [
     { name = "piexif" },
     { name = "pillow", version = "10.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "pillow", version = "11.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "platformdirs" },
     { name = "safetensors" },
     { name = "sentencepiece", marker = "python_full_version < '3.13'" },
     { name = "tokenizers", marker = "python_full_version >= '3.13'" },
@@ -1884,9 +1906,8 @@ dependencies = [
     { name = "tqdm" },
     { name = "transformers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f6/e0/95ea103446e4d33637ab769b23360b37846b40d69c18d2c83d7066f4a6de/mflux-0.7.1.tar.gz", hash = "sha256:f2a2c471815a65d5ad03f5880c6d67d6576cec564a7e8aba88cc8ca9469cb2c1", size = 137348, upload-time = "2025-05-06T11:33:38.064Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/da/4b04a1bbd05111631bacf67b93bcc14aebdfff3e1df6ed48190cd901056d/mflux-0.7.1-py3-none-any.whl", hash = "sha256:fe655805187e927878b2103ff897702fa5790604aa6fce1c9c80224c6d007684", size = 155717, upload-time = "2025-05-06T11:33:36.012Z" },
+    { url = "https://files.pythonhosted.org/packages/73/d4/2e41c182c0a8d3fcc4c8ef615146b4b24d9e1dc1139b2d6a1781fb737168/mflux-0.9.3-py3-none-any.whl", hash = "sha256:e4f8538f39cd3d9b398bff282fa1ca47a8f7042e8c39b72098d6227946a15424", size = 216438, upload-time = "2025-07-09T03:26:27.751Z" },
 ]
 
 [[package]]
@@ -1932,7 +1953,7 @@ wheels = [
 
 [[package]]
 name = "mlx-audio"
-version = "0.2.2"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dacite" },
@@ -1945,7 +1966,6 @@ dependencies = [
     { name = "loguru" },
     { name = "misaki", extra = ["en"] },
     { name = "mlx" },
-    { name = "mlx-lm" },
     { name = "mlx-vlm" },
     { name = "num2words" },
     { name = "numpy" },
@@ -1962,9 +1982,9 @@ dependencies = [
     { name = "uvicorn" },
     { name = "webrtcvad" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/e9/4922c505c4999f6c978176fd7c4e10f331fe107a6eaa1cca288e952361f1/mlx_audio-0.2.2.tar.gz", hash = "sha256:c86be4d45e68a5bdcfa096e5bc3a900c1f1ec7d7c0384b8eb63885779e8dd375", size = 958683, upload-time = "2025-05-19T22:27:14.685Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/89/65a0cf792228b7f0c69abc9950db6bb490cd394076ab4e6c87fcb00eaff2/mlx_audio-0.2.3.tar.gz", hash = "sha256:48419a3d4a848cb44e91694ad5218af98b08f749d5d33abed834aec6c3c15dc7", size = 961262, upload-time = "2025-05-24T15:24:19.439Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/fe/4df3b75ab1d3513a955b8d2bf5fb87188ae31f053aefcfe84c92f3680708/mlx_audio-0.2.2-py3-none-any.whl", hash = "sha256:03f86322403f4bafd202850d3c3a828c84712db2b7cdec2f5a0e172580bbd785", size = 1005838, upload-time = "2025-05-19T22:27:12.234Z" },
+    { url = "https://files.pythonhosted.org/packages/30/f3/96928ddfb8602d3f0a9d653d5065a3751e55806ddfff2c6fdfbd650687e2/mlx_audio-0.2.3-py3-none-any.whl", hash = "sha256:c7d70e6da649356d8cd835566dfbefc5dcee852c2ff7ac88aa04b9fc4d31f15d", size = 1008154, upload-time = "2025-05-24T15:24:17.707Z" },
 ]
 
 [[package]]
@@ -2038,13 +2058,13 @@ requires-dist = [
     { name = "f5-tts-mlx", specifier = ">=0.2.5,<0.3" },
     { name = "fastapi", specifier = ">=0.115.4,<0.116" },
     { name = "huggingface-hub", specifier = ">=0.30" },
-    { name = "mflux", specifier = ">=0.7.1,<0.8" },
-    { name = "mlx-audio", specifier = ">=0.2.2" },
+    { name = "mflux", specifier = ">=0.9.3,<1.0" },
+    { name = "mlx-audio", specifier = ">=0.2.3" },
     { name = "mlx-embeddings", specifier = ">=0.0.3" },
     { name = "mlx-lm", specifier = ">=0.24,<0.25" },
     { name = "mlx-whisper", specifier = ">=0.4.1,<0.5" },
     { name = "numba", specifier = ">=0.57.0" },
-    { name = "outlines", specifier = ">=0.1.11,<0.2" },
+    { name = "outlines", specifier = ">=1.0.3" },
     { name = "pydantic", specifier = ">=2.9.2,<3" },
     { name = "python-multipart", specifier = ">=0.0.20,<0.0.21" },
     { name = "rich", specifier = ">=13.9.4" },
@@ -2639,7 +2659,7 @@ wheels = [
 
 [[package]]
 name = "outlines"
-version = "0.1.14"
+version = "1.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "airportsdata" },
@@ -2647,13 +2667,15 @@ dependencies = [
     { name = "diskcache" },
     { name = "genson" },
     { name = "interegular" },
+    { name = "iso3166" },
     { name = "jinja2" },
+    { name = "jsonpath-ng" },
     { name = "jsonschema" },
     { name = "lark" },
     { name = "nest-asyncio" },
-    { name = "numpy" },
     { name = "outlines-core" },
-    { name = "pycountry" },
+    { name = "pillow", version = "10.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "pillow", version = "11.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "pydantic" },
     { name = "referencing" },
     { name = "requests" },
@@ -2661,9 +2683,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/54/dfa5fea9283174f5febbd0aae3f082c3e2c2888bedcc9fb6f07f174d9382/outlines-0.1.14.tar.gz", hash = "sha256:35f0c49fc7eedc64ec08e2d6fd434845cf63cc0c3fdeb5900ac7902d074e57be", size = 2492199, upload-time = "2025-01-27T17:32:22.661Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/c5/b1dc12109d6a56313d3704003d6a5f5586de1ad99c86f257ff05e314269c/outlines-1.0.4.tar.gz", hash = "sha256:46925e16c6a1e09661a890a92f8ed85df1da64fed56f0161b136e14c8810cc26", size = 2847718, upload-time = "2025-07-04T19:27:06.482Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/bb/a9639289a5d591a33585086aa3bf7722bc93e77769d050dd888db5d87395/outlines-0.1.14-py3-none-any.whl", hash = "sha256:a5090d50c368ed078051de25686a53032cd9f1702528afc646c3dae9482598ce", size = 88002, upload-time = "2025-01-27T17:32:06.047Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/ff/b760aa6fe93986183d6fc7f0b8b7cf13054032a95366843b2c40d489477e/outlines-1.0.4-py3-none-any.whl", hash = "sha256:038e096cca0aeb566934d5f2c72a030f4d5a652d725f6a651d5e19ebf9897a24", size = 131023, upload-time = "2025-07-04T19:27:04.867Z" },
 ]
 
 [[package]]
@@ -2899,6 +2921,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ply"
+version = "3.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/69/882ee5c9d017149285cab114ebeab373308ef0f874fcdac9beb90e0ac4da/ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3", size = 159130, upload-time = "2018-02-15T19:01:31.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce", size = 49567, upload-time = "2018-02-15T19:01:27.172Z" },
+]
+
+[[package]]
 name = "pooch"
 version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3094,15 +3125,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/cb/65fa110b483339add6a9bc7b6373614166b14e20375d4daa73483755f830/pyarrow-20.0.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:f3b117b922af5e4c6b9a9115825726cac7d8b1421c37c2b5e24fbacc8930612c", size = 42839441, upload-time = "2025-04-27T12:32:46.64Z" },
     { url = "https://files.pythonhosted.org/packages/98/7b/f30b1954589243207d7a0fbc9997401044bf9a033eec78f6cb50da3f304a/pyarrow-20.0.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:e724a3fd23ae5b9c010e7be857f4405ed5e679db5c93e66204db1a69f733936a", size = 44503279, upload-time = "2025-04-27T12:32:56.503Z" },
     { url = "https://files.pythonhosted.org/packages/37/40/ad395740cd641869a13bcf60851296c89624662575621968dcfafabaa7f6/pyarrow-20.0.0-cp313-cp313t-win_amd64.whl", hash = "sha256:82f1ee5133bd8f49d31be1299dc07f585136679666b502540db854968576faf9", size = 25944982, upload-time = "2025-04-27T12:33:04.72Z" },
-]
-
-[[package]]
-name = "pycountry"
-version = "24.6.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/76/57/c389fa68c50590881a75b7883eeb3dc15e9e73a0fdc001cdd45c13290c92/pycountry-24.6.1.tar.gz", hash = "sha256:b61b3faccea67f87d10c1f2b0fc0be714409e8fcdcc1315613174f6466c10221", size = 6043910, upload-time = "2024-06-01T04:12:15.05Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b1/ec/1fb891d8a2660716aadb2143235481d15ed1cbfe3ad669194690b0604492/pycountry-24.6.1-py3-none-any.whl", hash = "sha256:f1a4fb391cd7214f8eefd39556d740adcc233c778a27f8942c8dca351d6ce06f", size = 6335189, upload-time = "2024-06-01T04:11:49.711Z" },
 ]
 
 [[package]]
