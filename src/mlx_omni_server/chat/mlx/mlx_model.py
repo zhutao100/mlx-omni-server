@@ -22,7 +22,6 @@ from ..text_models import BaseTextModel, GenerateResult, GenerationParams
 from .model_types import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCache
-from .stop_tokens_checker import StopTokensChecker
 from .tools.reasoning_decoder import ReasoningDecoder
 
 
@@ -147,7 +146,7 @@ class MLXModel(BaseTextModel):
     def _prepare_generation(
         self,
         request: ChatCompletionRequest,
-    ) -> tuple[Any, StopTokensChecker | None, dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any]]:
         """Prepare all necessary components for generation.
 
         This function handles parameter processing, tokenizer setup, prompt encoding,
@@ -157,7 +156,7 @@ class MLXModel(BaseTextModel):
             request: The chat completion request containing generation parameters
 
         Returns:
-            A tuple containing tokenizer, processed prompt, stop checker, and generation kwargs
+            A tuple containing tokenizer, processed prompt, and generation kwargs
         """
         # Process parameters from request
         params = self._get_generation_params(request)
@@ -218,14 +217,6 @@ class MLXModel(BaseTextModel):
             f"Using {self._prompt_cache_tokens_count} cached tokens out of {len(tokenized_prompt)} total tokens"
         )
 
-        # Setup stop tokens checker if needed
-        stop_checker = None
-        if request.stop:
-            stop_checker = StopTokensChecker(
-                stop_words=request.stop,
-                tokenizer=tokenizer,
-            )
-
         # Setup logits processors
         if request.response_format and request.response_format.json_schema:
             generate_kwargs["logits_processors"] = [
@@ -245,7 +236,7 @@ class MLXModel(BaseTextModel):
             or self._default_max_tokens
         )
 
-        return processed_prompt, stop_checker, generate_kwargs
+        return processed_prompt, generate_kwargs
 
     def _stream_generate(
         self,
@@ -256,13 +247,9 @@ class MLXModel(BaseTextModel):
             tokenizer = self._chat_tokenizer.tokenizer
 
             # Prepare all generation components
-            processed_prompt, stop_checker, generate_kwargs = self._prepare_generation(
-                request
-            )
+            processed_prompt, generate_kwargs = self._prepare_generation(request)
 
-            current_tokens = []
-            last_text = ""
-
+            generated_tokens = []
             for response in stream_generate(
                 model=self._model_cache.model,
                 tokenizer=tokenizer,
@@ -273,7 +260,7 @@ class MLXModel(BaseTextModel):
                 if response.finish_reason is not None:
                     break
 
-                current_tokens.append(response.token)
+                generated_tokens.append(response.token)
 
                 logprobs = None
                 if request.logprobs:
@@ -281,34 +268,14 @@ class MLXModel(BaseTextModel):
                         tokenizer, response, request.top_logprobs
                     )
 
-                finish_reason = response.finish_reason
-                should_trim = False
-                if request.stop and stop_checker:
-                    stop_condition = stop_checker.check_stop_condition(current_tokens)
-                    if stop_condition.stop_met:
-                        finish_reason = "stop"
-                        if stop_condition.trim_length > 0:
-                            current_tokens = current_tokens[
-                                : -stop_condition.trim_length
-                            ]
-                            should_trim = True
-
-                text = tokenizer.decode(current_tokens)
-                delta_text = text[len(last_text) :]
-
-                if delta_text or should_trim:
-                    yield GenerateResult(
-                        text=delta_text,
-                        token=response.token,
-                        finish_reason=finish_reason,
-                        prompt_tokens=response.prompt_tokens,
-                        generation_tokens=response.generation_tokens,
-                        logprobs=logprobs,
-                    )
-                    last_text = text
-
-                if should_trim:
-                    break
+                yield GenerateResult(
+                    text=response.text,
+                    token=response.token,
+                    finish_reason=response.finish_reason,
+                    prompt_tokens=response.prompt_tokens,
+                    generation_tokens=response.generation_tokens,
+                    logprobs=logprobs,
+                )
 
             if response is not None:
                 logger.debug(
@@ -318,7 +285,7 @@ class MLXModel(BaseTextModel):
                     f"generation tokens: {response.generation_tokens}, tps: {response.generation_tps}"
                 )
 
-            self._prompt_cache.extend_completion_cache(current_tokens)
+            self._prompt_cache.extend_completion_cache(generated_tokens)
         except Exception as e:
             logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
             raise
@@ -330,13 +297,13 @@ class MLXModel(BaseTextModel):
         try:
             completion = ""
             logprobs_result_list = []
-            current_tokens = []
+            generated_tokens = []
             finish_reason = "stop"
             result = None
 
             for result in self._stream_generate(request=request):
-                current_tokens.append(result.token)
-                completion = self._chat_tokenizer.tokenizer.decode(current_tokens)
+                generated_tokens.append(result.token)
+                completion += result.text
 
                 if request.logprobs:
                     logprobs_result_list.append(result.logprobs)
