@@ -83,7 +83,7 @@ class MlxModelCache:
         logger.info(f"Loaded new model: {self.model_id.name}")
 
         # Load configuration and create chat tokenizer
-        model_path = get_model_path(self.model_id.name)
+        model_path = get_model_path(self.model_id.name)[0]
         config = load_config(model_path)
         self.chat_tokenizer = load_tools_handler(config["model_type"], self.tokenizer)
 
