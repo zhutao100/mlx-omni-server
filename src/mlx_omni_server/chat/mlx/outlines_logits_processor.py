@@ -1,7 +1,7 @@
 import mlx.core as mx
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from outlines.models.transformers import TransformerTokenizer
-from outlines.processors import JSONLogitsProcessor
+from outlines.processors import OutlinesLogitsProcessor as JSONLogitsProcessor
 
 from ..schema import ResponseFormat
 
@@ -12,8 +12,6 @@ class OutlinesLogitsProcessor:
     def __init__(self, tokenizer: TokenizerWrapper, response_format: ResponseFormat):
         json_schema = response_format.json_schema.schema_def
         self.logits_processor = JSONLogitsProcessor(
-            json_schema,
-            TransformerTokenizer(tokenizer._tokenizer),
             tensor_library_name="mlx",
         )
 
