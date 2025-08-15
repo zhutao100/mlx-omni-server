@@ -5,7 +5,7 @@ import mlx.core as mx
 import numpy as np
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from outlines.models.transformers import TransformerTokenizer
-from outlines.processors.structured import JSONLogitsProcessor
+from outlines.processors import OutlinesLogitsProcessor as JSONLogitsProcessor
 
 from ..schema import ResponseFormat
 
