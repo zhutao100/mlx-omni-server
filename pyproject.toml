@@ -1,6 +1,6 @@
 [project]
 name = "mlx-omni-server"
-version = "0.4.7"
+version = "0.4.8"
 description = "MLX Omni Server is a server that provides OpenAI-compatible APIs using Apple's MLX framework."
 authors = [{ name = "madroid", email = "madroidmaq@gmail.com" }]
 requires-python = ">=3.11"
@@ -41,7 +41,7 @@ dependencies = [
     "mlx-audio>=0.2.3",
     "numba>=0.57.0",
     # images
-    "mflux>=0.9.3,<1.0",
+    "mflux>=0.10.0,<0.11",
     # embeddings
     "mlx-embeddings>=0.0.3",
 ]
