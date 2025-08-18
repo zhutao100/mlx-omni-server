@@ -1,11 +1,7 @@
-import json
-from typing import List, Union
-
 import mlx.core as mx
-import numpy as np
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from outlines.models.transformers import TransformerTokenizer
-from outlines.processors import OutlinesLogitsProcessor as JSONLogitsProcessor
+from outlines.processors import JSONLogitsProcessor
 
 from ..schema import ResponseFormat
 
