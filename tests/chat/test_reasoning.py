@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from openai import OpenAI
 
-from mlx_omni_server.chat.mlx.tools.reasoning_decoder import ReasoningDecoder
+from mlx_omni_server.chat.mlx.tools.tokens_decoder import ReasoningDecoder
 from mlx_omni_server.main import app
 
 logging.basicConfig(level=logging.INFO)

@@ -25,7 +25,7 @@ from ..text_models import BaseTextModel, GenerateResult, GenerationParams
 from .model_types import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCache
-from .tools.reasoning_decoder import ReasoningDecoder
+from .tools.tokens_decoder import ReasoningDecoder
 
 
 class MLXModel(BaseTextModel):
@@ -207,8 +207,7 @@ class MLXModel(BaseTextModel):
         enable_thinking = template_kwargs.get("enable_thinking", True)
         self._reasoning_decoder.enable_thinking = enable_thinking
         if enable_thinking:
-            self._reasoning_decoder.set_thinking_prefix(True)
-            if prompt.endswith(f"<{self._reasoning_decoder.thinking_tag}>"):
+            if prompt.endswith(f"{self._reasoning_decoder.thinking_start_tag}"):
                 self._reasoning_decoder.set_thinking_prefix(True)
             else:
                 self._reasoning_decoder.set_thinking_prefix(False)
