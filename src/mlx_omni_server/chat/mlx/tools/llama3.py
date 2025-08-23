@@ -29,8 +29,8 @@ class Llama3ChatTokenizer(ChatTokenizer):
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
 
-    def decode_stream(self, text: str, delta_text: str) -> Optional[List[ToolCall]]:
-        pass
+    def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
+        return ChatMessage(role=Role.ASSISTANT, content=delta_text)
 
     def encode(
         self,
@@ -87,7 +87,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
         return tool_calls if tool_calls else None
 
-    def decode(self, text: str) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         """
         Parse tool calls from model output.
         The model outputs function calls in JSON format with 'name' and optional 'arguments' fields.

@@ -1,3 +1,4 @@
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
@@ -69,7 +70,7 @@ class ReasoningDecoder(TokensDecoder):
         elif not has_end_tag_before and has_end_tag_now:
             # Split the current delta
             parts = text.split(thinking_end_tag, 1)
-            return {"delta_content": "", "delta_reasoning": None}
+            return {"delta_content": parts[0], "delta_reasoning": None}
         # If end tag was already encountered before
         elif has_end_tag_before:
             # All content after the end tag is content

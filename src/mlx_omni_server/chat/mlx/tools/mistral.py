@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from ...schema import ChatMessage, FunctionCall, Role, ToolCall
+from ...schema import ChatMessage, FunctionCall, Role, Tool, ToolCall
 from .chat_tokenizer import ChatTokenizer
 
 
@@ -16,10 +16,10 @@ class MistralChatTokenizer(ChatTokenizer):
         self.start_tool_calls = "[TOOL_CALLS]"
         self.end_tool_calls = ""
 
-    def decode_stream(self, text: str, delta_text: str) -> Optional[List[ToolCall]]:
-        pass
+    def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
+        return ChatMessage(role=Role.ASSISTANT, content=delta_text)
 
-    def decode(self, text: str) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         """Parse tool calls from model output.
 
         The model outputs function calls in the format:

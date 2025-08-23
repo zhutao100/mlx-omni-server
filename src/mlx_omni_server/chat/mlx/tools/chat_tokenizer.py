@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+import json
+import logging
+from typing import Dict
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
@@ -15,11 +17,35 @@ class ChatTokenizer(ABC):
     def __init__(self, tokenizer: TokenizerWrapper):
         self.tokenizer = tokenizer
 
+    def _ensure_dict_arguments(self, tools: list[Dict]) -> list[Dict]:
+        """Ensure that all tool arguments are in dict format rather than JSON strings.
+        
+        This prevents unsafe JSON parsing in Jinja2 templates.
+        """
+        if not tools:
+            return tools
+            
+        processed_tools = []
+        for tool in tools:
+            processed_tool = tool.copy()
+            if 'function' in processed_tool and 'arguments' in processed_tool['function']:
+                args = processed_tool['function']['arguments']
+                # If arguments is a JSON string, parse it to dict
+                if isinstance(args, str):
+                    try:
+                        processed_tool['function']['arguments'] = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        # If parsing fails, leave as is but log warning
+                        logging.warning(f"Failed to parse tool arguments as JSON: {args[:100]}...")
+                # If arguments is already a dict, leave as is
+            processed_tools.append(processed_tool)
+        return processed_tools
+
     def encode(
         self,
-        messages: List[ChatMessage],
-        tools: Optional[List[Tool]] = None,
-        tool_choice: Optional[ToolChoiceType] = None,
+        messages: list[ChatMessage],
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoiceType | None = None,
         **kwargs,
     ) -> str:
         """Encode tools and conversation into a prompt string.
@@ -29,7 +55,9 @@ class ChatTokenizer(ABC):
         """
         schema_tools = None
         if tools:
+            # Convert tools to schema format and ensure arguments are dicts
             schema_tools = [tool.model_dump(exclude_none=True) for tool in tools]
+            schema_tools = self._ensure_dict_arguments(schema_tools)
 
         should_prefill = messages[-1].role == Role.ASSISTANT
 
@@ -42,10 +70,28 @@ class ChatTokenizer(ABC):
                     for item in msg_dict["content"]
                     if item.get("type") == "text"
                 )
+            
+            # Process tool calls in assistant messages to ensure arguments are dicts
+            if msg_dict.get("role") == "assistant" and "tool_calls" in msg_dict:
+                for tool_call in msg_dict["tool_calls"]:
+                    if "function" in tool_call and "arguments" in tool_call["function"]:
+                        args = tool_call["function"]["arguments"]
+                        if isinstance(args, str):
+                            try:
+                                tool_call["function"]["arguments"] = json.loads(args)
+                            except (json.JSONDecodeError, TypeError):
+                                logging.warning(f"Failed to parse tool call arguments as JSON: {args[:100]}...")
+            
             conversation.append(msg_dict)
-
+        
+        apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
+        if not callable(apply_chat_template):
+            raise TypeError(
+                f"self.tokenizer.apply_chat_template is not callable (got type: {type(apply_chat_template)}). "
+                "Please check the TokenizerWrapper implementation and ensure it provides a callable 'apply_chat_template' method."
+            )
         if should_prefill:
-            prompt = self.tokenizer.apply_chat_template(
+            prompt = apply_chat_template(
                 conversation=conversation,
                 tools=schema_tools,
                 tokenize=False,
@@ -53,7 +99,7 @@ class ChatTokenizer(ABC):
                 **kwargs,
             )
         else:
-            prompt = self.tokenizer.apply_chat_template(
+            prompt = apply_chat_template(
                 conversation=conversation,
                 tools=schema_tools,
                 tokenize=False,
@@ -61,6 +107,8 @@ class ChatTokenizer(ABC):
                 **kwargs,
             )
 
+        if not isinstance(prompt, str):
+            prompt = str(prompt)
         if tools:
             if (
                 isinstance(tool_choice, ToolChoice)
@@ -71,11 +119,16 @@ class ChatTokenizer(ABC):
         return prompt
 
     @abstractmethod
-    def decode_stream(self, text: str) -> Optional[List[ToolCall]]:
+    def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
         """Parse tool calls from model output."""
         pass
 
     @abstractmethod
-    def decode(self, text: str) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
         """Parse tool calls from model output."""
         pass
+
+    def parse_buffer(self, tools: list[Tool] | None = None) -> ChatMessage | None:
+        """Parse any buffered text into a ChatMessage."""
+        # This method can be overridden by subclasses if they need to handle buffering
+        return None

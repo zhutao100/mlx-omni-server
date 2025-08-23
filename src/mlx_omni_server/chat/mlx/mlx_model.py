@@ -6,6 +6,9 @@ import mlx.core as mx
 from mlx_lm.generate import GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+from mlx_lm.utils import get_model_path, load_config
+
+from mlx_omni_server.chat.mlx.tools.chat_tokenizer import ChatTokenizer
 
 from ...utils.logger import logger
 from ..schema import (
@@ -38,11 +41,18 @@ class MLXModel(BaseTextModel):
             model_cache: MlxModelCache object containing models and tokenizers
         """
         self._model_cache = model_cache
-        self._default_max_tokens = 2048
-        self._chat_tokenizer = model_cache.chat_tokenizer
+        self._default_max_tokens = 1048576
+        if not model_cache.chat_tokenizer:
+            raise ValueError("model_cache.chat_tokenizer cannot be None")
+        self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
         self._prompt_cache = PromptCache()
         self._prompt_cache_tokens_count = 0
+        if model_cache.tokenizer is None:
+            raise ValueError("model_cache.tokenizer cannot be None")
         self._reasoning_decoder = ReasoningDecoder(model_cache.tokenizer)
+
+        model_path = get_model_path(model_cache.model_id.name)[0]
+        self._model_config = load_config(model_path)
 
     def _get_generation_params(
         self, request: ChatCompletionRequest
@@ -284,6 +294,7 @@ class MLXModel(BaseTextModel):
                 logger.debug(
                     f"generation tokens: {response.generation_tokens}, tps: {response.generation_tps}"
                 )
+                logger.debug(f"    finish reason: {response.finish_reason}")
 
             self._prompt_cache.extend_completion_cache(generated_tokens)
         except Exception as e:
@@ -325,7 +336,7 @@ class MLXModel(BaseTextModel):
                     reasoning = reasoning_result.get("reasoning") or None
 
             if request.tools:
-                message = self._chat_tokenizer.decode(completion)
+                message = self._chat_tokenizer.decode(completion, request.tools)
             else:
                 message = ChatMessage(
                     role=Role.ASSISTANT,
@@ -380,48 +391,71 @@ class MLXModel(BaseTextModel):
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
 
-            completion = ""
             for result in self._stream_generate(request=request):
                 created = int(time.time())
-                completion += result.text
-
                 message = None
                 enable_thinking = self._reasoning_decoder.enable_thinking
+                delta_content: str = result.text
+                delta_reasoning = None
+
                 if enable_thinking:
                     reasoning_result = self._reasoning_decoder.stream_decode(
                         result.text
                     )
                     if reasoning_result:
-                        logger.debug(f"Reasoning result:\n{reasoning_result}")
-                        delta_content = reasoning_result.get("delta_content")
+                        logger.debug(f"Stream reasoning result:\n{reasoning_result}")
+                        delta_content = reasoning_result.get("delta_content") or result.text
                         delta_reasoning = (
                             reasoning_result.get("delta_reasoning") or None
                         )
-                        if delta_content:
-                            message = ChatMessage(
-                                role=Role.ASSISTANT,
-                                content=delta_content or result.text,
-                            )
-                        elif delta_reasoning:
-                            message = ChatMessage(
-                                role=Role.ASSISTANT, reasoning=delta_reasoning
-                            )
 
-                if message is None:
-                    message = ChatMessage(role=Role.ASSISTANT, content=result.text)
+                if delta_reasoning:
+                    # If we have a delta reasoning, we need to send it as a message
+                    message = ChatMessage(
+                        role=Role.ASSISTANT,
+                        reasoning=delta_reasoning,
+                    )
+                else:
+                    message = self._chat_tokenizer.decode_stream(delta_content, request.tools)
 
-                yield ChatCompletionChunk(
-                    id=chat_id,
-                    created=created,
-                    model=request.model,
-                    choices=[
+                if message:
+                    choices = [
                         ChatCompletionChunkChoice(
                             index=0,
                             delta=message,
                             finish_reason=result.finish_reason,
                             logprobs=result.logprobs,
                         )
-                    ],
+                    ]
+                    # Only yield if we have a message to send (avoid sending empty chunks when filtering XML)
+                    yield ChatCompletionChunk(
+                        id=chat_id,
+                        created=created,
+                        model=request.model,
+                        choices=choices,
+                    )
+
+            final_message = self._chat_tokenizer.parse_buffer(request.tools)
+            if final_message:
+                created = int(time.time())
+                if final_message.tool_calls:
+                    finish_reason = "tool_calls"
+                else:
+                    finish_reason = "stop"
+                # Send final chunk with finish reason
+                choices = [
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=final_message,
+                        finish_reason=finish_reason,
+                        logprobs=None,
+                    )
+                ]
+                yield ChatCompletionChunk(
+                    id=chat_id,
+                    created=created,
+                    model=request.model,
+                    choices=choices,
                 )
 
             if request.stream_options and request.stream_options.include_usage:
