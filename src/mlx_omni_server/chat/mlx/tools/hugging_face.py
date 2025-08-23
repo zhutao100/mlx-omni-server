@@ -50,8 +50,8 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
         return prompt + self.pre_fill_tools_prompt
 
-    def decode_stream(self, text: str, delta_text: str) -> Optional[List[ToolCall]]:
-        pass
+    def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
+        return ChatMessage(role=Role.ASSISTANT, content=delta_text)
 
     def _parse_strict_tools(self, text: str) -> Optional[List[ToolCall]]:
         tool_calls = []
@@ -93,7 +93,7 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
         return tool_calls if tool_calls else None
 
-    def decode(self, text: str) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: Optional[List[Tool]] = None) -> Optional[ChatMessage]:
         """Parse tool calls from model output."""
         response = self.pre_fill_tools_prompt + text
 

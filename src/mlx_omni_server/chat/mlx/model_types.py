@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional, Type
+import os
+from pathlib import Path
+from typing import Any, Optional, Type
 
 import mlx.nn as nn
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -10,6 +12,7 @@ from .tools.chat_tokenizer import ChatTokenizer
 from .tools.hugging_face import HuggingFaceChatTokenizer
 from .tools.llama3 import Llama3ChatTokenizer
 from .tools.mistral import MistralChatTokenizer
+from .tools.qwen3 import Qwen3ChatTokenizer
 
 
 def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatTokenizer:
@@ -19,11 +22,32 @@ def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatToke
         "llama": Llama3ChatTokenizer,
         "mistral": MistralChatTokenizer,
         "qwen2": HuggingFaceChatTokenizer,
+        "qwen3": Qwen3ChatTokenizer,
+        "qwen3_moe": Qwen3ChatTokenizer,
     }
 
     # Get handler class based on model ID or use Llama handler as default
     handler_class = handlers.get(model_type, HuggingFaceChatTokenizer)
     return handler_class(tokenizer)
+
+
+def load_chat_template(model_type: str) -> str | None:
+    """Load chat template based on model type."""
+
+    templates_dir = os.path.join( Path(__file__).parent.parent, "templates")
+    template_files = {
+        "qwen3": "qwen3_chat_template.jinja",
+        "qwen3_moe": "qwen3_chat_template.jinja",
+    }
+    if template_files.get(model_type):
+        template_path = os.path.join(templates_dir, template_files[model_type])
+        if os.path.exists(template_path):
+            with open(template_path, "r", encoding="utf-8") as f:
+                return f.read()
+        else:
+            logger.error(f"Chat template file not found: {template_path}")
+    
+    return None
 
 
 @dataclass(frozen=True)
@@ -64,7 +88,7 @@ class MlxModelCache:
         self.model_id: ModelId = model_id
         self.model: Optional[nn.Module] = None
         self.tokenizer: Optional[TokenizerWrapper] = None
-        self.chat_tokenizer = None
+        self.chat_tokenizer: Optional[ChatTokenizer] = None
         self.draft_model: Optional[nn.Module] = None
         self.draft_tokenizer: Optional[TokenizerWrapper] = None
 
@@ -74,17 +98,25 @@ class MlxModelCache:
 
     def _load_models(self):
         """Load the main model and draft model (if needed)."""
+        # Load the model configuration
+        model_path = get_model_path(self.model_id.name)[0]
+        config = load_config(model_path)
+
+        tokenizer_config: dict[str, Any] = {"trust_remote_code": True}
+        chat_template = load_chat_template(config["model_type"])
+        if chat_template:
+            logger.info(f"Using chat template \n{chat_template}\n")
+            tokenizer_config["chat_template"] = chat_template
+
         # Load the main model
         self.model, self.tokenizer = load(
             self.model_id.name,
-            tokenizer_config={"trust_remote_code": True},
+            tokenizer_config=tokenizer_config,
             adapter_path=self.model_id.adapter_path,
         )
         logger.info(f"Loaded new model: {self.model_id.name}")
 
-        # Load configuration and create chat tokenizer
-        model_path = get_model_path(self.model_id.name)[0]
-        config = load_config(model_path)
+        # create chat tokenizer
         self.chat_tokenizer = load_tools_handler(config["model_type"], self.tokenizer)
 
         # If needed, load the draft model
