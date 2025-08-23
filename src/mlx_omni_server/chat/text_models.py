@@ -35,8 +35,10 @@ class BaseTextModel(ABC):
         """Generate completion text with parameters from request"""
         pass
 
+    @abstractmethod
     def stream_generate(
         self,
         request: ChatCompletionRequest,
     ) -> Generator[ChatCompletionChunk, None, None]:
+        """Stream generate completion chunks with parameters from request"""
         pass

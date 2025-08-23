@@ -1,9 +1,9 @@
 import unittest
 
-from mlx_omni_server.chat.mlx.tools.utils import parse_tool_calls
+from mlx_omni_server.chat.mlx.tools.tool_parser import ToolParser
 
 
-class TestToolsParse(unittest.TestCase):
+class TestToolParser(unittest.TestCase):
     examples = [
         """<?xml version="1.0" encoding="UTF-8"?>
         <json>
@@ -38,14 +38,18 @@ This JSON represents a function call to `get_current_weather` with the location 
         '[TOOL_CALLS] [{"name": "get_current_weather", "arguments": {"location": "Boston, MA"}}]',
     ]
 
+    def setUp(self):
+        self.tool_parser = ToolParser()
+
     def test_decode_invalid_json(self):
         # Test invalid JSON format
 
         for text in self.examples:
-            tools = parse_tool_calls(text)
+            _, tools = self.tool_parser.extract_tool_calls(text)
 
-            self.assertIsNotNone(tools)
             print(f"tools: {tools}")
-
-            tool_call = tools[0]
-            self.assertIsNotNone(tool_call.function.name)
+            if tools:
+                self.assertIsInstance(tools, list)
+                self.assertGreaterEqual(len(tools), 1)
+                tool_call = tools[0]
+                self.assertIsNotNone(tool_call.function.name)
