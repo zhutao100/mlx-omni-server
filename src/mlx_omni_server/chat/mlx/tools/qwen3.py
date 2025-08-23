@@ -17,128 +17,33 @@ from ...schema import (
     ToolType,
 )
 from .chat_tokenizer import ChatTokenizer
-
-# Sentinel tokens
-_TOOL_CALL_PREFIX = "<function="
-_TOOL_CALL_POSTFIX = "</function>"
-_TOOL_CALL_START_TOKEN = "<tool_call>"
-_TOOL_CALL_END_TOKEN = "</tool_call>"
+from .tool_parser import ToolParser
 
 
-class Qwen3ToolParser:
+class Qwen3ToolParser(ToolParser):
     """Tool parser for Qwen3's XML format that converts to OpenAI JSON format."""
 
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
-
+    def __init__(self):
+        # Sentinel tokens for streaming mode
+        self.tool_call_start_token: str = "<tool_call>"
+        self.tool_call_end_token: str = "</tool_call>"
+        self.tool_call_prefix: str = "<function="
+        self.function_end_token: str = "</function>"
+        self.parameter_prefix: str = "<parameter="
+        self.parameter_end_token: str = "</parameter>"
         # Track tool calls for finish_reason handling (like vLLM)
         self.prev_tool_call_arr = []
 
         # XML parsing patterns (matching vLLM exactly)
         self.tool_call_regex = re.compile(
-            rf"{_TOOL_CALL_START_TOKEN}(.*?){_TOOL_CALL_END_TOKEN}|{_TOOL_CALL_START_TOKEN}(.*?)$", re.DOTALL
+            rf"{self.tool_call_start_token}(.*?){self.tool_call_end_token}|{self.tool_call_start_token}(.*?)$", re.DOTALL
         )
         self.tool_call_function_regex = re.compile(
-            rf"{_TOOL_CALL_PREFIX}(.*?){_TOOL_CALL_POSTFIX}|{_TOOL_CALL_PREFIX}(.*?)$", re.DOTALL
+            rf"{self.tool_call_prefix}(.*?){self.function_end_token}|{self.tool_call_prefix}(.*?)$", re.DOTALL
         )
         self.tool_call_parameter_regex = re.compile(
-            r"<parameter=(.*?)</parameter>|<parameter=(.*?)$", re.DOTALL
+            rf"{self.parameter_prefix}(.*?){self.parameter_end_token}|{self.parameter_prefix}(.*?)$", re.DOTALL
         )
-
-    def _convert_param_value(self, param_value: str, param_name: str, param_config: dict, func_name: str) -> Any:
-        """Convert parameter value based on its expected type."""
-        # Handle null value for any type
-        if param_value.lower() == "null":
-            return None
-
-        if param_name not in param_config:
-            if param_config != {}:
-                logging.warning(
-                    f"Parsed parameter '{param_name}' is not defined in the tool "
-                    f"parameters for tool '{func_name}', directly returning the string value."
-                )
-            return param_value
-
-        if (
-            isinstance(param_config[param_name], dict)
-            and "type" in param_config[param_name]
-        ):
-            param_type = str(param_config[param_name]["type"]).strip().lower()
-        else:
-            param_type = "string"
-
-        if param_type in ["string", "str", "text", "varchar", "char", "enum"]:
-            return param_value
-        elif (
-            param_type.startswith("int")
-            or param_type.startswith("uint")
-            or param_type.startswith("long")
-            or param_type.startswith("short")
-            or param_type.startswith("unsigned")
-        ):
-            try:
-                int_param_value = int(param_value)
-                return int_param_value
-            except:
-                logging.warning(
-                    f"Parsed value '{param_value}' of parameter '{param_name}' is not an integer in tool "
-                    f"'{func_name}', degenerating to string."
-                )
-                return param_value
-        elif param_type.startswith("num") or param_type.startswith("float"):
-            try:
-                numeric_param_value = float(param_value)
-                numeric_param_value = numeric_param_value if numeric_param_value - \
-                    int(numeric_param_value) != 0 else int(numeric_param_value)
-                return numeric_param_value
-            except:
-                logging.warning(
-                    f"Parsed value '{param_value}' of parameter '{param_name}' is not a float in tool "
-                    f"'{func_name}', degenerating to string."
-                )
-                return param_value
-        elif param_type in ["boolean", "bool", "binary"]:
-            param_value = param_value.lower()
-            if param_value not in ["true", "false"]:
-                logging.warning(
-                    f"Parsed value '{param_value}' of parameter '{param_name}' is not a boolean (`true` of `false`) in tool '{func_name}', degenerating to false."
-                )
-            return param_value == "true"
-        else:
-            if param_type == "object" or param_type.startswith("dict"):
-                try:
-                    param_value = json.loads(param_value)
-                    return param_value
-                except:
-                    logging.warning(
-                        f"Parsed value '{param_value}' of parameter '{param_name}' is not a valid JSON object in tool "
-                        f"'{func_name}', will try other methods to parse it."
-                    )
-            try:
-                param_value = eval(param_value)
-            except:
-                logging.warning(
-                    f"Parsed value '{param_value}' of parameter '{param_name}' cannot be converted via Python `eval()` in tool '{func_name}', degenerating to string."
-                )
-            return param_value
-
-    def _get_arguments_config(self, func_name: str, tools: list[Tool] | None) -> dict:
-        """Get parameter configuration for a function from tools list."""
-        if tools is None:
-            return {}
-
-        tools_names = []
-        for tool in tools:
-            if tool.type == ToolType.FUNCTION and tool.function:
-                tools_names.append(tool.function.name)
-                if tool.function.name == func_name:
-                    params = tool.function.parameters
-                    if params and params.properties:
-                        return params.properties
-                    else:
-                        return {}
-        logging.warning(f"Tool '{func_name}' is not defined in the tools list {tools_names}.")
-        return {}
 
     def _parse_xml_function_call(self, function_call_str: str, tools: list[Tool] | None) -> Dict[str, Any] | None:
         """Parse XML function call format to OpenAI JSON format."""
@@ -215,24 +120,12 @@ class Qwen3ToolParser:
         ]
         return function_calls
 
-    def _create_tool_call_from_data(self, tool_call_data: Dict[str, Any]) -> ToolCall:
-        """Create a ToolCall object from parsed tool call data."""
-        args = tool_call_data["function"]["arguments"]
-        return ToolCall(
-            id=tool_call_data["id"],
-            type=tool_call_data["type"],
-            function=FunctionCall(
-                name=tool_call_data["function"]["name"],
-                arguments=args if isinstance(args, str) else json.dumps(args),
-            ),
-        )
-
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
     ) -> Tuple[str, list[ToolCall] | None]:
         """Extract tool calls from model output and return in OpenAI format."""
         # Quick check to avoid unnecessary processing (like vLLM)
-        if _TOOL_CALL_PREFIX not in model_output:
+        if self.tool_call_prefix not in model_output:
             return model_output, None
         try:
             function_call_str_list: list[str] = self._get_function_calls(model_output)
@@ -254,11 +147,11 @@ class Qwen3ToolParser:
                     )
 
             # Extract content before tool calls (like vLLM - no rstrip)
-            content_index = model_output.find(_TOOL_CALL_START_TOKEN)
+            content_index = model_output.find(self.tool_call_start_token)
             content_index = (
                 content_index
                 if content_index >= 0
-                else model_output.find(_TOOL_CALL_PREFIX)
+                else model_output.find(self.tool_call_prefix)
             )
             content = model_output[:content_index] if content_index > 0 else ""
 
@@ -275,7 +168,7 @@ class Qwen3ChatTokenizer(ChatTokenizer):
         super().__init__(tokenizer)
         self.start_tool_calls = ""
         self.end_tool_calls = ""
-        self.tool_parser = Qwen3ToolParser(tokenizer)
+        self.tool_parser = Qwen3ToolParser()
         self.pre_fill_tools_prompt = ""
         self.buffer = ""
         self.left_bracket_pos = -1  # Position of the first '<' in the buffer
@@ -343,40 +236,37 @@ class Qwen3ChatTokenizer(ChatTokenizer):
 
         self.buffer = self.buffer[self.left_bracket_pos:]
         tool_calls = []
-        # Check for complete tool calls in the buffer
-        while _TOOL_CALL_END_TOKEN in self.buffer:
-            match = self.tool_parser.tool_call_function_regex.search(self.buffer)
-            if not match:
-                break
+        contents = []
 
-            tool_call_str = match.group(1)
-            # Parse the complete tool call
-            parsed_call = self.tool_parser._parse_xml_function_call(tool_call_str, tools)
-            if parsed_call:
-                tool_calls.append(self.tool_parser._create_tool_call_from_data(parsed_call))
+        while (index := self.buffer.find(self.tool_parser.tool_call_end_token)) != -1:
+            # Extract the complete tool call
+            tool_call_str = self.buffer[: index + len(self.tool_parser.tool_call_end_token)]
+            content, extracted_tool_calls = self.tool_parser.extract_tool_calls(
+                tool_call_str, tools)
+            contents.append(content)
+            if extracted_tool_calls:
+                tool_calls.extend(extracted_tool_calls)
 
-            # Remove the parsed tool call from the buffer
-            self.buffer = (
-                self.buffer[match.end():].lstrip().removeprefix(_TOOL_CALL_END_TOKEN)
-            )
+            # Remove the processed tool call from the buffer
+            self.buffer = self.buffer[index + len(self.tool_parser.tool_call_end_token):].lstrip()
             self.left_bracket_pos = self.buffer.find("<")
 
-        content = self.buffer if self.buffer else None
+        if self.buffer.strip():
+            contents.append(self.buffer)
         self.buffer = ""  # Clear the buffer after parsing
         self.left_bracket_pos = -1  # Reset left bracket position
         if tool_calls:
             return ChatMessage(
                 role=Role.ASSISTANT,
-                content=content,
+                content="".join(contents).rstrip(),
                 tool_calls=tool_calls,
             )
-
         else:
             logger.warning("No matched tool calls in buffer, sending as content.")
-            if content:
+            if contents:
                 return ChatMessage(
                     role=Role.ASSISTANT,
-                    content=content,
+                    content="".join(contents).rstrip(),
                     tool_calls=None,
                 )
 
