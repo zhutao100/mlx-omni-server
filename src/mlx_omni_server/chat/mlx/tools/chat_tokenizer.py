@@ -5,6 +5,8 @@ from typing import Dict
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
+from mlx_omni_server.chat.mlx.tools.tool_parser import BaseToolParser
+
 from ...schema import ChatMessage, Role, Tool, ToolCall, ToolChoice, ToolChoiceType
 
 
@@ -19,12 +21,12 @@ class ChatTokenizer(ABC):
 
     def _ensure_dict_arguments(self, tools: list[Dict]) -> list[Dict]:
         """Ensure that all tool arguments are in dict format rather than JSON strings.
-        
+
         This prevents unsafe JSON parsing in Jinja2 templates.
         """
         if not tools:
             return tools
-            
+
         processed_tools = []
         for tool in tools:
             processed_tool = tool.copy()
@@ -70,7 +72,7 @@ class ChatTokenizer(ABC):
                     for item in msg_dict["content"]
                     if item.get("type") == "text"
                 )
-            
+
             # Process tool calls in assistant messages to ensure arguments are dicts
             if msg_dict.get("role") == "assistant" and "tool_calls" in msg_dict:
                 for tool_call in msg_dict["tool_calls"]:
@@ -81,9 +83,9 @@ class ChatTokenizer(ABC):
                                 tool_call["function"]["arguments"] = json.loads(args)
                             except (json.JSONDecodeError, TypeError):
                                 logging.warning(f"Failed to parse tool call arguments as JSON: {args[:100]}...")
-            
+
             conversation.append(msg_dict)
-        
+
         apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
         if not callable(apply_chat_template):
             raise TypeError(
@@ -132,3 +134,111 @@ class ChatTokenizer(ABC):
         """Parse any buffered text into a ChatMessage."""
         # This method can be overridden by subclasses if they need to handle buffering
         return None
+
+
+class ToolParsingChatTokenizer(ChatTokenizer):
+    """Tools handler for ToolParsing models with XML tool parsing support."""
+
+    tool_parser: BaseToolParser
+
+    def __init__(self, tokenizer: TokenizerWrapper):
+        super().__init__(tokenizer)
+        self.start_tool_calls = ""
+        self.end_tool_calls = ""
+        self.pre_fill_tools_prompt = ""
+        self.buffer = ""
+        self.left_bracket_pos = -1  # Position of the first '<' in the buffer
+
+    def decode_stream(
+        self, delta_text: str, tools: list[Tool] | None = None
+    ) -> ChatMessage | None:
+        """Parse tool calls from model output in streaming mode."""
+        self.buffer += delta_text
+
+        skip_delta = False
+        # Simple approach: stop streaming as soon as we see < character in buffer
+        if self.left_bracket_pos < 0:
+            self.left_bracket_pos = self.buffer.find("<")
+            if self.left_bracket_pos >= 0:
+                # Calculate what part of this segment comes before the <
+                text_before_segment = (
+                    self.buffer[: -len(delta_text)]
+                    if len(delta_text) <= len(self.buffer)
+                    else ""
+                )
+
+                if self.left_bracket_pos >= len(text_before_segment):
+                    # The < is in this segment
+                    chars_before_bracket = self.left_bracket_pos - len(
+                        text_before_segment
+                    )
+                    delta_text = delta_text[:chars_before_bracket]
+                else:
+                    # The < was in previous segments, don't send anything
+                    delta_text = ""
+                    skip_delta = True
+            else:
+                # No < found yet, send the segment
+                pass
+        else:
+            # Already detected <, don't send anything more
+            delta_text = ""
+            skip_delta = True
+
+        if not skip_delta:
+            return ChatMessage(
+                role=Role.ASSISTANT,
+                content=delta_text,
+            )
+
+    def parse_buffer(self, tools: list[Tool] | None = None) -> ChatMessage | None:
+        """Process the buffer to extract complete tool calls."""
+        if self.left_bracket_pos < 0:
+            return None  # No left bracket found, nothing to parse
+
+        self.buffer = self.buffer[self.left_bracket_pos:]
+        tool_calls = []
+        contents = []
+
+        while (index := self.buffer.find(self.tool_parser.tool_call_end_token)) != -1:
+            # Extract the complete tool call
+            tool_call_str = self.buffer[: index + len(self.tool_parser.tool_call_end_token)]
+            content, extracted_tool_calls = self.tool_parser.extract_tool_calls(
+                tool_call_str, tools)
+            contents.append(content)
+            if extracted_tool_calls:
+                tool_calls.extend(extracted_tool_calls)
+
+            # Remove the processed tool call from the buffer
+            self.buffer = self.buffer[index + len(self.tool_parser.tool_call_end_token):].lstrip()
+            self.left_bracket_pos = self.buffer.find("<")
+
+        if self.buffer.strip():
+            contents.append(self.buffer)
+        self.buffer = ""  # Clear the buffer after parsing
+        self.left_bracket_pos = -1  # Reset left bracket position
+        if tool_calls:
+            return ChatMessage(
+                role=Role.ASSISTANT,
+                content="".join(contents).rstrip(),
+                tool_calls=tool_calls,
+            )
+        else:
+            logging.warning("No matched tool calls in buffer, sending as content.")
+            if contents:
+                return ChatMessage(
+                    role=Role.ASSISTANT,
+                    content="".join(contents).rstrip(),
+                    tool_calls=None,
+                )
+
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
+        """Parse tool calls from model output in non-streaming mode."""
+        # Use the ToolParsing tool parser to extract tool calls from XML format
+        content, tool_calls = self.tool_parser.extract_tool_calls(text, tools)
+
+        return ChatMessage(
+            role=Role.ASSISTANT,
+            content=content,
+            tool_calls=tool_calls,
+        )

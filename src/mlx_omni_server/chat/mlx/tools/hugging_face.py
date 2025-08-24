@@ -15,7 +15,7 @@ from ...schema import (
     ToolChoiceType,
 )
 from .chat_tokenizer import ChatTokenizer
-from .tool_parser import ToolParser
+from .tool_parser import GenericToolParser
 
 
 class HuggingFaceChatTokenizer(ChatTokenizer):
@@ -29,7 +29,7 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
         self.end_tool_calls = "</tool_call>"
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
-        self.tool_parser = ToolParser()
+        self.tool_parser = GenericToolParser()
 
     def encode(
         self,

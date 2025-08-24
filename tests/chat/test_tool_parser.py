@@ -1,6 +1,6 @@
 import unittest
 
-from mlx_omni_server.chat.mlx.tools.tool_parser import ToolParser
+from mlx_omni_server.chat.mlx.tools.tool_parser import GenericToolParser
 
 
 class TestToolParser(unittest.TestCase):
@@ -39,7 +39,7 @@ This JSON represents a function call to `get_current_weather` with the location 
     ]
 
     def setUp(self):
-        self.tool_parser = ToolParser()
+        self.tool_parser = GenericToolParser()
 
     def test_decode_invalid_json(self):
         # Test invalid JSON format
