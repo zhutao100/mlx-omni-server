@@ -394,27 +394,29 @@ class MLXModel(BaseTextModel):
                 created = int(time.time())
                 message = None
                 enable_thinking = self._reasoning_decoder.enable_thinking
-                delta_content: str = result.text
-                delta_reasoning = None
+                delta_content: str | None = result.text
+                delta_reasoning: str | None = None
 
                 if enable_thinking:
                     reasoning_result = self._reasoning_decoder.stream_decode(
                         result.text
                     )
-                    if reasoning_result:
-                        logger.debug(f"Stream reasoning result:\n{reasoning_result}")
-                        delta_content = reasoning_result.get("delta_content") or result.text
-                        delta_reasoning = (
-                            reasoning_result.get("delta_reasoning") or None
-                        )
+                    if not reasoning_result:
+                        logger.warning(f"Failed to decode reasoning from stream text: {result.text}")
+                        continue
+                    logger.debug(f"Stream reasoning result:\n{reasoning_result}")
+                    delta_content = reasoning_result.get("delta_content")
+                    delta_reasoning = (
+                        reasoning_result.get("delta_reasoning") or None
+                    )
 
-                if delta_reasoning:
+                if delta_reasoning is not None:
                     # If we have a delta reasoning, we need to send it as a message
                     message = ChatMessage(
                         role=Role.ASSISTANT,
                         reasoning=delta_reasoning,
                     )
-                else:
+                elif delta_content is not None:
                     message = self._chat_tokenizer.decode_stream(delta_content, request.tools)
 
                 if message:
