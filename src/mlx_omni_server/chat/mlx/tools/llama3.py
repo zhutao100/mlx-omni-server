@@ -16,7 +16,7 @@ from ...schema import (
     ToolChoiceType,
 )
 from .chat_tokenizer import ChatTokenizer
-from .tool_parser import ToolParser
+from .tool_parser import GenericToolParser
 
 
 class Llama3ChatTokenizer(ChatTokenizer):
@@ -28,7 +28,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
         self.end_tool_calls = ""
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
-        self.tool_parser = ToolParser()
+        self.tool_parser = GenericToolParser()
 
     def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         return ChatMessage(role=Role.ASSISTANT, content=delta_text)

@@ -1,4 +1,3 @@
-import json
 import re
 import uuid
 import logging
@@ -8,19 +7,14 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from ....utils.logger import logger
 from ...schema import (
-    ChatMessage,
-    FunctionCall,
-    Role,
     Tool,
     ToolCall,
-    ToolChoiceType,
-    ToolType,
 )
-from .chat_tokenizer import ChatTokenizer
-from .tool_parser import ToolParser
+from .chat_tokenizer import ToolParsingChatTokenizer
+from .tool_parser import GenericToolParser
 
 
-class Qwen3ToolParser(ToolParser):
+class Qwen3ToolParser(GenericToolParser):
     """Tool parser for Qwen3's XML format that converts to OpenAI JSON format."""
 
     def __init__(self):
@@ -161,122 +155,9 @@ class Qwen3ToolParser(ToolParser):
             return model_output, None
 
 
-class Qwen3ChatTokenizer(ChatTokenizer):
+class Qwen3ChatTokenizer(ToolParsingChatTokenizer):
     """Tools handler for Qwen3 models with XML tool parsing support."""
 
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = ""
-        self.end_tool_calls = ""
         self.tool_parser = Qwen3ToolParser()
-        self.pre_fill_tools_prompt = ""
-        self.buffer = ""
-        self.left_bracket_pos = -1  # Position of the first '<' in the buffer
-
-    def encode(
-        self,
-        messages: list[ChatMessage],
-        tools: list[Tool] | None = None,
-        tool_choice: ToolChoiceType | None = None,
-        **kwargs,
-    ) -> str:
-        """Encode tools and conversation into a prompt string."""
-        # Use the parent class's encode method which uses the tokenizer's chat template
-        prompt = super().encode(messages, tools, tool_choice, **kwargs)
-
-        # For Qwen3, we don't need to prefill tools as the tokenizer handles it
-        return prompt
-
-    def decode_stream(
-        self, delta_text: str, tools: list[Tool] | None = None
-    ) -> ChatMessage | None:
-        """Parse tool calls from model output in streaming mode."""
-        self.buffer += delta_text
-
-        skip_delta = False
-        # Simple approach: stop streaming as soon as we see < character in buffer
-        if self.left_bracket_pos < 0:
-            self.left_bracket_pos = self.buffer.find("<")
-            if self.left_bracket_pos >= 0:
-                # Calculate what part of this segment comes before the <
-                text_before_segment = (
-                    self.buffer[: -len(delta_text)]
-                    if len(delta_text) <= len(self.buffer)
-                    else ""
-                )
-
-                if self.left_bracket_pos >= len(text_before_segment):
-                    # The < is in this segment
-                    chars_before_bracket = self.left_bracket_pos - len(
-                        text_before_segment
-                    )
-                    delta_text = delta_text[:chars_before_bracket]
-                else:
-                    # The < was in previous segments, don't send anything
-                    delta_text = ""
-                    skip_delta = True
-            else:
-                # No < found yet, send the segment
-                pass
-        else:
-            # Already detected <, don't send anything more
-            delta_text = ""
-            skip_delta = True
-
-        if not skip_delta:
-            return ChatMessage(
-                role=Role.ASSISTANT,
-                content=delta_text,
-            )
-
-    def parse_buffer(self, tools: list[Tool] | None = None) -> ChatMessage | None:
-        """Process the buffer to extract complete tool calls."""
-        if self.left_bracket_pos < 0:
-            return None  # No left bracket found, nothing to parse
-
-        self.buffer = self.buffer[self.left_bracket_pos:]
-        tool_calls = []
-        contents = []
-
-        while (index := self.buffer.find(self.tool_parser.tool_call_end_token)) != -1:
-            # Extract the complete tool call
-            tool_call_str = self.buffer[: index + len(self.tool_parser.tool_call_end_token)]
-            content, extracted_tool_calls = self.tool_parser.extract_tool_calls(
-                tool_call_str, tools)
-            contents.append(content)
-            if extracted_tool_calls:
-                tool_calls.extend(extracted_tool_calls)
-
-            # Remove the processed tool call from the buffer
-            self.buffer = self.buffer[index + len(self.tool_parser.tool_call_end_token):].lstrip()
-            self.left_bracket_pos = self.buffer.find("<")
-
-        if self.buffer.strip():
-            contents.append(self.buffer)
-        self.buffer = ""  # Clear the buffer after parsing
-        self.left_bracket_pos = -1  # Reset left bracket position
-        if tool_calls:
-            return ChatMessage(
-                role=Role.ASSISTANT,
-                content="".join(contents).rstrip(),
-                tool_calls=tool_calls,
-            )
-        else:
-            logger.warning("No matched tool calls in buffer, sending as content.")
-            if contents:
-                return ChatMessage(
-                    role=Role.ASSISTANT,
-                    content="".join(contents).rstrip(),
-                    tool_calls=None,
-                )
-
-    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
-        """Parse tool calls from model output in non-streaming mode."""
-        # Use the Qwen3 tool parser to extract tool calls from XML format
-        content, tool_calls = self.tool_parser.extract_tool_calls(text, tools)
-
-        return ChatMessage(
-            role=Role.ASSISTANT,
-            content=content,
-            tool_calls=tool_calls,
-        )

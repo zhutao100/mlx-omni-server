@@ -10,6 +10,9 @@ from ...schema import FunctionCall, Tool, ToolCall, ToolType
 class BaseToolParser(ABC):
     """Base class for tool parsers."""
 
+    tool_call_start_token: str
+    tool_call_end_token: str
+
     @abstractmethod
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
@@ -20,7 +23,7 @@ class BaseToolParser(ABC):
         """
         pass
 
-class ToolParser(BaseToolParser):
+class GenericToolParser(BaseToolParser):
     """Base class for tool parsers."""
 
     def _extract_tools(self, text: str) -> list[dict[str, Any]] | None:
