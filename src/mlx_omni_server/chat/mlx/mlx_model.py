@@ -45,14 +45,23 @@ class MLXModel(BaseTextModel):
         if not model_cache.chat_tokenizer:
             raise ValueError("model_cache.chat_tokenizer cannot be None")
         self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
-        self._prompt_cache = PromptCache()
-        self._prompt_cache_tokens_count = 0
         if model_cache.tokenizer is None:
             raise ValueError("model_cache.tokenizer cannot be None")
         self._reasoning_decoder = ReasoningDecoder(model_cache.tokenizer)
-
         model_path = get_model_path(model_cache.model_id.name)[0]
         self._model_config = load_config(model_path)
+        if "max_position_embeddings" in self._model_config and isinstance(
+            self._model_config["max_position_embeddings"], int
+        ):
+            max_context_length = self._model_config["max_position_embeddings"]
+        else:
+            max_context_length = 131072
+            logger.warning(
+                f"Invalid or missing max_position_embeddings in model config: {self._model_config}\n"
+                f"Use default max_position_embeddings: {max_context_length}"
+            )
+        self._prompt_cache = PromptCache(max_position_embeddings=max_context_length)
+        self._prompt_cache_tokens_count = 0
 
     def _get_generation_params(
         self, request: ChatCompletionRequest
