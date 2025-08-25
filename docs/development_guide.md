@@ -5,12 +5,14 @@ This guide is intended for developers who want to contribute to MLX Omni Server 
 ## Setting Up Development Environment
 
 1. Clone the repository:
+
 ```bash
-git clone https://github.com/madroidmaq/mlx-omni-server.git
+git clone https://github.com/zhutao100/mlx-omni-server.git
 cd mlx-omni-server
 ```
 
 2. Install dependencies using uv:
+
 ```bash
 uv pip install -e .
 ```
