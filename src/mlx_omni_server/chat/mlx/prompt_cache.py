@@ -56,6 +56,7 @@ class PromptCache:
         model_key: Model identifier to ensure cache matches the model
     """
 
+    max_position_embeddings: int
     tokens: List[int] = field(default_factory=list)
     cache: List[Any] = field(default_factory=list)
     model_key: str = ""
@@ -63,17 +64,17 @@ class PromptCache:
     def extend_completion_cache(self, completion_tokens):
         self.tokens.extend(completion_tokens)
 
-    def reset_prompt_cache(self, model_cache: MlxModelCache, prompt, context_length: int = 131072):
+    def reset_prompt_cache(self, model_cache: MlxModelCache, prompt):
         logger.debug("*** Resetting cache. ***")
         self.model_key = model_cache.model_id.name
         if model_cache.model:
-            self.cache = make_prompt_cache(model_cache.model, max_kv_size=context_length)
-        else:   
+            self.cache = make_prompt_cache(model_cache.model, max_kv_size=self.max_position_embeddings)
+        else:
             logger.error("Model cache is None, cannot create prompt cache.")
             self.cache = []
 
         if model_cache.draft_model is not None:
-            self.cache += make_prompt_cache(model_cache.draft_model, max_kv_size=context_length)
+            self.cache += make_prompt_cache(model_cache.draft_model, max_kv_size=self.max_position_embeddings)
 
         self.tokens = list(prompt)  # Cache the new prompt fully
 
