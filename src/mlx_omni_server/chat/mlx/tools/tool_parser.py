@@ -7,6 +7,7 @@ import uuid
 from ....utils.logger import logger
 from ...schema import FunctionCall, Tool, ToolCall, ToolType
 
+
 class BaseToolParser(ABC):
     """Base class for tool parsers."""
 
@@ -22,6 +23,7 @@ class BaseToolParser(ABC):
         Returns the cleaned text and a list of ToolCall objects if any are found.
         """
         pass
+
 
 class GenericToolParser(BaseToolParser):
     """Base class for tool parsers."""
@@ -61,7 +63,7 @@ class GenericToolParser(BaseToolParser):
             )
 
         return results
-    
+
     def _convert_param_value(self, param_value: str, param_name: str, param_config: dict, func_name: str) -> Any:
         """Convert parameter value based on its expected type."""
         # Handle null value for any type
@@ -156,7 +158,7 @@ class GenericToolParser(BaseToolParser):
                         return {}
         logger.warning(f"Tool '{func_name}' is not defined in the tools list {tools_names}.")
         return {}
-    
+
     def _create_tool_call_from_data(self, tool_call_data: Dict[str, Any]) -> ToolCall:
         """Create a ToolCall object from parsed tool call data."""
         args = tool_call_data["function"]["arguments"]
@@ -168,6 +170,12 @@ class GenericToolParser(BaseToolParser):
                 arguments=args if isinstance(args, str) else json.dumps(args),
             ),
         )
+
+    def _normalize_text(self, s: str) -> str:
+        """Normalize whitespace: strip edges, collapse multiple blank lines."""
+        lines = [ln.rstrip() for ln in s.splitlines()]
+        cleaned = "\n".join(ln for ln in lines if ln.strip() != "")
+        return cleaned.strip()
 
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
