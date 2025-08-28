@@ -7,7 +7,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.mlx.tools.tool_parser import BaseToolParser
 
-from ...schema import ChatMessage, Role, Tool, ToolCall, ToolChoice, ToolChoiceType
+from ...schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
 
 
 class ChatTokenizer(ABC):
@@ -193,44 +193,16 @@ class ToolParsingChatTokenizer(ChatTokenizer):
 
     def parse_buffer(self, tools: list[Tool] | None = None) -> ChatMessage | None:
         """Process the buffer to extract complete tool calls."""
-        if self.left_bracket_pos < 0:
-            return None  # No left bracket found, nothing to parse
-
-        self.buffer = self.buffer[self.left_bracket_pos:]
-        tool_calls = []
-        contents = []
-
-        while (index := self.buffer.find(self.tool_parser.tool_call_end_token)) != -1:
-            # Extract the complete tool call
-            tool_call_str = self.buffer[: index + len(self.tool_parser.tool_call_end_token)]
-            content, extracted_tool_calls = self.tool_parser.extract_tool_calls(
-                tool_call_str, tools)
-            contents.append(content)
-            if extracted_tool_calls:
-                tool_calls.extend(extracted_tool_calls)
-
-            # Remove the processed tool call from the buffer
-            self.buffer = self.buffer[index + len(self.tool_parser.tool_call_end_token):].lstrip()
-            self.left_bracket_pos = self.buffer.find("<")
-
-        if self.buffer.strip():
-            contents.append(self.buffer)
-        self.buffer = ""  # Clear the buffer after parsing
-        self.left_bracket_pos = -1  # Reset left bracket position
-        if tool_calls:
-            return ChatMessage(
-                role=Role.ASSISTANT,
-                content="".join(contents).rstrip(),
-                tool_calls=tool_calls,
-            )
+        if self.left_bracket_pos >= 0:
+            # We have seen a '<', so we should parse the buffer for tool calls
+            text = self.buffer[self.left_bracket_pos:]
+            self.buffer = ""
+            self.left_bracket_pos = -1
+            return self.decode(text, tools)
         else:
             logging.warning("No matched tool calls in buffer, sending as content.")
-            if contents:
-                return ChatMessage(
-                    role=Role.ASSISTANT,
-                    content="".join(contents).rstrip(),
-                    tool_calls=None,
-                )
+            return None
+        
 
     def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
         """Parse tool calls from model output in non-streaming mode."""
