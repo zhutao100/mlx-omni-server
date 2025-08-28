@@ -30,7 +30,7 @@ class Glm4ToolParser(GenericToolParser):
         self.value_start_token: str = "<arg_value>"
         self.value_end_token: str = "</arg_value>"
 
-    def parse_tool_call_block(self, text: str, strict: bool = False) -> ToolCall | None:
+    def parse_tool_call_block(self, text: str, tools: list[Tool] | None, strict: bool = False) -> ToolCall | None:
         """
         Parse a <tool_call>... block in the format:
           <tool_call>function_name
@@ -84,7 +84,10 @@ class Glm4ToolParser(GenericToolParser):
                 search_pos = cand + len(self.value_end_token)
 
             raw_value = text[val_start:chosen_close]
-            args[key] = raw_value.strip()
+            param_config = self._get_arguments_config(func_name, tools)
+            args[key] = self._convert_param_value(
+                raw_value, key, param_config, func_name
+            )
             pos = chosen_close + len(self.value_end_token)
 
         return ToolCall(id=f"call_{uuid.uuid4().hex[:24]}",
@@ -127,7 +130,7 @@ class Glm4ToolParser(GenericToolParser):
             block = model_output[start_idx:block_end]
 
             try:
-                parsed = self.parse_tool_call_block(block, strict=self.strict)
+                parsed = self.parse_tool_call_block(block, tools=tools, strict=self.strict)
             except ValueError:
                 if self.strict:
                     raise
