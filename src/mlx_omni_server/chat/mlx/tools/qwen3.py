@@ -152,7 +152,7 @@ class Qwen3ToolParser(GenericToolParser):
 
             pos = block_end
 
-        rest_text = self._normalize_text("".join(rest_parts))
+        rest_text = "".join(rest_parts)
         logger.debug("Extracted tool calls %s", results)
         logger.debug("Remaining text: %s", "".join(rest_parts))
         return rest_text, results
