@@ -1,5 +1,6 @@
 import json
 import uuid
+from rich.markup import escape
 from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -55,7 +56,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
     def _parse_strict_tools(self, text: str) -> Optional[List[ToolCall]]:
         tool_calls = []
-        logger.debug(f"_parse_strict_tools: {text}")
+        logger.debug(f"_parse_strict_tools: {escape(text)}")
 
         if text.strip().startswith(self.start_tool_calls):
             try:
