@@ -1,6 +1,8 @@
 import ast
+import logging
 import json
 import re
+from rich.markup import escape
 from typing import Tuple
 import uuid
 
@@ -144,8 +146,8 @@ class Glm4ToolParser(GenericToolParser):
             pos = block_end
 
         rest_text = "".join(rest_parts)
-        logger.debug("Extracted tool calls %s", results)
-        logger.debug("Remaining text: %s", "".join(rest_parts))
+        logger.debug(escape("Extracted tool calls %s"), results)
+        logger.debug(escape("Remaining text: %s"), "".join(rest_parts))
         return rest_text, results
 
 

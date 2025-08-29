@@ -1,4 +1,5 @@
 import json
+from rich.markup import escape
 import time
 from typing import Callable, Optional
 
@@ -70,7 +71,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         logger.debug(
             f"Request [{request_id}]: {request.method} {request.url}\n"
             f"Headers:\n{json.dumps(dict(request.headers), indent=2)}\n"
-            f"Body:\n{format_body(body)}",
+            f"Body:\n{escape(format_body(body))}",
         )
 
         # Process the request and get response
@@ -99,7 +100,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
             f"Response [{request_id}] took {process_time:.2f}s:\n"
             f"Status: {response.status_code}\n"
             f"Headers:\n{json.dumps(dict(response.headers), indent=2)}\n"
-            f"Body:\n{body_text}",
+            f"Body:\n{escape(body_text)}",
         )
         return response
 

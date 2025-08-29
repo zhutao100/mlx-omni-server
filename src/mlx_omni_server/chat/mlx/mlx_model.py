@@ -1,5 +1,6 @@
 import time
 import uuid
+from rich.markup import escape
 from typing import Any, Dict, Generator, List, Optional
 
 import mlx.core as mx
@@ -211,7 +212,7 @@ class MLXModel(BaseTextModel):
             tools=request.tools,
             **template_kwargs,
         )
-        logger.debug(f"Encoded prompt:\n{prompt}")
+        logger.debug(f"Encoded prompt:\n{escape(prompt)}")
 
         enable_thinking = template_kwargs.get("enable_thinking", True)
         self._reasoning_decoder.enable_thinking = enable_thinking
@@ -306,7 +307,7 @@ class MLXModel(BaseTextModel):
 
             self._prompt_cache.extend_completion_cache(generated_tokens)
         except Exception as e:
-            logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
+            logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise
 
     def generate(
@@ -333,13 +334,13 @@ class MLXModel(BaseTextModel):
             if result is None:
                 raise RuntimeError("No tokens generated")
 
-            logger.debug(f"Model Response:\n{completion}")
+            logger.debug(f"Model Response:\n{escape(completion)}")
             reasoning: str | None = None  # avoid UnboundLocalError
             enable_thinking = self._reasoning_decoder.enable_thinking
             if enable_thinking:
                 reasoning_result = self._reasoning_decoder.decode(completion)
                 if reasoning_result:
-                    logger.debug(f"Reasoning result:\n{reasoning_result}")
+                    logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
                     completion = reasoning_result.get("content")
                     reasoning = reasoning_result.get("reasoning") or None
 
@@ -411,9 +412,9 @@ class MLXModel(BaseTextModel):
                         result.text
                     )
                     if not reasoning_result:
-                        logger.warning(f"Failed to decode reasoning from stream text: {result.text}")
+                        logger.warning(f"Failed to decode reasoning from stream text: {escape(result.text)}")
                         continue
-                    logger.debug(f"Stream reasoning result:\n{reasoning_result}")
+                    logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
                     delta_content = reasoning_result.get("delta_content")
                     delta_reasoning = (
                         reasoning_result.get("delta_reasoning") or None
@@ -423,6 +424,7 @@ class MLXModel(BaseTextModel):
                     # If we have a delta reasoning, we need to send it as a message
                     message = ChatMessage(
                         role=Role.ASSISTANT,
+                        content=delta_content,
                         reasoning=delta_reasoning,
                     )
                 elif delta_content is not None:
@@ -504,5 +506,5 @@ class MLXModel(BaseTextModel):
                 )
 
         except Exception as e:
-            logger.error(f"Error during stream generation: {str(e)}", exc_info=True)
+            logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise

@@ -1,4 +1,5 @@
 import json
+from rich.markup import escape
 import uuid
 from typing import List, Optional
 
@@ -56,7 +57,7 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
     def _parse_strict_tools(self, text: str) -> Optional[List[ToolCall]]:
         tool_calls = []
-        logger.debug(f"_parse_strict_tools: {text}")
+        logger.debug(f"_parse_strict_tools: {escape(text)}")
 
         if (
             text.strip().startswith(self.start_tool_calls)
