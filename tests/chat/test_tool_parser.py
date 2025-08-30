@@ -39,7 +39,7 @@ This JSON represents a function call to `get_current_weather` with the location 
     ]
 
     def setUp(self):
-        self.tool_parser = GenericToolParser()
+        self.tool_parser = GenericToolParser(tool_call_start_token="", tool_call_end_token="")
 
     def test_decode_invalid_json(self):
         # Test invalid JSON format

@@ -21,10 +21,9 @@ class Qwen3ToolParser(GenericToolParser):
     """Tool parser for Qwen3's XML format that converts to OpenAI JSON format."""
 
     def __init__(self):
+        super().__init__(tool_call_start_token="<tool_call>", tool_call_end_token="</tool_call>")
         self.strict = False
         # Sentinel tokens for streaming mode
-        self.tool_call_start_token: str = "<tool_call>"
-        self.tool_call_end_token: str = "</tool_call>"
         self.function_prefix: str = "<function="
         self.function_end_token: str = "</function>"
         self.parameter_prefix: str = "<parameter="
