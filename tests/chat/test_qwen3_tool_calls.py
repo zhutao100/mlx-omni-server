@@ -56,7 +56,7 @@ class TestQwen3ToolCalls:
         mock_load_config.return_value = {"model_type": "qwen3"}
         
         request = {
-            "model": "mlx-community/Qwen3-30B-A3B-Instruct-2507-8bit-DWQ",
+            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr9e8",
             "messages": [
                 {
                     "role": "user",
@@ -108,7 +108,7 @@ class TestQwen3ToolCalls:
         mock_load_config.return_value = {"model_type": "qwen3"}
         
         request = {
-            "model": "mlx-community/Qwen3-30B-A3B-Instruct-2507-8bit-DWQ",
+            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr9e8",
             "messages": [
                 {
                     "role": "user",
