@@ -401,6 +401,10 @@ class MLXModel(BaseTextModel):
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
 
             for result in self._stream_generate(request=request):
+                if not result.text:
+                    logger.warning(f"Generated result [{escape(str(result))}] with empty text")
+                    continue
+
                 created = int(time.time())
                 message = None
                 enable_thinking = self._reasoning_decoder.enable_thinking

@@ -37,6 +37,9 @@ class ReasoningDecoder(TokensDecoder):
             self.accumulated_text = self.thinking_start_tag
 
     def _parse_stream_response(self, text: str) -> Dict[str, Any] | None:
+        if not text:
+            return {"delta_content": None, "delta_reasoning": None}
+ 
         self.accumulated_text += text
 
         # Special case: text exactly equals the start tag
@@ -58,8 +61,8 @@ class ReasoningDecoder(TokensDecoder):
         # If current delta contains the end tag (from not having it to having it)
         elif not has_end_tag_before and has_end_tag_now:
             # Split the current delta
-            parts = text.split(self.thinking_end_tag, 1)
-            return {"delta_content": parts[0], "delta_reasoning": None}
+            parts = self.accumulated_text.split(self.thinking_end_tag, 1)
+            return {"delta_content": parts[1] if parts[1] else None, "delta_reasoning": parts[0] if parts[0] else None}
         # If end tag was already encountered before
         elif has_end_tag_before:
             # All content after the end tag is content

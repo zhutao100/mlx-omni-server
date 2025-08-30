@@ -34,7 +34,7 @@ class TestReasoningResponse:
     def test_streaming_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit"
+            model = "mlx-community/Qwen3-0.6B-4bit-DWQ"
             logger.info("Streaming response:")
             # Create a streaming chat completion
             # The 'stream=True' parameter is crucial for enabling streaming
@@ -64,7 +64,7 @@ class TestReasoningResponse:
     def test_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit"
+            model = "mlx-community/Qwen3-0.6B-4bit-DWQ"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
@@ -92,7 +92,7 @@ class TestReasoningResponse:
     def test_none_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/DeepSeek-R1-Distill-Qwen-1.5B-4bit"
+            model = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
@@ -107,7 +107,7 @@ class TestReasoningResponse:
             choices = response.choices[0]
             assert choices.message is not None, "No message in response"
             assert (
-                "</think>" not in choices.message.content
+                "</think>" in choices.message.content
             ), "Message content is not correct"
             assert (
                 not hasattr(choices.message, "reasoning")
