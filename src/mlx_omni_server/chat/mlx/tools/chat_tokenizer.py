@@ -13,8 +13,7 @@ from ...schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
 class ChatTokenizer(ABC):
     """Base class for tools handlers."""
 
-    start_tool_calls: str
-    end_tool_calls: str
+    tool_parser: BaseToolParser
 
     def __init__(self, tokenizer: TokenizerWrapper):
         self.tokenizer = tokenizer
@@ -116,7 +115,7 @@ class ChatTokenizer(ABC):
                 isinstance(tool_choice, ToolChoice)
                 and tool_choice == ToolChoice.REQUIRED
             ):
-                prompt += self.start_tool_calls
+                prompt += self.tool_parser.tool_call_start_token
 
         return prompt
 
@@ -139,12 +138,8 @@ class ChatTokenizer(ABC):
 class ToolParsingChatTokenizer(ChatTokenizer):
     """Tools handler for ToolParsing models with XML tool parsing support."""
 
-    tool_parser: BaseToolParser
-
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = ""
-        self.end_tool_calls = ""
         self.pre_fill_tools_prompt = ""
         self.buffer = ""
         self.potential_tool_start_pos = -1  # Position of potential tool call start

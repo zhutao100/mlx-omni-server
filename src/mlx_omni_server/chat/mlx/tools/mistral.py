@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
+from mlx_omni_server.chat.mlx.tools.tool_parser import GenericToolParser
+
 from ...schema import ChatMessage, FunctionCall, Role, Tool, ToolCall
 from .chat_tokenizer import ChatTokenizer
 
@@ -13,8 +15,7 @@ class MistralChatTokenizer(ChatTokenizer):
 
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = "[TOOL_CALLS]"
-        self.end_tool_calls = ""
+        self.tool_parser = GenericToolParser(tool_call_start_token="[TOOL_CALLS]", tool_call_end_token="")
 
     def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         return ChatMessage(role=Role.ASSISTANT, content=delta_text)
@@ -35,10 +36,10 @@ class MistralChatTokenizer(ChatTokenizer):
         # Look for JSON patterns in the text
         tool_calls = []
 
-        if text.startswith(self.start_tool_calls):
+        if text.startswith(self.tool_parser.tool_call_start_token):
             try:
                 # Extract the JSON array from between square brackets after [TOOL_CALLS]
-                json_str = text[len(self.start_tool_calls) :].strip()
+                json_str = text[len(self.tool_parser.tool_call_start_token):].strip()
                 if json_str.startswith("[") and json_str.endswith("]"):
                     json_str = json_str.strip("[]").strip()
                     # Try to parse as array first

@@ -28,6 +28,10 @@ class BaseToolParser(ABC):
 class GenericToolParser(BaseToolParser):
     """Base class for tool parsers."""
 
+    def __init__(self, tool_call_start_token: str, tool_call_end_token: str):
+        self.tool_call_start_token = tool_call_start_token
+        self.tool_call_end_token = tool_call_end_token
+
     def _extract_tools(self, text: str) -> list[dict[str, Any]] | None:
         results = []
 

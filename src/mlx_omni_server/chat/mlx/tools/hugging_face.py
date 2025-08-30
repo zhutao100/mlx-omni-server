@@ -26,11 +26,9 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = "<tool_call>\n"
-        self.end_tool_calls = "</tool_call>"
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
-        self.tool_parser = GenericToolParser()
+        self.tool_parser = GenericToolParser(tool_call_start_token="<tool_call>\n", tool_call_end_token="</tool_call>")
 
     def encode(
         self,
@@ -43,7 +41,7 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
         if tools:
             if isinstance(tool_choice, SpecificToolChoice):
-                self.pre_fill_tools_prompt += self.start_tool_calls
+                self.pre_fill_tools_prompt += self.tool_parser.tool_call_start_token
                 function_name = tool_choice.function["name"]
 
                 self.pre_fill_tools_prompt += (
@@ -60,13 +58,13 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
         logger.debug(f"_parse_strict_tools: {escape(text)}")
 
         if (
-            text.strip().startswith(self.start_tool_calls)
-            and self.end_tool_calls in text
+            text.strip().startswith(self.tool_parser.tool_call_start_token)
+            and self.tool_parser.tool_call_end_token in text
         ):
             try:
                 # Remove tool call tags and parse JSON directly
                 json_str = text[
-                    len(self.start_tool_calls) : text.find(self.end_tool_calls)
+                    len(self.tool_parser.tool_call_start_token): text.find(self.tool_parser.tool_call_end_token)
                 ].strip()
                 tool_data = json.loads(json_str)
 

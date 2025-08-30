@@ -25,11 +25,9 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
     def __init__(self, tokenizer: TokenizerWrapper):
         super().__init__(tokenizer)
-        self.start_tool_calls = "<|python_tag|>"
-        self.end_tool_calls = ""
         self.strict_mode = False
         self.pre_fill_tools_prompt = ""
-        self.tool_parser = GenericToolParser()
+        self.tool_parser = GenericToolParser(tool_call_start_token="<|python_tag|>", tool_call_end_token="")
 
     def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         return ChatMessage(role=Role.ASSISTANT, content=delta_text)
@@ -45,7 +43,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
         if tools:
             if isinstance(tool_choice, SpecificToolChoice):
-                self.pre_fill_tools_prompt += self.start_tool_calls
+                self.pre_fill_tools_prompt += self.tool_parser.tool_call_start_token
                 function_name = tool_choice.function["name"]
 
                 self.pre_fill_tools_prompt += (
@@ -58,10 +56,10 @@ class Llama3ChatTokenizer(ChatTokenizer):
         tool_calls = []
         logger.debug(f"_parse_strict_tools: {escape(text)}")
 
-        if text.strip().startswith(self.start_tool_calls):
+        if text.strip().startswith(self.tool_parser.tool_call_start_token):
             try:
                 # Remove tool call tags and parse JSON directly
-                json_str = text[len(self.start_tool_calls) :].strip()
+                json_str = text[len(self.tool_parser.tool_call_start_token):].strip()
                 tool_data = json.loads(json_str)
 
                 if isinstance(tool_data, dict) and "name" in tool_data:
@@ -99,7 +97,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
         if self.strict_mode:
             tool_calls = self._parse_strict_tools(response)
         else:
-           _, tool_calls = self.tool_parser.extract_tool_calls(response)
+            _, tool_calls = self.tool_parser.extract_tool_calls(response)
 
         return ChatMessage(
             role=Role.ASSISTANT,
