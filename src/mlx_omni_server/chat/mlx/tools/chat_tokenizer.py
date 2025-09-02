@@ -4,6 +4,7 @@ import logging
 from typing import Dict
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+import regex
 
 from mlx_omni_server.chat.mlx.tools.tool_parser import BaseToolParser
 
@@ -145,7 +146,15 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         self.potential_tool_start_pos = -1  # Position of potential tool call start
 
     def _check_tool_start_token(self, text: str, start_pos: int) -> bool:
-        """Check if text at start_pos matches the tool call start token."""
+        """Check if text at start_pos matches the tool call start token or pattern."""
+        # First check if we have a custom pattern from the tool parser
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
+            self.tool_parser.tool_start_pattern):
+            # Check if text at start_pos matches the pattern
+            match = self.tool_parser.tool_start_pattern.search(text, start_pos)
+            return match is not None
+        
+        # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
             return False
 
@@ -156,7 +165,19 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         return text[start_pos:start_pos + len(start_token)] == start_token
 
     def _find_next_potential_tool_start(self, text: str, search_start: int) -> int:
-        """Find the next position that could be the start of a tool call."""
+        """Find the next position that could be the start of a tool call.
+
+        This method searches for either a regex pattern (if provided by the tool parser)
+        or a fixed start token.
+        """
+        # First check if we have a custom pattern from the tool parser
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
+            self.tool_parser.tool_start_pattern):
+            # Search for the pattern in the text
+            match = self.tool_parser.tool_start_pattern.search(text, search_start)
+            return match.start() if match else -1
+        
+        # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
             return -1
 
@@ -180,8 +201,26 @@ class ToolParsingChatTokenizer(ChatTokenizer):
     def _extract_content_and_buffer_partials(self, text: str) -> tuple[str, str]:
         """
         From a given text, extracts the content to be returned and the part to be buffered.
-        The part to be buffered is a suffix of the text that is a prefix of the tool start token.
+        The part to be buffered is a suffix of the text that is a prefix of the tool start token or pattern.
         """
+        # First check if we have a custom pattern from the tool parser
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
+            self.tool_parser.tool_start_pattern):
+            # For pattern-based matching, we'll use a simpler approach
+            # Buffer up to a reasonable length to catch potential matches
+            
+            # TODO: implement exact number
+            max_partial_length = 30
+
+            if not text:
+                return "", ""
+            for i in range(1, min(len(text), max_partial_length) + 1):
+                suffix = text[-i:]
+                if self.tool_parser.tool_start_pattern.match(suffix, partial=True):
+                    return text[:-i], suffix
+            
+
+        # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
             return text, ""
 
@@ -198,9 +237,9 @@ class ToolParsingChatTokenizer(ChatTokenizer):
 
         return text, ""
 
-    def _process_buffer_for_tool_start(self) -> ChatMessage | None:
+    def _process_buffer_for_potential_tool_start(self) -> ChatMessage | None:
         """
-        Processes the buffer to find a tool start.
+        Processes the buffer to find a potential tool start.
         If found, returns preceding content and updates buffer state.
         If not found, returns content that is not a partial match and buffers the rest.
         """
@@ -229,14 +268,21 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         delta_text: str,
         tools: list[Tool] | None = None,
     ) -> ChatMessage | None:
-        """Parse tool calls from model output in streaming mode."""
+        """Parse tool calls from model output in streaming mode.
+
+        This method dynamically updates the tool parser's pattern if tools are provided,
+        then processes the incoming `delta_text` to identify and buffer potential tool calls.
+        """
+        # Update tool pattern if we have tools and the tool parser supports it
+        self.tool_parser.update_tool_start_pattern(tools)
+        
         if not delta_text and not self.buffer:
             return None
 
         self.buffer += delta_text
 
         if self.potential_tool_start_pos < 0:
-            return self._process_buffer_for_tool_start()
+            return self._process_buffer_for_potential_tool_start()
         else:  # We are in a potential tool call.
             if self._check_tool_start_token(self.buffer, self.potential_tool_start_pos):
                 # Confirmed tool start. Continue buffering.
@@ -248,8 +294,8 @@ class ToolParsingChatTokenizer(ChatTokenizer):
                 self.buffer = self.buffer[1:]
                 self.potential_tool_start_pos = -1
 
-                # Re-process the modified buffer to find the next tool start
-                next_message = self._process_buffer_for_tool_start()
+                # Re-process the modified buffer to find the next potential tool start
+                next_message = self._process_buffer_for_potential_tool_start()
 
                 if next_message and next_message.content:
                     # Combine the released character with content from the next message
@@ -262,7 +308,15 @@ class ToolParsingChatTokenizer(ChatTokenizer):
                     return ChatMessage(role=Role.ASSISTANT, content=content_to_release)
 
     def parse_buffer(self, tools: list[Tool] | None = None) -> ChatMessage | None:
-        """Process the buffer to extract complete tool calls."""
+        """Process the buffer to extract complete tool calls.
+
+        This method is called to finalize parsing at the end of a stream. It updates
+        the tool parser's pattern and attempts to parse the buffered text as a complete
+        tool call or content.
+        """
+        # Update tool pattern if we have tools and the tool parser supports it
+        self.tool_parser.update_tool_start_pattern(tools)
+        
         try:
             if not self.buffer.strip():
                 return None
@@ -284,7 +338,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
 
                 # No tool calls were found, so combine all content
                 full_content = content_before_tool + (
-                    tool_result.content if tool_result else ""
+                    tool_result.content if tool_result and tool_result.content else ""
                 )
                 if full_content.strip():
                     return ChatMessage(role=Role.ASSISTANT, content=full_content)
@@ -301,7 +355,14 @@ class ToolParsingChatTokenizer(ChatTokenizer):
             self.potential_tool_start_pos = -1
 
     def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
-        """Parse tool calls from model output in non-streaming mode."""
+        """Parse tool calls from model output in non-streaming mode.
+
+        This method updates the tool parser's pattern if tools are provided and then
+        uses the parser to extract all tool calls from the given text.
+        """
+        # Update tool pattern if we have tools and the tool parser supports it
+        self.tool_parser.update_tool_start_pattern(tools)
+        
         # Use the ToolParsing tool parser to extract tool calls from XML format
         content, tool_calls = self.tool_parser.extract_tool_calls(text, tools)
 

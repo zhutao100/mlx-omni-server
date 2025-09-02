@@ -14,6 +14,9 @@ class MockToolParser(BaseToolParser):
     def __init__(self, start_token="<tool>", end_token="</tool>"):
         self.tool_call_start_token = start_token
         self.tool_call_end_token = end_token
+    
+    def update_tool_start_pattern(self, tools: list[Tool] | None):
+        pass
 
     def extract_tool_calls(self, model_output: str, tools=None):
         """More robust mock implementation that finds tool calls anywhere in the string."""

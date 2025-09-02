@@ -4,6 +4,8 @@ import re
 from typing import Any, Dict, Tuple
 import uuid
 
+import regex
+
 from ....utils.logger import logger
 from ...schema import FunctionCall, Tool, ToolCall, ToolType
 
@@ -13,6 +15,7 @@ class BaseToolParser(ABC):
 
     tool_call_start_token: str
     tool_call_end_token: str
+    tool_start_pattern: regex.Pattern | None
 
     @abstractmethod
     def extract_tool_calls(
@@ -22,6 +25,11 @@ class BaseToolParser(ABC):
         Extract tool calls from model output.
         Returns the cleaned text and a list of ToolCall objects if any are found.
         """
+        pass
+
+    @abstractmethod
+    def update_tool_start_pattern(self, tools: list[Tool] | None):
+        """Update the potential tool start pattern based on available tools and model specific patterns."""
         pass
 
 
@@ -180,6 +188,13 @@ class GenericToolParser(BaseToolParser):
         lines = [ln.rstrip() for ln in s.splitlines()]
         cleaned = "\n".join(ln for ln in lines if ln.strip() != "")
         return cleaned.strip()
+
+    def update_tool_start_pattern(self, tools: list[Tool] | None):
+        """Update the potential tool start pattern based on available tools and model specific patterns.
+        
+        Subclasses can override this with model specific patterns.
+        """
+        tool_start_pattern = regex.compile(self.tool_call_start_token)
 
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None

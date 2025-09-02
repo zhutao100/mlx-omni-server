@@ -33,6 +33,7 @@ dependencies = [
     "python-multipart>=0.0.20,<0.0.21",
     "sse-starlette>=2.1.3,<3",
     "outlines==1.0.4",
+    "regex",
     # models
     "huggingface-hub>=0.30",
     # audio

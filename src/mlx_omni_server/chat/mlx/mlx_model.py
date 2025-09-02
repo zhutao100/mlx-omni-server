@@ -341,8 +341,8 @@ class MLXModel(BaseTextModel):
                 reasoning_result = self._reasoning_decoder.decode(completion)
                 if reasoning_result:
                     logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
-                    completion = reasoning_result.get("content")
-                    reasoning = reasoning_result.get("reasoning") or None
+                    completion = reasoning_result.get("content") or ""
+                    reasoning = reasoning_result.get("reasoning")
 
             if request.tools:
                 message = self._chat_tokenizer.decode(completion, request.tools)
@@ -420,9 +420,7 @@ class MLXModel(BaseTextModel):
                         continue
                     logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
                     delta_content = reasoning_result.get("delta_content")
-                    delta_reasoning = (
-                        reasoning_result.get("delta_reasoning") or None
-                    )
+                    delta_reasoning = reasoning_result.get("delta_reasoning")
 
                 if delta_reasoning is not None:
                     # If we have a delta reasoning, we need to send it as a message

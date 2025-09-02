@@ -150,8 +150,5 @@ class TestQwen3ToolCalls:
         tool_call = tool_calls[0]
         assert tool_call.type == "function"
         assert tool_call.function.name == "get_current_weather"
-        # In streaming mode, the arguments are accumulated, so we can't reliably parse the JSON
-        # until the end of the stream. We can, however, check that the arguments contain the
-        # expected keys.
         assert "location" in tool_call.function.arguments
         assert "Boston" in tool_call.function.arguments

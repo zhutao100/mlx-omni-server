@@ -7,6 +7,7 @@ from typing import Tuple
 import uuid
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+import regex
 
 from ....utils.logger import logger
 from ...schema import (
@@ -31,7 +32,19 @@ class Glm4ToolParser(GenericToolParser):
         self.value_start_token: str = "<arg_value>"
         self.value_end_token: str = "</arg_value>"
 
-    def parse_tool_call_block(self, text: str, tools: list[Tool] | None, strict: bool = False) -> ToolCall | None:
+    def update_tool_start_pattern(self, tools: list[Tool] | None):
+        """Update the potential tool start pattern based on available tools."""
+        if tools:
+            tool_names = [tool.function.name for tool in tools]
+            # Create a regex pattern to match any of the tool names at the start of a line or after a newline
+            # Use (?<=^|\n) to match at the beginning of string or after a newline, instead of \s* which matches any whitespace
+            tool_names_group = "|".join(re.escape(name) for name in tool_names)
+            pattern = rf"(?<=^|\n)({self.tool_call_start_token}|(?:{tool_names_group})(?=[<\n]))"
+            self.tool_start_pattern = regex.compile(pattern, re.DOTALL)
+        else:
+            self.tool_start_pattern = None
+
+    def parse_tool_call_block(self, text: str, tools: list[Tool] | None) -> ToolCall | None:
         """
         Parse a <tool_call>... block in the format:
           <tool_call>function_name
@@ -39,11 +52,24 @@ class Glm4ToolParser(GenericToolParser):
           <arg_value>v</arg_value>
           ...
           </tool_call>
+
+        It handles the standard format with a `<tool_call>` tag. If not in strict
+        mode, it can also parse blocks that start directly with a valid tool name.
         """
-        # Tolerate leading junk / whitespace
-        m = re.match(rf"\s*{self.tool_call_start_token}\s*([^\s<]+)", text, re.DOTALL)
+        m = re.match(rf"\s*(?:{self.tool_call_start_token}\s*)*([^\s<]+)", text, re.DOTALL)
         if not m:
-            if strict:
+            # if strict, we don't tolerate malformed tool calls
+            if self.strict:
+                raise ValueError(f"Missing or malformed {self.tool_call_start_token}")
+            # if not strict, we tolerate malformed tool calls, i.e. missing <tool_call>
+            if tools:
+                tool_names = [tool.function.name for tool in tools]
+                # Create a regex pattern to match any of the tool names
+                pattern = r"\s*(" + "|".join(re.escape(name) for name in tool_names) + r")"
+                m = re.match(pattern, text, re.DOTALL)
+
+        if not m:
+            if self.strict:
                 raise ValueError(f"Missing or malformed {self.tool_call_start_token}")
             return None
 
@@ -60,7 +86,7 @@ class Glm4ToolParser(GenericToolParser):
             # Find matching <arg_value>... </arg_value>
             val_match = re.search(rf"{self.value_start_token}", text[key_end:])
             if not val_match:
-                if strict:
+                if self.strict:
                     raise ValueError(f"Missing {self.value_start_token} for key {key}")
                 break
             val_start = key_end + val_match.end()
@@ -71,7 +97,7 @@ class Glm4ToolParser(GenericToolParser):
             while True:
                 cand = text.find(rf"{self.value_end_token}", search_pos)
                 if cand == -1:
-                    if strict:
+                    if self.strict:
                         raise ValueError(f"Missing {self.value_end_token} for key {key}")
                     chosen_close = len(text)
                     break
@@ -99,16 +125,29 @@ class Glm4ToolParser(GenericToolParser):
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
     ) -> Tuple[str, list[ToolCall] | None]:
-        """Extract tool calls from model output in XML format."""
+        """Extract tool calls from model output.
+
+        This method finds and parses all tool call blocks from the model's output.
+        It can identify tool calls enclosed in `<tool_call>...</tool_call>` tags
+        as well as tool calls starting directly with a known tool name.
+        """
 
         results = []
         rest_parts = []
         pos = 0
         n = len(model_output)
 
+        tool_name_pattern = None
+        if tools:
+            tool_names = [tool.function.name for tool in tools]
+            # Create a regex pattern to match any of the tool names
+            tool_name_pattern = r"\s*(" + "|".join(re.escape(name) for name in tool_names) + r")"
+
         while pos < n:
             # Find next <tool_call>
             m = re.search(rf"{self.tool_call_start_token}", model_output[pos:])
+            if not m and tool_name_pattern:
+                m = re.search(tool_name_pattern, model_output[pos:], re.DOTALL)
             if not m:
                 rest_parts.append(model_output[pos:])
                 break
@@ -119,10 +158,23 @@ class Glm4ToolParser(GenericToolParser):
             # Find end </tool_call>
             end_idx = model_output.find(self.tool_call_end_token, start_idx)
             if end_idx == -1:
-                # If missing, recover until next <tool_call> or EOF
-                next_block = re.search(rf"{self.tool_call_start_token}", model_output[start_idx + 1:])
+                # If missing, recover until next tool_call or EOF
+                next_start_idx = pos + m.end() + 1
+                next_block = re.search(rf"{self.tool_call_start_token}", model_output[next_start_idx:])
+                next_tool_call = None
+                if tool_name_pattern:
+                    # Also look for the next tool call by name
+                    next_tool_call = re.search(tool_name_pattern, model_output[next_start_idx:], re.DOTALL)
+
+                # Choose the closest match
+                candidates = []
                 if next_block:
-                    block_end = start_idx + 1 + next_block.start()
+                    candidates.append(next_start_idx + next_block.start())
+                if next_tool_call:
+                    candidates.append(next_start_idx + next_tool_call.start())
+
+                if candidates:
+                    block_end = min(candidates)
                 else:
                     block_end = n
             else:
@@ -131,7 +183,7 @@ class Glm4ToolParser(GenericToolParser):
             block = model_output[start_idx:block_end]
 
             try:
-                parsed = self.parse_tool_call_block(block, tools=tools, strict=self.strict)
+                parsed = self.parse_tool_call_block(block, tools=tools)
             except ValueError:
                 if self.strict:
                     raise
