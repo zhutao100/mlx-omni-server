@@ -34,7 +34,7 @@ class TestReasoningResponse:
     def test_streaming_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit-DWQ"
+            model = "mlx-community/Qwen3-0.6B-4bit"
             logger.info("Streaming response:")
             # Create a streaming chat completion
             # The 'stream=True' parameter is crucial for enabling streaming
@@ -64,7 +64,7 @@ class TestReasoningResponse:
     def test_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit-DWQ"
+            model = "mlx-community/Qwen3-0.6B-4bit"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
