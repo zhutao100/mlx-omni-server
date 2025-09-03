@@ -1,3 +1,4 @@
+from threading import Lock
 import gc
 from mlx.core import clear_cache
 
@@ -12,36 +13,52 @@ _model_cache = None
 _mlx_model_cache = None
 
 
-def load_model(model_id: ModelId) -> BaseTextModel:
-    """Load the model and return a BaseTextModel instance.
+class ModelCacheManager:
+    """Manages lifecycle of MlxModelCache and MLXModel."""
 
-    Args:
-        model_id: ModelId object containing model identification parameters
+    def __init__(self):
+        self._model_cache: MlxModelCache | None = None
+        self._mlx_model_cache: MLXModel | None = None
+        self._lock = Lock()
 
-    Returns:
-        Initialized BaseTextModel instance
-    """
-    global _model_cache, _mlx_model_cache
+    def load_model(self, model_id: ModelId) -> BaseTextModel:
+        """Load (or reuse) a model and return a BaseTextModel instance."""
+        with self._lock:
+            if (
+                self._model_cache is None
+                or self._model_cache.model_id != model_id
+            ):
+                # Release old models first
+                self._release()
 
-    # Check if a new model needs to be loaded
-    model_needs_reload = _model_cache is None or _model_cache.model_id != model_id
+                # Create new caches
+                self._model_cache = MlxModelCache(model_id)
+                self._mlx_model_cache = MLXModel(model_cache=self._model_cache)
+            else:
+                if not self._mlx_model_cache:
+                    logger.error("Unexpected: model cache exists but MLXModel is missing.")
+                    self._model_cache = MlxModelCache(model_id)
+                    self._mlx_model_cache = MLXModel(model_cache=self._model_cache)
 
-    if model_needs_reload:
-        # Cache miss, create a new cache object
-        del _model_cache
-        del _mlx_model_cache
+            return self._mlx_model_cache
+
+    def _release(self):
+        """Release current models and force memory cleanup."""
+        self._model_cache = None
+        self._mlx_model_cache = None
         clear_cache()
         gc.collect()
-        _model_cache = MlxModelCache(model_id)
-        _mlx_model_cache = MLXModel(model_cache=_model_cache)
-    else:
-        if not _mlx_model_cache:
-            logger.error("Unexpected state: cached MLXModel is expected but not found.")
-            if _model_cache:
-                logger.error("Inconsistent state: cached MLXModelCache exists but MLXModel does not.")
-            # This should not happen
-            _model_cache = MlxModelCache(model_id)
-            _mlx_model_cache = MLXModel(model_cache=_model_cache)
 
-    # Return cached model instance
-    return _mlx_model_cache
+    def clear(self):
+        """Public method to clear cache (e.g., in tests)."""
+        with self._lock:
+            self._release()
+
+
+# Create a single shared instance
+model_cache_manager = ModelCacheManager()
+
+
+def load_model(model_id: ModelId) -> BaseTextModel:
+    """Module-level wrapper for convenience."""
+    return model_cache_manager.load_model(model_id)

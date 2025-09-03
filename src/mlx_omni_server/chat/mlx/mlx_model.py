@@ -48,7 +48,8 @@ class MLXModel(BaseTextModel):
         self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
         if model_cache.tokenizer is None:
             raise ValueError("model_cache.tokenizer cannot be None")
-        self._reasoning_decoder = ReasoningDecoder(model_cache.tokenizer)
+        self._reasoning_decoder = ReasoningDecoder(
+            model_cache.tokenizer, thinking_tag=model_cache.chat_tokenizer.thinking_tag)
         model_path = get_model_path(model_cache.model_id.name)[0]
         self._model_config = load_config(model_path)
         if "max_position_embeddings" in self._model_config and isinstance(
@@ -133,7 +134,44 @@ class MLXModel(BaseTextModel):
         current_logprobs = response.logprobs
 
         # Get current token info
-        token_str = tokenizer.decode([current_token])
+        def _safe_decode_token(tok, token_id):
+            # Try the common callable 'decode' first and handle the case where it's not callable.
+            try:
+                decode_attr = getattr(tok, "decode", None)
+                if callable(decode_attr):
+                    return decode_attr([token_id])
+            except TypeError:
+                # Attribute exists but is not callable (e.g. NaiveStreamingDetokenizer instance)
+                pass
+            except Exception:
+                pass
+
+            # Try other common detokenizer method names
+            for name in ("detokenize", "decode_tokens", "decode_ids", "decode_token"):
+                fn = getattr(tok, name, None)
+                if callable(fn):
+                    try:
+                        return fn([token_id])
+                    except Exception:
+                        pass
+
+            # Try a 'decoder' attribute if present
+            decoder = getattr(tok, "decoder", None)
+            if callable(decoder):
+                try:
+                    return decoder([token_id])
+                except Exception:
+                    pass
+
+            # Fallback: return the token id as a string
+            return str(token_id)
+
+        token_str = _safe_decode_token(tokenizer, current_token)
+        # Ensure token_str is a str for .encode usage and handle bytes safely
+        if not isinstance(token_str, (str, bytes)):
+            token_str = str(token_str)
+        if isinstance(token_str, bytes):
+            token_str = token_str.decode("utf-8", errors="ignore")
         token_logprob = mx.clip(
             current_logprobs[current_token], a_min=-100, a_max=None
         ).item()
@@ -153,9 +191,59 @@ class MLXModel(BaseTextModel):
             top_indices = mx.argpartition(-current_logprobs, kth=top_k - 1)[:top_k]
             top_probs = mx.clip(current_logprobs[top_indices], a_min=-100, a_max=None)
 
+            # Convert to concrete Python lists to satisfy typing/iteration expectations
+            # Some backends may return an 'object' or a non-iterable from .tolist(),
+            # so normalize safely with fallbacks to avoid type errors.
+            top_indices_list = None
+            top_indices_tolist = getattr(top_indices, "tolist", None)
+            if callable(top_indices_tolist):
+                try:
+                    maybe = top_indices_tolist()
+                    if isinstance(maybe, (list, tuple)):
+                        top_indices_list = list(maybe)
+                    else:
+                        try:
+                            top_indices_list = list(maybe)
+                        except Exception:
+                            top_indices_list = [int(maybe)]
+                except Exception:
+                    top_indices_list = None
+
+            if top_indices_list is None:
+                try:
+                    top_indices_list = list(top_indices)
+                except Exception:
+                    top_indices_list = [int(top_indices)]
+
+            top_probs_list = None
+            top_probs_tolist = getattr(top_probs, "tolist", None)
+            if callable(top_probs_tolist):
+                try:
+                    maybe = top_probs_tolist()
+                    if isinstance(maybe, (list, tuple)):
+                        top_probs_list = list(maybe)
+                    else:
+                        try:
+                            top_probs_list = list(maybe)
+                        except Exception:
+                            top_probs_list = [float(maybe)]
+                except Exception:
+                    top_probs_list = None
+
+            if top_probs_list is None:
+                try:
+                    top_probs_list = list(top_probs)
+                except Exception:
+                    top_probs_list = [float(top_probs)]
+
             # Create detailed token information for each top token
-            for idx, logprob in zip(top_indices.tolist(), top_probs.tolist()):
+            for idx, logprob in zip(top_indices_list, top_probs_list):
                 token = tokenizer.decode([idx])
+                # Normalize token to str so .encode is always available
+                if not isinstance(token, (str, bytes)):
+                    token = str(token)
+                if isinstance(token, bytes):
+                    token = token.decode("utf-8", errors="ignore")
                 token_bytes = token.encode("utf-8")
                 top_logprobs.append(
                     {"token": token, "logprob": logprob, "bytes": list(token_bytes)}

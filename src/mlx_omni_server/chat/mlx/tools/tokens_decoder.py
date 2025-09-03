@@ -21,7 +21,7 @@ class TokensDecoder(ABC):
 
 class ReasoningDecoder(TokensDecoder):
     """Decoder that extracts reasoning steps enclosed in specific tags from model output."""
-    def __init__(self, tokenizer: TokenizerWrapper, thinking_tag: str = "think") -> None:
+    def __init__(self, tokenizer: TokenizerWrapper, thinking_tag) -> None:
         self.tokenizer = tokenizer
         self.thinking_tag = thinking_tag
         self.thinking_start_tag = f"<{self.thinking_tag}>"

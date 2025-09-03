@@ -21,8 +21,8 @@ from .tool_parser import GenericToolParser
 class Qwen3ToolParser(GenericToolParser):
     """Tool parser for Qwen3's XML format that converts to OpenAI JSON format."""
 
-    def __init__(self, strict: bool = False):
-        super().__init__(tool_call_start_token="<tool_call>", tool_call_end_token="</tool_call>")
+    def __init__(self, strict: bool = False, tool_call_start_token="<tool_call>", tool_call_end_token="</tool_call>"):
+        super().__init__(tool_call_start_token=tool_call_start_token, tool_call_end_token=tool_call_end_token)
         self.strict = strict
         # Sentinel tokens for streaming mode
         self.function_prefix: str = "<function="

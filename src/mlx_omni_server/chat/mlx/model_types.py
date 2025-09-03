@@ -7,6 +7,7 @@ import mlx.nn as nn
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import get_model_path, load, load_config
 
+
 from ...utils.logger import logger
 from .tools.chat_tokenizer import ChatTokenizer
 from .tools.hugging_face import HuggingFaceChatTokenizer
@@ -14,6 +15,7 @@ from .tools.llama3 import Llama3ChatTokenizer
 from .tools.mistral import MistralChatTokenizer
 from .tools.qwen3 import Qwen3ChatTokenizer
 from .tools.glm4 import Glm4ChatTokenizer
+from .tools.seed_oss import SeedOssChatTokenizer
 
 
 def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatTokenizer:
@@ -25,8 +27,9 @@ def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatToke
         "qwen2": HuggingFaceChatTokenizer,
         "qwen3": Qwen3ChatTokenizer,
         "qwen3_moe": Qwen3ChatTokenizer,
-        "glm4": Glm4ChatTokenizer,  
+        "glm4": Glm4ChatTokenizer,
         "glm4_moe": Glm4ChatTokenizer,
+        "seed_oss": SeedOssChatTokenizer
     }
 
     # Get handler class based on model ID or use Llama handler as default
@@ -37,7 +40,7 @@ def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatToke
 def load_chat_template(model_type: str) -> str | None:
     """Load chat template based on model type."""
 
-    templates_dir = os.path.join( Path(__file__).parent.parent, "templates")
+    templates_dir = os.path.join(Path(__file__).parent.parent, "templates")
     template_files = {
         "qwen3": "qwen3_chat_template.jinja",
         "qwen3_moe": "qwen3_chat_template.jinja",
@@ -49,7 +52,7 @@ def load_chat_template(model_type: str) -> str | None:
                 return f.read()
         else:
             logger.error(f"Chat template file not found: {template_path}")
-    
+
     return None
 
 
