@@ -16,8 +16,9 @@ class ChatTokenizer(ABC):
 
     tool_parser: BaseToolParser
 
-    def __init__(self, tokenizer: TokenizerWrapper):
+    def __init__(self, tokenizer: TokenizerWrapper, thinking_tag: str = "think"):
         self.tokenizer = tokenizer
+        self.thinking_tag: str = thinking_tag
 
     def _ensure_dict_arguments(self, tools: list[Dict]) -> list[Dict]:
         """Ensure that all tool arguments are in dict format rather than JSON strings.
@@ -139,8 +140,8 @@ class ChatTokenizer(ABC):
 class ToolParsingChatTokenizer(ChatTokenizer):
     """Tools handler for ToolParsing models with XML tool parsing support."""
 
-    def __init__(self, tokenizer: TokenizerWrapper):
-        super().__init__(tokenizer)
+    def __init__(self, tokenizer: TokenizerWrapper, thinking_tag: str = "think"):
+        super().__init__(tokenizer, thinking_tag)
         self.pre_fill_tools_prompt = ""
         self.buffer = ""
         self.potential_tool_start_pos = -1  # Position of potential tool call start
@@ -148,12 +149,12 @@ class ToolParsingChatTokenizer(ChatTokenizer):
     def _check_tool_start_token(self, text: str, start_pos: int) -> bool:
         """Check if text at start_pos matches the tool call start token or pattern."""
         # First check if we have a custom pattern from the tool parser
-        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
-            self.tool_parser.tool_start_pattern):
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and
+                self.tool_parser.tool_start_pattern):
             # Check if text at start_pos matches the pattern
             match = self.tool_parser.tool_start_pattern.search(text, start_pos)
             return match is not None
-        
+
         # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
             return False
@@ -171,12 +172,12 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         or a fixed start token.
         """
         # First check if we have a custom pattern from the tool parser
-        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
-            self.tool_parser.tool_start_pattern):
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and
+                self.tool_parser.tool_start_pattern):
             # Search for the pattern in the text
             match = self.tool_parser.tool_start_pattern.search(text, search_start)
             return match.start() if match else -1
-        
+
         # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
             return -1
@@ -204,11 +205,11 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         The part to be buffered is a suffix of the text that is a prefix of the tool start token or pattern.
         """
         # First check if we have a custom pattern from the tool parser
-        if (hasattr(self.tool_parser, 'tool_start_pattern') and 
-            self.tool_parser.tool_start_pattern):
+        if (hasattr(self.tool_parser, 'tool_start_pattern') and
+                self.tool_parser.tool_start_pattern):
             # For pattern-based matching, we'll use a simpler approach
             # Buffer up to a reasonable length to catch potential matches
-            
+
             # TODO: implement exact number
             max_partial_length = 30
 
@@ -218,7 +219,6 @@ class ToolParsingChatTokenizer(ChatTokenizer):
                 suffix = text[-i:]
                 if self.tool_parser.tool_start_pattern.match(suffix, partial=True):
                     return text[:-i], suffix
-            
 
         # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
@@ -275,7 +275,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         """
         # Update tool pattern if we have tools and the tool parser supports it
         self.tool_parser.update_tool_start_pattern(tools)
-        
+
         if not delta_text and not self.buffer:
             return None
 
@@ -316,7 +316,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         """
         # Update tool pattern if we have tools and the tool parser supports it
         self.tool_parser.update_tool_start_pattern(tools)
-        
+
         try:
             if not self.buffer.strip():
                 return None
@@ -362,7 +362,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         """
         # Update tool pattern if we have tools and the tool parser supports it
         self.tool_parser.update_tool_start_pattern(tools)
-        
+
         # Use the ToolParsing tool parser to extract tool calls from XML format
         content, tool_calls = self.tool_parser.extract_tool_calls(text, tools)
 
