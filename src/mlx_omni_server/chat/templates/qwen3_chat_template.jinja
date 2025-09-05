@@ -144,6 +144,14 @@
     {%- endif %}
 {%- endfor %}
 
+{{- '<|im_start|>system' }}
+<IMPORTANT>
+Please check the responses within <tool_response></tool_response> tags, follow the user instructions, execute next steps;
+For complex instructions, use todo list to execute tasks.
+DO NOT loop and repeat the last action.
+</IMPORTANT>
+{{- '<|im_end|>' }}
+
 {%- if add_generation_prompt %}
     {{- '<|im_start|>assistant\n' }}
 {%- endif %}
