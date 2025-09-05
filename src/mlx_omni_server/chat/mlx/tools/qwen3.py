@@ -121,16 +121,19 @@ class Qwen3ToolParser(GenericToolParser):
                     raise ValueError(f"Missing {self.function_end_token} in block")
                 text += self.function_end_token
 
-        func_match = self.func_name_pattern.search(text)
+        func_name_pattern = self.func_name_pattern
+        if tools:
+            tool_names = [tool.function.name for tool in tools]
+            if tool_names:
+                func_name_pattern = re.compile(rf"{self.function_prefix}({'|'.join(re.escape(name) for name in tool_names)})>", re.DOTALL)
+
+        func_match = func_name_pattern.search(text)
         if not func_match:
             if self.strict:
                 raise ValueError(f"Missing {self.function_prefix}...> in block")
             return None
 
         func_name = func_match.group(1)
-        if tools and func_name not in {t.function.name for t in tools}:
-            logger.warning(f"Parsed tool call `{func_name}` not in registered tool list")
-            return None
 
         params, pos = {}, func_match.end()
         while (m := self.param_start_pattern.search(text, pos)):
@@ -155,42 +158,80 @@ class Qwen3ToolParser(GenericToolParser):
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
     ) -> Tuple[str, list[ToolCall] | None]:
-        """
-        Parse all tool_call blocks from model output.
-        Returns (remaining_text, [ToolCall...]).
-        """
-        results, rest_parts, pos = [], [], 0
+        """Extract tool calls from model output.
 
-        while pos < len(model_output):
-            m = self.tool_call_or_function_start_pattern.search(model_output, pos)
+        This method finds and parses all tool call blocks from the model's output.
+        It can identify tool calls enclosed in `<tool_call>...</tool_call>` tags
+        as well as tool calls starting directly with a known tool name.
+        """
+
+        results = []
+        rest_parts = []
+        pos = 0
+        n = len(model_output)
+
+        tool_name_pattern = None
+        if tools:
+            tool_names = [tool.function.name for tool in tools]
+            # Create a regex pattern to match any of the tool names
+            tool_name_pattern = r"\s*<function=(" + "|".join(re.escape(name) for name in tool_names) + r")"
+
+        while pos < n:
+            # Find next <tool_call>
+            m = re.search(rf"{self.tool_call_start_token}", model_output[pos:])
+            if not m and tool_name_pattern:
+                m = re.search(tool_name_pattern, model_output[pos:], re.DOTALL)
             if not m:
                 rest_parts.append(model_output[pos:])
                 break
 
-            start_idx, next_search_start = m.start(), m.end()
-            rest_parts.append(model_output[pos:start_idx])
+            start_idx = pos + m.start()
+            rest_parts.append(model_output[pos:start_idx])  # text before block
 
-            next_block_pattern = (
-                self.tool_call_start_pattern
-                if m.group(0).startswith(self.tool_call_start_token)
-                else self.tool_call_or_function_start_pattern
-            )
-            end_idx = self._find_block_end(model_output, start_idx, next_search_start, next_block_pattern)
-            block = model_output[start_idx:end_idx]
+            # Find end </tool_call>
+            end_idx = model_output.find(self.tool_call_end_token, start_idx)
+            if end_idx == -1:
+                # If missing, recover until next tool_call or EOF
+                next_start_idx = pos + m.end() + 1
+                next_block = re.search(rf"{self.tool_call_start_token}", model_output[next_start_idx:])
+                next_tool_call = None
+                if tool_name_pattern:
+                    # Also look for the next tool call by name
+                    next_tool_call = re.search(tool_name_pattern, model_output[next_start_idx:], re.DOTALL)
+
+                # Choose the closest match
+                candidates = []
+                if next_block:
+                    candidates.append(next_start_idx + next_block.start())
+                if next_tool_call:
+                    candidates.append(next_start_idx + next_tool_call.start())
+
+                if candidates:
+                    block_end = min(candidates)
+                else:
+                    block_end = n
+            else:
+                block_end = end_idx + len(self.tool_call_end_token)
+
+            block = model_output[start_idx:block_end]
 
             try:
-                parsed = self.parse_tool_call_block(block, tools)
+                parsed = self.parse_tool_call_block(block, tools=tools)
             except ValueError:
                 if self.strict:
                     raise
                 parsed = None
 
-            (results if parsed else rest_parts).append(parsed or block)
-            pos = end_idx
+            if parsed:
+                results.append(parsed)
+            else:
+                rest_parts.append(block)
+
+            pos = block_end
 
         rest_text = "".join(rest_parts)
-        logger.debug("Extracted tool calls %s", results)
-        logger.debug("Remaining text: %s", rest_text)
+        logger.debug(escape("Extracted tool calls %s"), results)
+        logger.debug(escape("Remaining text: %s"), "".join(rest_parts))
         return rest_text, results
 
 

@@ -53,28 +53,52 @@ class Glm4ToolParser(GenericToolParser):
           ...
           </tool_call>
 
+        Or the alternate format:
+          <tool_call>
+          <function=function_name>
+          <arg_key>k</arg_key>
+          <arg_value>v</arg_value>
+          ...
+          </tool_call>
+
         It handles the standard format with a `<tool_call>` tag. If not in strict
         mode, it can also parse blocks that start directly with a valid tool name.
         """
-        m = re.match(rf"\s*(?:{self.tool_call_start_token}\s*)*([^\s<]+)", text, re.DOTALL)
-        if not m:
-            # if strict, we don't tolerate malformed tool calls
-            if self.strict:
-                raise ValueError(f"Missing or malformed {self.tool_call_start_token}")
-            # if not strict, we tolerate malformed tool calls, i.e. missing <tool_call>
-            if tools:
-                tool_names = [tool.function.name for tool in tools]
-                # Create a regex pattern to match any of the tool names
-                pattern = r"\s*(" + "|".join(re.escape(name) for name in tool_names) + r")"
-                m = re.match(pattern, text, re.DOTALL)
+        func_name = None
+        pos = 0
 
-        if not m:
+        # Standard format: <tool_call>function_name
+        m_std = re.match(rf"\s*(?:{self.tool_call_start_token}\s*)*([^\s<]+)", text, re.DOTALL)
+        if m_std:
+            func_name = m_std.group(1).strip()
+            pos = m_std.end()
+
+        # Alternate format: <function=function_name>
+        if not func_name:
+            m_alt1 = re.search(r"<function=([^\s>]+)>", text)
+            if m_alt1:
+                func_name = m_alt1.group(1).strip()
+                pos = m_alt1.end()
+
+        # Alternate format: just function_name (if not strict)
+        if not func_name and not self.strict and tools:
+            tool_names = {tool.function.name for tool in tools}
+            pattern = r"\s*(" + "|".join(re.escape(name) for name in tool_names) + r")"
+            m_alt2 = re.match(pattern, text, re.DOTALL)
+            if m_alt2:
+                func_name = m_alt2.group(1).strip()
+                pos = m_alt2.end()
+
+        if not func_name:
             if self.strict:
-                raise ValueError(f"Missing or malformed {self.tool_call_start_token}")
+                raise ValueError("Missing or malformed function name")
             return None
 
-        func_name = m.group(1).strip()
-        pos = m.end()
+        # Centralized check for tool name validity
+        if tools and func_name not in {t.function.name for t in tools}:
+            logger.warning(f"Tool '{func_name}' is not defined in the tools list.")
+            return None
+
         args = {}
         while True:
             key_match = re.search(rf"{self.arg_start_token}(.*?){self.arg_end_token}", text[pos:], re.DOTALL)
@@ -117,10 +141,13 @@ class Glm4ToolParser(GenericToolParser):
             )
             pos = chosen_close + len(self.value_end_token)
 
-        return ToolCall(id=f"call_{uuid.uuid4().hex[:24]}",
-                        type=ToolType.FUNCTION,
-                        function=FunctionCall(
-            name=func_name, arguments=json.dumps(args, ensure_ascii=False)))
+        return ToolCall(
+            id=f"call_{uuid.uuid4().hex[:24]}",
+            type=ToolType.FUNCTION,
+            function=FunctionCall(
+                name=func_name, arguments=json.dumps(args, ensure_ascii=False)
+            ),
+        )
 
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None
