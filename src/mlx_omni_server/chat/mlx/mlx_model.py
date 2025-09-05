@@ -1,7 +1,7 @@
 import time
 import uuid
 from rich.markup import escape
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, Optional
 
 import mlx.core as mx
 from mlx_lm.generate import GenerationResponse, stream_generate
@@ -25,7 +25,7 @@ from ..schema import (
 from ..text_models import BaseTextModel, GenerateResult, GenerationParams
 from .model_types import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
-from .prompt_cache import PromptCache
+from .prompt_cache import PromptCacheManager
 from .tools.tokens_decoder import ReasoningDecoder
 
 
@@ -62,7 +62,7 @@ class MLXModel(BaseTextModel):
                 f"Invalid or missing max_position_embeddings in model config: {self._model_config}\n"
                 f"Use default max_position_embeddings: {max_context_length}"
             )
-        self._prompt_cache = PromptCache(max_position_embeddings=max_context_length)
+        self._prompt_cache_manager = PromptCacheManager(max_position_embeddings=max_context_length, max_caches=3)
         self._prompt_cache_tokens_count = 0
 
     def _get_generation_params(
@@ -315,10 +315,12 @@ class MLXModel(BaseTextModel):
 
         # Process prompt cache
         tokenized_prompt = tokenizer.encode(prompt)
-        processed_prompt, cached_count = self._prompt_cache.get_prompt_cache(
+        active_cache, processed_prompt, cached_count = self._prompt_cache_manager.get_or_create_cache(
             self._model_cache, tokenized_prompt
         )
-        generate_kwargs["prompt_cache"] = self._prompt_cache.cache
+        generate_kwargs["prompt_cache"] = active_cache.cache
+        # keep a reference to extend later
+        self._active_cache = active_cache
         self._prompt_cache_tokens_count = cached_count
         logger.debug(
             f"Using {self._prompt_cache_tokens_count} cached tokens out of {len(tokenized_prompt)} total tokens"
@@ -393,7 +395,9 @@ class MLXModel(BaseTextModel):
                 )
                 logger.debug(f"    finish reason: {response.finish_reason}")
 
-            self._prompt_cache.extend_completion_cache(generated_tokens)
+            if hasattr(self, "_active_cache") and self._active_cache is not None:
+                self._active_cache.extend_completion_cache(generated_tokens)
+
         except Exception as e:
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise
