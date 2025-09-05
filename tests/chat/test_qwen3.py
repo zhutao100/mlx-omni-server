@@ -263,6 +263,18 @@ class TestQwen3ToolParser:
         args = json.loads(tool_call.function.arguments)
         assert args == {"location": "Boston, MA"}
 
+    def test_unknown_tool_call(self, qwen3_parser, sample_tools):
+        text = textwrap.dedent('''
+        <tool_call>
+        <function=unknown_function>
+        <parameter=some_param>some_value</parameter>
+        </function>
+        </tool_call>
+        ''')
+        rest_text, tool_calls = qwen3_parser.extract_tool_calls(text, tools=sample_tools)
+        assert not tool_calls
+        assert "unknown_function" in rest_text
+
 
 class TestQwen3ChatTokenizer:
     def test_ensure_dict_arguments_with_json_string(self):

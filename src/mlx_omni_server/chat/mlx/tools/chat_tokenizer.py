@@ -321,31 +321,18 @@ class ToolParsingChatTokenizer(ChatTokenizer):
             if not self.buffer.strip():
                 return None
 
-            if self.potential_tool_start_pos >= 0 and self._check_tool_start_token(
-                self.buffer, self.potential_tool_start_pos
-            ):
-                # We have a confirmed tool call.
-                text_to_parse = self.buffer[self.potential_tool_start_pos:]
-                content_before_tool = self.buffer[:self.potential_tool_start_pos]
+            # Use the tool parser to extract tool calls from the entire buffer
+            content, tool_calls = self.tool_parser.extract_tool_calls(self.buffer, tools)
 
-                tool_result = self.decode(text_to_parse, tools)
-
-                if tool_result and tool_result.tool_calls:
-                    # Prioritize tool calls, content before is ignored as per original logic
-                    if tool_result.content == "":
-                        tool_result.content = None
-                    return tool_result
-
-                # No tool calls were found, so combine all content
-                full_content = content_before_tool + (
-                    tool_result.content if tool_result and tool_result.content else ""
+            if tool_calls:
+                # We found tool calls, return them
+                return ChatMessage(
+                    role=Role.ASSISTANT,
+                    content=content if content.strip() else None,
+                    tool_calls=tool_calls,
                 )
-                if full_content.strip():
-                    return ChatMessage(role=Role.ASSISTANT, content=full_content)
-
-                return None
             else:
-                # No tool call or a false positive, treat buffer as content
+                # No tool calls found, treat buffer as content
                 if self.buffer.strip():
                     return ChatMessage(role=Role.ASSISTANT, content=self.buffer)
                 return None

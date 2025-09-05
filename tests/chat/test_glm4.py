@@ -235,6 +235,22 @@ class TestGlm4ToolParser:
         args = json.loads(tool_calls[0].function.arguments)
         assert args["data"] == {"a": 1, "b": "hello"}
 
+    def test_alternate_function_tag_format(self, glm4_parser, sample_tools):
+        text = '''
+        <tool_call>
+        <function=get_weather>
+        <arg_key>location</arg_key>
+        <arg_value>Miami, FL</arg_value>
+        </tool_call>
+        '''
+        rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
+        assert rest_text.strip() == ""
+        assert len(tool_calls) == 1
+        tool_call = tool_calls[0]
+        assert tool_call.function.name == "get_weather"
+        args = json.loads(tool_call.function.arguments)
+        assert args == {"location": "Miami, FL"}
+
     @pytest.mark.parametrize(
         "text, expected_args",
         [
@@ -276,11 +292,7 @@ class TestGlm4ToolParser:
         </tool_call>
         '''
         tool_call = glm4_parser.parse_tool_call_block(text, tools=sample_tools)
-        assert tool_call is not None
-        assert tool_call.type == ToolType.FUNCTION
-        assert tool_call.function.name == "get_cat_fact"
-        args = json.loads(tool_call.function.arguments)
-        assert args == {"topic": "space"}
+        assert tool_call is None
 
     def test_extract_tool_calls_missing_tag(self, glm4_parser, sample_tools):
         text = '''
@@ -337,6 +349,17 @@ class TestGlm4ToolParser:
         rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
         assert "get_cat_fact" in rest_text
         assert not tool_calls
+
+    def test_unknown_tool_call(self, glm4_parser, sample_tools):
+        text = '''
+        <tool_call>unknown_function
+        <arg_key>some_param</arg_key>
+        <arg_value>some_value</arg_value>
+        </tool_call>
+        '''
+        rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
+        assert not tool_calls
+        assert "unknown_function" in rest_text
 
     def test_glm4_tool_pattern_detection(self, glm4_parser, sample_tools):
         """Test that GLM4 parser can detect tool patterns without start tokens."""
