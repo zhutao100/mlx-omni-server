@@ -44,6 +44,9 @@ def load_chat_template(model_type: str) -> str | None:
     template_files = {
         "qwen3": "qwen3_chat_template.jinja",
         "qwen3_moe": "qwen3_chat_template.jinja",
+        "glm4": "glm4_chat_template.jinja",
+        "glm4_moe": "glm4_chat_template.jinja",
+
     }
     if template_files.get(model_type):
         template_path = os.path.join(templates_dir, template_files[model_type])
