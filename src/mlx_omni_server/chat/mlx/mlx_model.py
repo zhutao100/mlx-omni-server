@@ -1,7 +1,7 @@
 import time
 import uuid
 from rich.markup import escape
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Callable, Dict, Generator
 
 import mlx.core as mx
 from mlx_lm.generate import GenerationResponse, stream_generate
@@ -27,6 +27,66 @@ from .model_types import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCacheManager
 from .tools.tokens_decoder import ReasoningDecoder
+
+
+def _safe_encode_prompt(tok_obj: Any, text: str) -> list[int]:
+    """Safely call a tokenizer encode-like function."""
+    # Try common encode-like names
+    for name in ("encode", "encode_texts", "encode_ids", "encode_tokens", "tokenize"):
+        method = getattr(tok_obj, name, None)
+        if callable(method):
+            return method(text)  # type: ignore
+
+    raise RuntimeError(
+        "No callable encode function found on tokenizer or model_cache.tokenizer; "
+        "expected a TokenizerWrapper-like object with an 'encode' method."
+    )
+
+
+def _normalize_to_list(obj: Any, cast: Callable) -> list[Any]:
+    """Try to convert obj to a list, falling back safely."""
+    tolist = getattr(obj, "tolist", None)
+    if callable(tolist):
+        try:
+            maybe = tolist()
+            if isinstance(maybe, (list, tuple)):
+                return list(maybe)
+            return [cast(maybe)]
+        except Exception:
+            pass
+    try:
+        return list(obj)
+    except Exception:
+        return [cast(obj)]
+
+
+def _normalize_token(token: Any) -> str:
+    """Ensure token is a UTF-8 string."""
+    if not isinstance(token, (str, bytes)):
+        token = str(token)
+    if isinstance(token, bytes):
+        token = token.decode("utf-8", errors="ignore")
+    return token
+
+
+def _safe_decode_token(tok_obj: Any, token_id: int) -> str:
+    """Try to decode a single token id into string safely."""
+    for name in ["decode", "detokenize", "decode_tokens", "decode_ids", "decode_token"]:
+        fn = getattr(tok_obj, name, None)
+        if callable(fn):
+            try:
+                return fn([token_id])  # type: ignore
+            except Exception:
+                continue
+
+    decoder = getattr(tok_obj, "decoder", None)
+    if callable(decoder):
+        try:
+            return decoder([token_id])  # type: ignore
+        except Exception:
+            pass
+
+    return str(token_id)
 
 
 class MLXModel(BaseTextModel):
@@ -127,123 +187,33 @@ class MLXModel(BaseTextModel):
         self,
         tokenizer: TokenizerWrapper,
         response: GenerationResponse,
-        top_k: Optional[int],
-    ) -> Optional[Dict[str, Any]]:
-        """Process logprobs information from generation response to match OpenAI format"""
+        top_k: int | None,
+    ) -> Dict[str, Any] | None:
+        """Process logprobs information from generation response to match OpenAI format."""
         current_token = response.token
         current_logprobs = response.logprobs
 
-        # Get current token info
-        def _safe_decode_token(tok, token_id):
-            # Try the common callable 'decode' first and handle the case where it's not callable.
-            try:
-                decode_attr = getattr(tok, "decode", None)
-                if callable(decode_attr):
-                    return decode_attr([token_id])
-            except TypeError:
-                # Attribute exists but is not callable (e.g. NaiveStreamingDetokenizer instance)
-                pass
-            except Exception:
-                pass
-
-            # Try other common detokenizer method names
-            for name in ("detokenize", "decode_tokens", "decode_ids", "decode_token"):
-                fn = getattr(tok, name, None)
-                if callable(fn):
-                    try:
-                        return fn([token_id])
-                    except Exception:
-                        pass
-
-            # Try a 'decoder' attribute if present
-            decoder = getattr(tok, "decoder", None)
-            if callable(decoder):
-                try:
-                    return decoder([token_id])
-                except Exception:
-                    pass
-
-            # Fallback: return the token id as a string
-            return str(token_id)
-
-        token_str = _safe_decode_token(tokenizer, current_token)
-        # Ensure token_str is a str for .encode usage and handle bytes safely
-        if not isinstance(token_str, (str, bytes)):
-            token_str = str(token_str)
-        if isinstance(token_str, bytes):
-            token_str = token_str.decode("utf-8", errors="ignore")
-        token_logprob = mx.clip(
-            current_logprobs[current_token], a_min=-100, a_max=None
-        ).item()
+        # Decode current token safely
+        token_str = _normalize_token(_safe_decode_token(tokenizer, current_token))
+        token_logprob = mx.clip(current_logprobs[current_token], a_min=-100, a_max=None).item()
         token_bytes = token_str.encode("utf-8")
 
-        # Base token info
         token_info = {
             "token": token_str,
             "logprob": token_logprob,
             "bytes": list(token_bytes),
         }
 
-        # Process top logprobs
-        top_logprobs = []
+        top_logprobs: list[Dict[str, Any]] = []
         if top_k is not None:
-            # Get indices of top_k tokens
             top_indices = mx.argpartition(-current_logprobs, kth=top_k - 1)[:top_k]
             top_probs = mx.clip(current_logprobs[top_indices], a_min=-100, a_max=None)
 
-            # Convert to concrete Python lists to satisfy typing/iteration expectations
-            # Some backends may return an 'object' or a non-iterable from .tolist(),
-            # so normalize safely with fallbacks to avoid type errors.
-            top_indices_list = None
-            top_indices_tolist = getattr(top_indices, "tolist", None)
-            if callable(top_indices_tolist):
-                try:
-                    maybe = top_indices_tolist()
-                    if isinstance(maybe, (list, tuple)):
-                        top_indices_list = list(maybe)
-                    else:
-                        try:
-                            top_indices_list = list(maybe)
-                        except Exception:
-                            top_indices_list = [int(maybe)]
-                except Exception:
-                    top_indices_list = None
+            top_indices_list = _normalize_to_list(top_indices, int)
+            top_probs_list = _normalize_to_list(top_probs, float)
 
-            if top_indices_list is None:
-                try:
-                    top_indices_list = list(top_indices)
-                except Exception:
-                    top_indices_list = [int(top_indices)]
-
-            top_probs_list = None
-            top_probs_tolist = getattr(top_probs, "tolist", None)
-            if callable(top_probs_tolist):
-                try:
-                    maybe = top_probs_tolist()
-                    if isinstance(maybe, (list, tuple)):
-                        top_probs_list = list(maybe)
-                    else:
-                        try:
-                            top_probs_list = list(maybe)
-                        except Exception:
-                            top_probs_list = [float(maybe)]
-                except Exception:
-                    top_probs_list = None
-
-            if top_probs_list is None:
-                try:
-                    top_probs_list = list(top_probs)
-                except Exception:
-                    top_probs_list = [float(top_probs)]
-
-            # Create detailed token information for each top token
             for idx, logprob in zip(top_indices_list, top_probs_list):
-                token = tokenizer.decode([idx])
-                # Normalize token to str so .encode is always available
-                if not isinstance(token, (str, bytes)):
-                    token = str(token)
-                if isinstance(token, bytes):
-                    token = token.decode("utf-8", errors="ignore")
+                token = _normalize_token(_safe_decode_token(tokenizer, idx))
                 token_bytes = token.encode("utf-8")
                 top_logprobs.append(
                     {"token": token, "logprob": logprob, "bytes": list(token_bytes)}
@@ -310,11 +280,10 @@ class MLXModel(BaseTextModel):
             else:
                 self._reasoning_decoder.set_thinking_prefix(False)
 
-        # Get tokenizer
-        tokenizer = self._chat_tokenizer.tokenizer
+        tokenizer: TokenizerWrapper = self._chat_tokenizer.tokenizer
 
-        # Process prompt cache
-        tokenized_prompt = tokenizer.encode(prompt)
+        # Process prompt cache using the safe caller
+        tokenized_prompt: list[int] = _safe_encode_prompt(tokenizer, prompt)
         active_cache, processed_prompt, cached_count = self._prompt_cache_manager.get_or_create_cache(
             self._model_cache, tokenized_prompt
         )
@@ -351,6 +320,7 @@ class MLXModel(BaseTextModel):
         self,
         request: ChatCompletionRequest,
     ) -> Generator[GenerateResult, None, None]:
+        assert self._model_cache.model is not None
         try:
             # Get tokenizer
             tokenizer = self._chat_tokenizer.tokenizer
@@ -359,6 +329,7 @@ class MLXModel(BaseTextModel):
             processed_prompt, generate_kwargs = self._prepare_generation(request)
 
             generated_tokens = []
+            response: GenerationResponse | None = None
             for response in stream_generate(
                 model=self._model_cache.model,
                 tokenizer=tokenizer,
@@ -454,6 +425,7 @@ class MLXModel(BaseTextModel):
 
                 prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
+            assert message is not None
             return ChatCompletionResponse(
                 id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
                 created=int(time.time()),
@@ -492,6 +464,7 @@ class MLXModel(BaseTextModel):
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
 
+            result: GenerateResult | None = None
             for result in self._stream_generate(request=request):
                 if not result.text:
                     logger.warning(f"Generated result [{escape(str(result))}] with empty text")
@@ -564,7 +537,7 @@ class MLXModel(BaseTextModel):
                     choices=choices,
                 )
 
-            if request.stream_options and request.stream_options.include_usage:
+            if result and request.stream_options and request.stream_options.include_usage:
                 created = int(time.time())
                 cached_tokens = self._prompt_cache_tokens_count
                 logger.debug(f"Stream response with {cached_tokens} cached tokens")
