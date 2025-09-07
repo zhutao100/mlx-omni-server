@@ -1,11 +1,11 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, AsyncGenerator
+from typing import Any, Dict, AsyncGenerator
 import hashlib
 import json
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .mlx.models import ModelId, load_model
@@ -29,7 +29,7 @@ def make_request_hash(req: ChatCompletionRequest) -> str:
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-async def create_chat_completion(request: ChatCompletionRequest):
+async def create_chat_completion(request: ChatCompletionRequest, raw_request: Request):
     """Create a chat completion"""
 
     req_hash = make_request_hash(request)
@@ -72,7 +72,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
             async def follower() -> AsyncGenerator[str, None]:
                 while True:
                     item = await queue.get()
-                    if item is None:  # Sentinel marks stream end
+                    if item is None:   # Sentinel marks stream end
                         break
                     yield item
 
@@ -97,14 +97,12 @@ async def create_chat_completion(request: ChatCompletionRequest):
     if not request.stream:
         completion = text_model.generate(request)
         payload = completion.model_dump(exclude_none=True)
-
         response_cache[req_hash] = {
             "result": payload,
             "created_at": time.time(),
             "stream": False,
             "done": True,
         }
-
         return JSONResponse(content=payload)
 
     # --- Step 3b: streaming ---
@@ -121,20 +119,25 @@ async def create_chat_completion(request: ChatCompletionRequest):
     async def leader() -> AsyncGenerator[str, None]:
         try:
             for chunk in text_model.stream_generate(request):
+                # Stop if client disconnected
+                if await raw_request.is_disconnected():
+                    break
+
                 data = f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
                 chunks.append(data)
-                await queue.put(data)  # feed followers
+                await queue.put(data)
                 yield data
 
-            done_marker = "data: [DONE]\n\n"
-            chunks.append(done_marker)
-            await queue.put(done_marker)
-            yield done_marker
         finally:
-            # signal end of stream
-            await queue.put(None)
+            # Always mark done, even if disconnected early
+            done_marker = "data: [DONE]\n\n"
+            if not chunks or chunks[-1] != done_marker:
+                chunks.append(done_marker)
+                await queue.put(done_marker)
+                yield done_marker
+
             response_cache[req_hash]["done"] = True
-            # remove queue from cache (followers will use chunks afterwards)
+            await queue.put(None)  # wake followers
             response_cache[req_hash].pop("queue", None)
 
     return StreamingResponse(
@@ -149,8 +152,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
 def _create_text_model(
     model_id: str,
-    adapter_path: Optional[str] = None,
-    draft_model: Optional[str] = None,
+    adapter_path: str | None = None,
+    draft_model: str | None = None,
 ) -> BaseTextModel:
     """Create a text model based on the model parameters.
 
