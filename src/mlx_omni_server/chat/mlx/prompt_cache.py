@@ -254,9 +254,9 @@ class PromptCacheManager:
                 best_key = key
                 best_prefix_len = prefix_len
 
-        if best_cache is not None and best_prefix_len > 0:
-            # Case A: prompt extends the cache fully (cache is prefix)
-            if best_prefix_len >= 0.95 * len(best_cache.tokens) and best_prefix_len < len(prompt):
+        if best_cache is not None and best_prefix_len > 100:  # set min length 100 for a worthy cache reuse.
+            # Case A: common prefix is at least 95% of the cache.
+            if best_prefix_len >= 0.95 * len(best_cache.tokens):
                 logger.debug(f"Re-using existing cache {best_key} (prefix match >= 95%).")
                 suffix, cached_tokens = best_cache.get_prompt_cache(model_cache, prompt)
                 # mark as recently used
