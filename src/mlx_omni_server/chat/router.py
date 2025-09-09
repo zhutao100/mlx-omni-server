@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+import logging
 from typing import Any, Dict, AsyncGenerator
 import hashlib
 import json
@@ -121,30 +122,34 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
             for chunk in text_model.stream_generate(request):
                 # Stop if client disconnected
                 if await raw_request.is_disconnected():
+                    logging.warning("Client disconnected.")
                     break
 
                 data = f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
                 chunks.append(data)
                 await queue.put(data)
                 yield data
-
+        except GeneratorExit:
+            logging.warning(f"Stream for {req_hash} was closed early by client.")
+            raise  # re-raise so FastAPI closes generator cleanly
         finally:
             # Always mark done, even if disconnected early
             done_marker = "data: [DONE]\n\n"
             if not chunks or chunks[-1] != done_marker:
                 chunks.append(done_marker)
                 await queue.put(done_marker)
-                yield done_marker
 
-            response_cache[req_hash]["done"] = True
+            entry = response_cache.get(req_hash)
+            if entry is not None:
+                entry["done"] = True
+                entry.pop("queue", None)
             await queue.put(None)  # wake followers
-            response_cache[req_hash].pop("queue", None)
 
     return StreamingResponse(
         leader(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "max-age=300",
             "Connection": "keep-alive",
         },
     )
