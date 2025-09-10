@@ -20,62 +20,60 @@ router = APIRouter(tags=["chat-completions"])
 
 @dataclass
 class StreamCacheEntry:
-    """Cache entry for a streaming response."""
-
-    chunks: list[str] = field(default_factory=list)
-    done_event: asyncio.Event = field(default_factory=asyncio.Event)
-    error_event: asyncio.Event = field(default_factory=asyncio.Event)
+    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    chunks: list[str] = field(default_factory=list)
+    finished: bool = False
+    generation_task: asyncio.Task | None = None
     created_at: float = field(default_factory=time.time)
     active_clients: int = 0
 
 
 @dataclass
 class NonStreamCacheEntry:
-    """Cache entry for a non-streaming response."""
-
     payload: Dict[str, Any]
     created_at: float = field(default_factory=time.time)
+    is_error: bool = False
 
 
-# In-memory cache (swap for Redis/Postgres in production)
 response_cache: Dict[str, StreamCacheEntry | NonStreamCacheEntry] = {}
-CACHE_TTL = 300  # 5 minutes
-# Lock to prevent race conditions when creating cache entries
+CACHE_TTL = 300
 cache_lock = asyncio.Lock()
 # Global lock to serialize MLX operations and prevent concurrent GPU access
 mlx_lock = asyncio.Lock()
-# Keep track of background tasks
-background_tasks: set[asyncio.Task] = set()
 
 
 async def background_cache_cleanup():
-    """Background task to periodically clean up expired cache entries."""
     while True:
+        await asyncio.sleep(60)
         try:
-            await asyncio.sleep(60)  # Run every minute
             cutoff = time.time() - CACHE_TTL
             async with cache_lock:
-                # Iterate over a copy of the keys to allow modification
                 for k in list(response_cache.keys()):
-                    if response_cache[k].created_at < cutoff:
-                        # If it's a stream, ensure no clients are connected before cleaning up
-                        if isinstance(response_cache[k], StreamCacheEntry):
-                            if response_cache[k].active_clients == 0:  # type: ignore
-                                del response_cache[k]
-                                logging.debug(f"Cleaned up expired stream cache entry: {k}")
-                        else:
+                    entry = response_cache[k]
+                    if entry.created_at < cutoff:
+                        if isinstance(entry, StreamCacheEntry) and entry.active_clients == 0:
+                            if entry.generation_task and not entry.generation_task.done():
+                                entry.generation_task.cancel()
+                            del response_cache[k]
+                            logging.debug(f"Cleaned up expired stream cache entry: {k}")
+                        elif isinstance(entry, NonStreamCacheEntry):
                             del response_cache[k]
                             logging.debug(f"Cleaned up expired non-stream cache entry: {k}")
         except Exception as e:
-            logging.error(f"Error in background cache cleanup: {e}")
+            logging.error(f"Error in background cache cleanup: {e}", exc_info=True)
 
 
 def make_request_hash(req: ChatCompletionRequest) -> str:
-    """Create a stable hash from the request body."""
     dumped = req.model_dump(mode="json", exclude_none=True)
     raw = json.dumps(dumped, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Done callback for generation tasks to log any unhandled exceptions."""
+    if not task.cancelled() and (exc := task.exception()):
+        logging.error(f"Background task {task.get_name()} failed", exc_info=exc)
 
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
@@ -94,142 +92,165 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     """
     logging.debug(f"Received chat completion request: {request.log_structured_request(verbose=True)}")
     req_hash = make_request_hash(request)
+    logging.debug(f"Hash: {req_hash} for \n{request}\n")
 
-    # --- Step 1: Handle non-streaming requests ---
     if not request.stream:
         async with cache_lock:
             cached_entry = response_cache.get(req_hash)
         if isinstance(cached_entry, NonStreamCacheEntry):
+            logging.warning(f"Non-stream cache hit for {req_hash}")
+            status_code = 500 if cached_entry.is_error else 200
             return JSONResponse(
                 content=cached_entry.payload,
                 headers={"X-Idempotent-Replay": "true"},
+                status_code=status_code
             )
 
+        logging.warning(f"Non-stream cache missed for {req_hash}")
         text_model = _create_text_model(
             request.model,
             request.get_extra_params().get("adapter_path"),
-            request.get_extra_params().get("draft_model"),
+            request.get_extra_params().get("draft_model")
         )
+        try:
+            async with mlx_lock:
+                completion = await run_in_threadpool(text_model.generate, request)
+            payload = completion.model_dump(exclude_none=True)
+            entry = NonStreamCacheEntry(payload=payload)
+            async with cache_lock:
+                response_cache[req_hash] = entry
+            return JSONResponse(content=payload)
+        except Exception as e:
+            # POLICY: Cache failures to ensure idempotency. A request that fails once
+            # will continue to fail for the TTL, preventing hammering the backend.
+            logging.error(f"Error during non-streaming generation for {req_hash}: {e}", exc_info=True)
+            error_payload = {"error": "Generation failed", "message": str(e)}
+            entry = NonStreamCacheEntry(payload=error_payload, is_error=True)
+            async with cache_lock:
+                response_cache[req_hash] = entry
+            return JSONResponse(content=error_payload, status_code=500)
 
-        # Run blocking call in a thread pool with MLX serialization
-        async with mlx_lock:
-            completion = await run_in_threadpool(text_model.generate, request)
-        payload = completion.model_dump(exclude_none=True)
-        async with cache_lock:
-            response_cache[req_hash] = NonStreamCacheEntry(payload=payload)
-        return JSONResponse(content=payload)
-
-    # --- Step 2: Handle streaming requests ---
-
-    # Get or create the cache entry for this stream and check if generation should start
-    should_start_generation = False
+    # --- Streaming Logic ---
     async with cache_lock:
         cached_entry = response_cache.get(req_hash)
         if not isinstance(cached_entry, StreamCacheEntry) or cached_entry.stop_event.is_set():
             cached_entry = StreamCacheEntry()
+            text_model = _create_text_model(
+                request.model,
+                request.get_extra_params().get("adapter_path"),
+                request.get_extra_params().get("draft_model")
+            )
+            loop = asyncio.get_running_loop()
+
+            def run_blocking_generation():
+                try:
+                    for chunk in text_model.stream_generate(request):
+                        if cached_entry.stop_event.is_set():
+                            logging.info(f"Stopping generation for {req_hash} as all clients disconnected.")
+                            break
+                        # Format chunk as proper SSE data
+                        chunk_data = chunk.model_dump(exclude_none=True)
+                        # Log if this chunk has usage information
+                        sse_data = f"data: {json.dumps(chunk_data)}\n\n"
+
+                        async def notify():
+                            async with cached_entry.condition:
+                                cached_entry.chunks.append(sse_data)
+                                cached_entry.condition.notify_all()
+                        asyncio.run_coroutine_threadsafe(notify(), loop)
+                except Exception as e:
+                    error_data = {"error": "Generation failed", "message": str(e)}
+                    sse_error = f"data: {json.dumps(error_data)}\n\n"
+
+                    async def notify_error():
+                        async with cached_entry.condition:
+                            cached_entry.chunks.append(sse_error)
+                            cached_entry.condition.notify_all()
+                    asyncio.run_coroutine_threadsafe(notify_error(), loop)
+                finally:
+                    async def notify_done():
+                        async with cached_entry.condition:
+                            cached_entry.chunks.append("data: [DONE]\n\n")
+                            cached_entry.finished = True
+                            cached_entry.condition.notify_all()
+                    asyncio.run_coroutine_threadsafe(notify_done(), loop)
+
+            async def run_generation_task():
+                async with mlx_lock:
+                    await run_in_threadpool(run_blocking_generation)
+
+            task = asyncio.create_task(run_generation_task(), name=f"generate-{req_hash}")
+            task.add_done_callback(_log_task_exception)
+            cached_entry.generation_task = task
             response_cache[req_hash] = cached_entry
-            should_start_generation = True
-
-    # The first request to arrive kicks off the generation
-    if should_start_generation:
-        text_model = _create_text_model(
-            request.model,
-            request.get_extra_params().get("adapter_path"),
-            request.get_extra_params().get("draft_model"),
-        )
-
-        def run_blocking_generation():
-            """The synchronous part that runs in a thread."""
-            try:
-                for chunk in text_model.stream_generate(request):
-                    # Check if we should stop due to client disconnection
-                    if cached_entry.stop_event.is_set():
-                        logging.info(
-                            f"Stopping generation for {req_hash} as all clients disconnected."
-                        )
-                        break
-                    # Use actual newlines instead of escaped ones for proper SSE format
-                    data = f"data: {json.dumps(chunk.model_dump(exclude_none=True))}\n\n"
-                    cached_entry.chunks.append(data)
-            except Exception as e:
-                logging.error(f"Error during generation for {req_hash}: {e}")
-                # Set error information
-                error_data = f'data: {{"error": "Generation failed", "message": "{str(e)}"}}\n\n'
-                cached_entry.chunks.append(error_data)
-                cached_entry.error_event.set()
-            finally:
-                done_marker = "data: [DONE]\n\n"
-                if not cached_entry.chunks or cached_entry.chunks[-1] != done_marker:
-                    cached_entry.chunks.append(done_marker)
-                cached_entry.done_event.set()
-
-        # Create and track the background task with MLX serialization
-        async def run_generation_task():
-            async with mlx_lock:
-                # Check if we should stop due to client disconnection
-                if cached_entry.stop_event.is_set():
-                    logging.info(
-                        f"Stopping generation for {req_hash} as all clients disconnected."
-                    )
-                    return
-                await run_in_threadpool(run_blocking_generation)
-
-        task = asyncio.create_task(run_generation_task())
-        background_tasks.add(task)
-        # Remove task from set when it's done to prevent memory leaks
-        task.add_done_callback(background_tasks.discard)
 
     async def stream_generator() -> AsyncGenerator[str, None]:
         """
-        Yields chunks from the cache, tracking client connection status.
+        Consumer that yields chunks from the cache. This logic is carefully
+        structured to prevent race conditions when the stream finishes.
         """
         next_chunk_index = 0
         try:
-            # Register client
-            async with cache_lock:
+            async with cached_entry.condition:
                 cached_entry.active_clients += 1
 
             while True:
-                # Yield all chunks that are currently available
-                while next_chunk_index < len(cached_entry.chunks):
-                    if await raw_request.is_disconnected():
-                        return  # Exit quietly
-                    yield cached_entry.chunks[next_chunk_index]
-                    next_chunk_index += 1
+                new_chunks_to_yield = []
 
-                # If the stream is done, we've sent all chunks, so we can exit
-                if cached_entry.done_event.is_set():
+                # --- START: CRITICAL SECTION FIX ---
+                # This logic ensures that even if the consumer wakes up to a 'finished'
+                # state, it will always perform one final check for any chunks that
+                # might have been added simultaneously with the 'finished' flag.
+                async with cached_entry.condition:
+                    # First, always check if there are new chunks available since our last run.
+                    if next_chunk_index < len(cached_entry.chunks):
+                        new_chunks_to_yield = cached_entry.chunks[next_chunk_index:]
+                        next_chunk_index = len(cached_entry.chunks)
+
+                    # If, after checking, we found no new chunks, then we decide
+                    # whether to wait for more or to exit.
+                    elif cached_entry.finished:
+                        # The stream is finished AND we have processed all chunks.
+                        # This is the only safe condition to break the loop.
+                        break
+                    else:
+                        # The stream is not finished and there are no chunks. We must wait.
+                        # We check for disconnection before waiting to exit promptly.
+                        if await raw_request.is_disconnected():
+                            break
+                        await cached_entry.condition.wait()
+                # --- END: CRITICAL SECTION FIX ---
+
+                # Yielding happens outside the lock to prevent blocking other consumers.
+                for chunk in new_chunks_to_yield:
+                    yield chunk
+
+                # After yielding, a final check for disconnection or completion.
+                if await raw_request.is_disconnected():
+                    logging.info("Client disconnected after yielding chunks.")
                     break
 
-                # If there was an error, we've already sent the error message, so we can exit
-                if cached_entry.error_event.is_set():
+                # If we yielded the last batch and the stream is finished, we can exit now
+                # instead of running the loop one more time.
+                if cached_entry.finished and next_chunk_index == len(cached_entry.chunks):
                     break
-
-                # Wait for the 'done' event to be set.
-                try:
-                    await asyncio.wait_for(cached_entry.done_event.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    continue
 
         finally:
-            # Unregister client and check if generation should be stopped
-            async with cache_lock:
+            async with cached_entry.condition:
                 cached_entry.active_clients -= 1
-                if cached_entry.active_clients == 0 and not cached_entry.done_event.is_set():
+                if cached_entry.active_clients == 0 and not cached_entry.finished:
                     cached_entry.stop_event.set()
-                    logging.info(
-                        f"Last client for {req_hash} disconnected. Signaling generation to stop."
-                    )
+                    logging.info(f"Last client for {req_hash} disconnected. Signaling generation to stop.")
 
-    is_live = not cached_entry.done_event.is_set() and not cached_entry.error_event.is_set()
+    is_replay = cached_entry.finished
     return StreamingResponse(
         stream_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "max-age=300",
+            "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Idempotent-Replay": "live" if is_live else "true",
-        },
+            "X-Idempotent-Replay": "true" if is_replay else "live",
+        }
     )
 
 
