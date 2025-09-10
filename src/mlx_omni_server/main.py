@@ -1,13 +1,31 @@
 import argparse
+import asyncio
 import os
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 
+from .chat.router import background_cache_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
 from .routers import api_router
 
-app = FastAPI(title="MLX Omni Server")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage startup and shutdown events for the application."""
+    # Startup
+    cleanup_task = asyncio.create_task(background_cache_cleanup())
+    yield
+    # Shutdown
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="MLX Omni Server", lifespan=lifespan)
 
 # Add request/response logging middleware with custom levels
 app.add_middleware(
