@@ -10,7 +10,14 @@ from ...utils.logger import logger
 
 
 class ModelCacheManager:
-    """Manages lifecycle of MlxModelCache and MLXModel."""
+    """Singleton class that manages lifecycle of MlxModelCache and MlxModel."""
+
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(self):
         self._model_cache: MlxModelCache | None = None
