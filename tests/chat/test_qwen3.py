@@ -3,8 +3,8 @@ import logging
 import pytest
 import textwrap
 from unittest.mock import Mock, patch
-from mlx_omni_server.chat.mlx.tools.qwen3 import Qwen3ChatTokenizer, Qwen3ToolParser
-from mlx_omni_server.chat.mlx.tools.chat_tokenizer import ToolParsingChatTokenizer
+from mlx_omni_server.chat.tools.qwen3 import Qwen3ChatTokenizer, Qwen3ToolParser
+from mlx_omni_server.chat.tools.chat_tokenizer import ToolParsingChatTokenizer
 from mlx_omni_server.chat.schema import Tool, Function, ToolType, ChatMessage, Role
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 

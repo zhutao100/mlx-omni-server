@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.mlx.tools.llama3 import Llama3ChatTokenizer
+from mlx_omni_server.chat.tools.llama3 import Llama3ChatTokenizer
 
 # 更新导入路径指向 src 目录下的模块
 from mlx_omni_server.chat.schema import Role

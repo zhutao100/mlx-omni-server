@@ -9,8 +9,8 @@ import uuid
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 import regex
 
-from ....utils.logger import logger
-from ...schema import (
+from ...utils.logger import logger
+from ..schema import (
     FunctionCall,
     Tool,
     ToolCall,

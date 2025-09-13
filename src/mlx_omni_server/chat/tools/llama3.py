@@ -7,7 +7,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.utils.logger import logger
 
-from ...schema import (
+from ..schema import (
     ChatMessage,
     FunctionCall,
     Role,
@@ -87,7 +87,7 @@ class Llama3ChatTokenizer(ChatTokenizer):
 
         return tool_calls if tool_calls else None
 
-    def decode(self, text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage:
         """
         Parse tool calls from model output.
         The model outputs function calls in JSON format with 'name' and optional 'arguments' fields.

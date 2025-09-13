@@ -1,6 +1,8 @@
 import importlib
+from importlib import util as importlib_util
 import json
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Type
 
 from huggingface_hub import CachedRepoInfo, scan_cache_dir
@@ -12,6 +14,14 @@ MODEL_REMAPPING = {
     "phi-msft": "phixtral",
     "falcon_mamba": "mamba",
 }
+
+
+@dataclass
+class ModelId:
+    """Identifier for a model with optional adapter and draft model paths."""
+    name: str
+    adapter_path: str | None = None
+    draft_model: str | None = None
 
 
 class ModelCacheScanner:
@@ -31,36 +41,15 @@ class ModelCacheScanner:
         """Force refresh the cache info"""
         self._cache_info = scan_cache_dir()
 
-    def _get_model_classes(self, config: dict) -> Optional[Tuple[Type, Type]]:
-        """
-        Try to retrieve the model and model args classes based on the configuration.
-        https://github.com/ml-explore/mlx-examples/blob/1e0766018494c46bc6078769278b8e2a360503dc/llms/mlx_lm/utils.py#L81
-
-        Args:
-            config (dict): The model configuration
-
-        Returns:
-            Optional tuple of (Model class, ModelArgs class) if model type is supported
-        """
-        try:
-            model_type = config.get("model_type")
-            model_type = MODEL_REMAPPING.get(model_type, model_type)
-            if not model_type:
-                return None
-
-            # Try to import the model architecture module
-            arch = importlib.import_module(f"mlx_lm.models.{model_type}")
-            return arch.Model, arch.ModelArgs
-
-        except ImportError:
-            logging.debug(f"Model type {model_type} not supported by mlx-lm")
-            return None
-        except Exception as e:
-            logging.warning(f"Error checking model compatibility: {str(e)}")
-            return None
-
     def is_model_supported(self, config_data: Dict) -> bool:
-        return self._get_model_classes(config_data) is not None
+        raw_model_type = config_data.get("model_type")
+        # Ensure we only use string keys for MODEL_REMAPPING to satisfy type checkers
+        if not isinstance(raw_model_type, str) or not raw_model_type:
+            return False
+        model_type = MODEL_REMAPPING.get(raw_model_type, raw_model_type)
+        mlx_vm_spec = importlib_util.find_spec(f"mlx_lm.models.{model_type}")
+        mlv_vlm_spec = importlib_util.find_spec(f"mlx_vlm.models.{model_type}")
+        return (mlx_vm_spec is not None) or (mlv_vlm_spec is not None)
 
     def find_models_in_cache(self) -> List[Tuple[CachedRepoInfo, Dict]]:
         """
@@ -118,7 +107,7 @@ class ModelCacheScanner:
                         return (repo_info, config_data)
                     else:
                         logging.warning(
-                            f"Model {model_id} found but not compatible with mlx-lm"
+                            f"Model {model_id} found but not compatible"
                         )
                 except Exception as e:
                     logging.error(

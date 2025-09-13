@@ -1,14 +1,14 @@
-from abc import ABC, abstractmethod
 import json
 import logging
+from abc import ABC, abstractmethod
 from typing import Dict
 
-from mlx_lm.tokenizer_utils import TokenizerWrapper
 import regex
+from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.mlx.tools.tool_parser import BaseToolParser
+from mlx_omni_server.chat.tools.tool_parser import BaseToolParser
 
-from ...schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
+from ..schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
 
 
 class ChatTokenizer(ABC):
@@ -127,7 +127,7 @@ class ChatTokenizer(ABC):
         pass
 
     @abstractmethod
-    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage:
         """Parse tool calls from model output."""
         pass
 
@@ -301,7 +301,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
                     # Combine the released character with content from the next message
                     return ChatMessage(
                         role=Role.ASSISTANT,
-                        content=content_to_release + next_message.content,
+                        content=content_to_release + str(next_message.content),
                     )
                 else:
                     # Only the released character is available as content
@@ -341,7 +341,7 @@ class ToolParsingChatTokenizer(ChatTokenizer):
             self.buffer = ""
             self.potential_tool_start_pos = -1
 
-    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage | None:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage:
         """Parse tool calls from model output in non-streaming mode.
 
         This method updates the tool parser's pattern if tools are provided and then

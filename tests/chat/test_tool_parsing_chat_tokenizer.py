@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.mlx.tools.chat_tokenizer import ToolParsingChatTokenizer
-from mlx_omni_server.chat.mlx.tools.tool_parser import BaseToolParser
+from mlx_omni_server.chat.tools.chat_tokenizer import ToolParsingChatTokenizer
+from mlx_omni_server.chat.tools.tool_parser import BaseToolParser
 from mlx_omni_server.chat.schema import Role, Tool, ToolCall, FunctionCall
 
 

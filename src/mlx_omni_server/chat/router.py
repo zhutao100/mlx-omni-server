@@ -1,19 +1,20 @@
 import asyncio
-from dataclasses import dataclass, field
-import logging
-from typing import Any, Dict, AsyncGenerator
 import hashlib
 import json
+import logging
 import time
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Dict
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from .mlx.models import ModelId, load_model
+from .mlx_lm.models import load_model as load_lm_model
+from .mlx_vlm.models import load_model as load_vlm_model
+from .models.models_service import ModelId
 from .schema import ChatCompletionRequest, ChatCompletionResponse
 from .text_models import BaseTextModel
-
 
 router = APIRouter(tags=["chat-completions"])
 
@@ -232,18 +233,21 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     )
 
 
+def _is_vlm_model(model_name: str) -> bool:
+    """Check if the model name indicates a VLM model"""
+    vlm_indicators = ["vlm", "vision", "multimodal", "llava", "bakllava", "cogvlm", "qwen-vl", "glm-vl", "paligemma", "glm-4.5v"]
+    return any(indicator in model_name.lower() for indicator in vlm_indicators)
+
+
 def _create_text_model(
     model_id: str,
     adapter_path: str | None = None,
     draft_model: str | None = None,
 ) -> BaseTextModel:
-    """Create a text model based on the model parameters.
-
-    Creates a ModelId object and passes it to load_model function.
-    The caching is handled inside the load_model function.
-    """
-    current_key = ModelId(
-        name=model_id, adapter_path=adapter_path, draft_model=draft_model
-    )
-
-    return load_model(current_key)
+    """Create appropriate model based on whether it's a VLM or LM model."""
+    
+    model_id_obj = ModelId(name=model_id, adapter_path=adapter_path, draft_model=draft_model)
+    if _is_vlm_model(model_id):
+        return load_vlm_model(model_id_obj)
+    else:
+        return load_lm_model(model_id_obj)

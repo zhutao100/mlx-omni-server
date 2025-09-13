@@ -7,7 +7,7 @@ from openai import OpenAI
 from fastapi.testclient import TestClient
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_omni_server.main import app
-from mlx_omni_server.chat.mlx.model_types import load_tools_handler, load_config
+from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler, load_config
 from unittest.mock import Mock
 
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +42,7 @@ class TestQwen3ToolCalls:
         
         # Test that the correct tokenizer is loaded for qwen3
         tokenizer = load_tools_handler("qwen3", mock_tokenizer)
-        from mlx_omni_server.chat.mlx.tools.qwen3 import Qwen3ChatTokenizer
+        from mlx_omni_server.chat.tools.qwen3 import Qwen3ChatTokenizer
         assert isinstance(tokenizer, Qwen3ChatTokenizer)
         
         # Test that the correct tokenizer is loaded for qwen3_moe

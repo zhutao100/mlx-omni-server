@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Type
 
@@ -7,15 +7,15 @@ import mlx.nn as nn
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import get_model_path, load, load_config
 
-
 from ...utils.logger import logger
-from .tools.chat_tokenizer import ChatTokenizer
-from .tools.hugging_face import HuggingFaceChatTokenizer
-from .tools.llama3 import Llama3ChatTokenizer
-from .tools.mistral import MistralChatTokenizer
-from .tools.qwen3 import Qwen3ChatTokenizer
-from .tools.glm4 import Glm4ChatTokenizer
-from .tools.seed_oss import SeedOssChatTokenizer
+from ..models.models_service import ModelId
+from ..tools.chat_tokenizer import ChatTokenizer
+from ..tools.glm4 import Glm4ChatTokenizer
+from ..tools.hugging_face import HuggingFaceChatTokenizer
+from ..tools.llama3 import Llama3ChatTokenizer
+from ..tools.mistral import MistralChatTokenizer
+from ..tools.qwen3 import Qwen3ChatTokenizer
+from ..tools.seed_oss import SeedOssChatTokenizer
 
 
 def load_tools_handler(model_type: str, tokenizer: TokenizerWrapper) -> ChatTokenizer:
@@ -59,30 +59,7 @@ def load_chat_template(model_type: str) -> str | None:
     return None
 
 
-@dataclass(frozen=True)
-class ModelId:
-    """Entity class representing a unique model identifier.
-
-    This class encapsulates all parameters that determine whether a model
-    needs to be reloaded. It replaces the tuple-based approach with a more
-    object-oriented design that's easier to extend and maintain.
-    """
-
-    name: str
-    adapter_path: Optional[str] = None
-    draft_model: Optional[str] = None
-
-    def __str__(self) -> str:
-        """Return a string representation of the model ID for debugging."""
-        parts = [f"model_name={self.name}"]
-        if self.adapter_path:
-            parts.append(f"adapter_path={self.adapter_path}")
-        if self.draft_model:
-            parts.append(f"draft_model={self.draft_model}")
-        return f"ModelId({', '.join(parts)})"
-
-
-class MlxModelCache:
+class MlxLmModelCache:
     """Model cache class to avoid reloading the same models.
 
     This class manages the cache of main models and draft models based on ModelId objects.
@@ -134,11 +111,9 @@ class MlxModelCache:
                 self.model_id.draft_model,
                 tokenizer_config={"trust_remote_code": True},
             )
-
             # Check if vocabulary sizes match
             if self.draft_tokenizer.vocab_size != self.tokenizer.vocab_size:
-                logger.warn(
+                logger.warning(
                     f"Draft model({self.model_id.draft_model}) tokenizer does not match model tokenizer."
                 )
-
             logger.info(f"Loaded new draft model: {self.model_id.draft_model}")

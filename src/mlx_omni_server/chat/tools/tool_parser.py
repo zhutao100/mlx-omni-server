@@ -6,8 +6,8 @@ import uuid
 
 import regex
 
-from ....utils.logger import logger
-from ...schema import FunctionCall, Tool, ToolCall, ToolType
+from ...utils.logger import logger
+from ..schema import FunctionCall, Tool, ToolCall, ToolType
 
 
 class BaseToolParser(ABC):

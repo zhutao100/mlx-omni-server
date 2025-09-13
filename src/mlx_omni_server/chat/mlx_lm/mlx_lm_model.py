@@ -1,6 +1,5 @@
 import time
 import uuid
-from rich.markup import escape
 from typing import Any, Callable, Dict, Generator
 
 import mlx.core as mx
@@ -8,98 +7,34 @@ from mlx_lm.generate import GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import get_model_path, load_config
-
-from mlx_omni_server.chat.mlx.tools.chat_tokenizer import ChatTokenizer
+from rich.markup import escape
 
 from ...utils.logger import logger
-from ..schema import (
-    ChatCompletionChoice,
-    ChatCompletionChunk,
-    ChatCompletionChunkChoice,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionUsage,
-    ChatMessage,
-    Role,
-)
+from ..schema import (ChatCompletionChoice, ChatCompletionChunk,
+                      ChatCompletionChunkChoice, ChatCompletionRequest,
+                      ChatCompletionResponse, ChatCompletionUsage, ChatMessage,
+                      Role)
 from ..text_models import BaseTextModel, GenerateResult, GenerationParams
-from .model_types import MlxModelCache
+from ..tools.chat_tokenizer import ChatTokenizer
+from ..tools.tokens_decoder import ReasoningDecoder
+from ..utils import (normalize_to_list, normalize_token, safe_decode_token,
+                     safe_encode_prompt)
+from .model_types import MlxLmModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCacheManager
-from .tools.tokens_decoder import ReasoningDecoder
 
 
-def _safe_encode_prompt(tok_obj: Any, text: str) -> list[int]:
-    """Safely call a tokenizer encode-like function."""
-    # Try common encode-like names
-    for name in ("encode", "encode_texts", "encode_ids", "encode_tokens", "tokenize"):
-        method = getattr(tok_obj, name, None)
-        if callable(method):
-            return method(text)  # type: ignore
-
-    raise RuntimeError(
-        "No callable encode function found on tokenizer or model_cache.tokenizer; "
-        "expected a TokenizerWrapper-like object with an 'encode' method."
-    )
-
-
-def _normalize_to_list(obj: Any, cast: Callable) -> list[Any]:
-    """Try to convert obj to a list, falling back safely."""
-    tolist = getattr(obj, "tolist", None)
-    if callable(tolist):
-        try:
-            maybe = tolist()
-            if isinstance(maybe, (list, tuple)):
-                return list(maybe)
-            return [cast(maybe)]
-        except Exception:
-            pass
-    try:
-        return list(obj)
-    except Exception:
-        return [cast(obj)]
-
-
-def _normalize_token(token: Any) -> str:
-    """Ensure token is a UTF-8 string."""
-    if not isinstance(token, (str, bytes)):
-        token = str(token)
-    if isinstance(token, bytes):
-        token = token.decode("utf-8", errors="ignore")
-    return token
-
-
-def _safe_decode_token(tok_obj: Any, token_id: int) -> str:
-    """Try to decode a single token id into string safely."""
-    for name in ["decode", "detokenize", "decode_tokens", "decode_ids", "decode_token"]:
-        fn = getattr(tok_obj, name, None)
-        if callable(fn):
-            try:
-                return fn([token_id])  # type: ignore
-            except Exception:
-                continue
-
-    decoder = getattr(tok_obj, "decoder", None)
-    if callable(decoder):
-        try:
-            return decoder([token_id])  # type: ignore
-        except Exception:
-            pass
-
-    return str(token_id)
-
-
-class MLXModel(BaseTextModel):
+class MlxLmModel(BaseTextModel):
     """MLX Chat Model wrapper with internal parameter management"""
 
     def __init__(
         self,
-        model_cache: MlxModelCache,
+        model_cache: MlxLmModelCache,
     ):
-        """Initialize MLXModel with model cache object.
+        """Initialize MlxLmModel with model cache object.
 
         Args:
-            model_cache: MlxModelCache object containing models and tokenizers
+            model_cache: MlxLmModelCache object containing models and tokenizers
         """
         self._model_cache = model_cache
         self._default_max_tokens = 1048576
@@ -108,8 +43,7 @@ class MLXModel(BaseTextModel):
         self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
         if model_cache.tokenizer is None:
             raise ValueError("model_cache.tokenizer cannot be None")
-        self._reasoning_decoder = ReasoningDecoder(
-            model_cache.tokenizer, thinking_tag=model_cache.chat_tokenizer.thinking_tag)
+        self._reasoning_decoder = ReasoningDecoder(thinking_tag=model_cache.chat_tokenizer.thinking_tag)
         model_path = get_model_path(model_cache.model_id.name)[0]
         self._model_config = load_config(model_path)
         if "max_position_embeddings" in self._model_config and isinstance(
@@ -194,7 +128,7 @@ class MLXModel(BaseTextModel):
         current_logprobs = response.logprobs
 
         # Decode current token safely
-        token_str = _normalize_token(_safe_decode_token(tokenizer, current_token))
+        token_str = normalize_token(safe_decode_token(tokenizer, current_token))
         token_logprob = mx.clip(current_logprobs[current_token], a_min=-100, a_max=None).item()
         token_bytes = token_str.encode("utf-8")
 
@@ -209,11 +143,11 @@ class MLXModel(BaseTextModel):
             top_indices = mx.argpartition(-current_logprobs, kth=top_k - 1)[:top_k]
             top_probs = mx.clip(current_logprobs[top_indices], a_min=-100, a_max=None)
 
-            top_indices_list = _normalize_to_list(top_indices, int)
-            top_probs_list = _normalize_to_list(top_probs, float)
+            top_indices_list = normalize_to_list(top_indices, int)
+            top_probs_list = normalize_to_list(top_probs, float)
 
             for idx, logprob in zip(top_indices_list, top_probs_list):
-                token = _normalize_token(_safe_decode_token(tokenizer, idx))
+                token = normalize_token(safe_decode_token(tokenizer, idx))
                 token_bytes = token.encode("utf-8")
                 top_logprobs.append(
                     {"token": token, "logprob": logprob, "bytes": list(token_bytes)}
@@ -283,7 +217,7 @@ class MLXModel(BaseTextModel):
         tokenizer: TokenizerWrapper = self._chat_tokenizer.tokenizer
 
         # Process prompt cache using the safe caller
-        tokenized_prompt: list[int] = _safe_encode_prompt(tokenizer, prompt)
+        tokenized_prompt: list[int] = safe_encode_prompt(tokenizer, prompt)
         active_cache, processed_prompt, cached_count = self._prompt_cache_manager.get_or_create_cache(
             self._model_cache, tokenized_prompt
         )
@@ -299,7 +233,7 @@ class MLXModel(BaseTextModel):
         if request.response_format and request.response_format.json_schema:
             generate_kwargs["logits_processors"] = [
                 OutlinesLogitsProcessor(
-                    self._chat_tokenizer.tokenizer, request.response_format
+                    tokenizer, request.response_format
                 )
             ]
         elif request.presence_penalty:

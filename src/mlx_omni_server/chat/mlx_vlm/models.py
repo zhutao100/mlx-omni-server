@@ -1,16 +1,17 @@
-from threading import Lock
 import gc
+from threading import Lock
+
 from mlx.core import clear_cache
 
-from ..text_models import BaseTextModel
-from .mlx_model import MLXModel
-from .model_types import MlxModelCache, ModelId
-
 from ...utils.logger import logger
+from ..models.models_service import ModelId
+from ..text_models import BaseTextModel
+from .mlx_vlm_model import MlxVlmModel
+from .model_types import MlxVlmModelCache
 
 
-class ModelCacheManager:
-    """Singleton class that manages lifecycle of MlxModelCache and MlxModel."""
+class MlxVlmModelCacheManager:
+    """Singleton class that manages lifecycle of MlxVlmModelCache and MlxVlmModel."""
 
     _instance = None
 
@@ -20,12 +21,13 @@ class ModelCacheManager:
         return cls._instance
 
     def __init__(self):
-        self._model_cache: MlxModelCache | None = None
-        self._mlx_model_cache: MLXModel | None = None
+        self._model_cache: MlxVlmModelCache | None = None
+        self._mlx_model: MlxVlmModel | None = None
         self._lock = Lock()
 
     def load_model(self, model_id: ModelId) -> BaseTextModel:
         """Load (or reuse) a model and return a BaseTextModel instance."""
+
         with self._lock:
             if (
                 self._model_cache is None
@@ -35,20 +37,21 @@ class ModelCacheManager:
                 self._release()
 
                 # Create new caches
-                self._model_cache = MlxModelCache(model_id)
-                self._mlx_model_cache = MLXModel(model_cache=self._model_cache)
+                self._model_cache = MlxVlmModelCache(model_id)
+                self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
             else:
-                if not self._mlx_model_cache:
-                    logger.error("Unexpected: model cache exists but MLXModel is missing.")
-                    self._model_cache = MlxModelCache(model_id)
-                    self._mlx_model_cache = MLXModel(model_cache=self._model_cache)
+                if not self._mlx_model:
+                    logger.error("Unexpected: model cache exists but MlxVlmModel is missing.")
+                    self._model_cache = MlxVlmModelCache(model_id)
+                    self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
 
-            return self._mlx_model_cache
+            return self._mlx_model
 
     def _release(self):
         """Release current models and force memory cleanup."""
+
         self._model_cache = None
-        self._mlx_model_cache = None
+        self._mlx_model = None
         clear_cache()
         gc.collect()
 
@@ -59,7 +62,7 @@ class ModelCacheManager:
 
 
 # Create a single shared instance
-model_cache_manager = ModelCacheManager()
+model_cache_manager = MlxVlmModelCacheManager()
 
 
 def load_model(model_id: ModelId) -> BaseTextModel:

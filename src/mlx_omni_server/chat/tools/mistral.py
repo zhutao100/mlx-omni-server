@@ -4,9 +4,9 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from mlx_omni_server.chat.mlx.tools.tool_parser import GenericToolParser
+from mlx_omni_server.chat.tools.tool_parser import GenericToolParser
 
-from ...schema import ChatMessage, FunctionCall, Role, Tool, ToolCall
+from ..schema import ChatMessage, FunctionCall, Role, Tool, ToolCall
 from .chat_tokenizer import ChatTokenizer
 
 
@@ -20,7 +20,7 @@ class MistralChatTokenizer(ChatTokenizer):
     def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
         return ChatMessage(role=Role.ASSISTANT, content=delta_text)
 
-    def decode(self, text: str, tools: list[Tool] | None = None) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: list[Tool] | None = None) -> ChatMessage:
         """Parse tool calls from model output.
 
         The model outputs function calls in the format:

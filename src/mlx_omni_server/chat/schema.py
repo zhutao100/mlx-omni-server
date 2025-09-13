@@ -77,9 +77,28 @@ class Role(str, Enum):
     TOOL = "tool"
 
 
+class ImageUrl(BaseModel):
+    """Represents an image URL in a message."""
+    url: str = Field(..., description="The image URL or base64 data")
+
+
+class AudioInput(BaseModel):
+    """Represents an audio input in a message."""
+    data: str = Field(..., description="The audio data (base64 encoded)")
+    format: str = Field(..., description="The audio format (e.g., 'wav', 'mp3')")
+
+
+class MultimodalContentItem(BaseModel):
+    """Represents a single content item in a message (text, image, or audio)."""
+    type: str = Field(..., description="The type of content: 'text', 'image_url', or 'input_audio'")
+    text: Optional[str] = None
+    image_url: Optional[ImageUrl] = None
+    input_audio: Optional[AudioInput] = None
+
+
 class ChatMessage(BaseModel):
     role: Role
-    content: Optional[str] = None
+    content: Union[str, List[MultimodalContentItem], None] = None
     reasoning: Optional[str] = None
     name: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
@@ -272,3 +291,13 @@ class ChatCompletionRequest(BaseModel):
             "draft-model",
         }
         return {k: v for k, v in self.model_dump().items() if k not in standard_fields}
+
+    def is_multimodal_request(self) -> bool:
+        """Check if the request includes image or audio content"""
+        for message in self.messages:
+            content = message.content
+            if isinstance(content, list):
+                for item in content:
+                    if hasattr(item, 'type') and item.type in ["image_url", "input_audio"]:
+                        return True
+        return False

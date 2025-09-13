@@ -1,8 +1,8 @@
 import json
 import re
 import pytest
-from mlx_omni_server.chat.mlx.tools.glm4 import Glm4ToolParser
-from mlx_omni_server.chat.mlx.tools.chat_tokenizer import ToolParsingChatTokenizer
+from mlx_omni_server.chat.tools.glm4 import Glm4ToolParser
+from mlx_omni_server.chat.tools.chat_tokenizer import ToolParsingChatTokenizer
 from mlx_omni_server.chat.schema import Tool, Function, ToolType, Role, FunctionCall, ToolCall
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 

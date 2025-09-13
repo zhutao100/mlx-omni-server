@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
-from ....utils.logger import logger
-from ...schema import (
+from ...utils.logger import logger
+from ..schema import (
     ChatMessage,
     FunctionCall,
     Role,
@@ -93,7 +93,7 @@ class HuggingFaceChatTokenizer(ChatTokenizer):
 
         return tool_calls if tool_calls else None
 
-    def decode(self, text: str, tools: Optional[List[Tool]] = None) -> Optional[ChatMessage]:
+    def decode(self, text: str, tools: Optional[List[Tool]] = None) -> ChatMessage:
         """Parse tool calls from model output."""
         response = self.pre_fill_tools_prompt + text
 

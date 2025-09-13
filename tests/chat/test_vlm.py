@@ -1,0 +1,328 @@
+import asyncio
+import json
+import time
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
+
+import pytest
+import pytest_asyncio
+from fastapi import Request
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from openai import OpenAI
+
+from mlx_omni_server.chat.mlx_vlm import models as mlx_vlm_models
+from mlx_omni_server.chat.models.models_service import ModelId
+from mlx_omni_server.chat.router import (
+    CACHE_TTL,
+    NonStreamCacheEntry,
+    StreamCacheEntry,
+    _create_text_model,
+    make_request_hash,
+    response_cache,
+)
+from mlx_omni_server.chat.schema import (
+    ChatCompletionRequest,
+    ChatMessage,
+    Role,
+    MultimodalContentItem,
+    ImageUrl,
+    AudioInput
+)
+from mlx_omni_server.chat.text_models import (
+    BaseTextModel,
+    ChatCompletionChunk,
+    ChatCompletionResponse,
+)
+from mlx_omni_server.main import app
+
+# Constants
+VLM_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
+
+
+# Mock Classes
+class MockVlmModel(BaseTextModel):
+    """Mock VLM model for testing"""
+
+    def __init__(self):
+        self.call_count = 0
+        self.stream_call_count = 0
+
+    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+        """Mock generate method"""
+        self.call_count += 1
+        content = "This is a test image description."
+        if request.messages and len(request.messages) > 0:
+            if isinstance(request.messages[0].content, str):
+                if "describe" in request.messages[0].content.lower():
+                    content = "This is a beautiful landscape with mountains and a lake."
+
+        return ChatCompletionResponse(
+            id="test-vlm-response-id",
+            created=int(time.time()),
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": ChatMessage(
+                        role=Role.ASSISTANT,
+                        content=content,
+                    ),
+                    "finish_reason": "stop",
+                }
+            ],
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+            },
+        )
+
+    def stream_generate(self, request: ChatCompletionRequest):
+        """Mock stream generate method"""
+        self.stream_call_count += 1
+        content = "This is a test image description."
+        if request.messages and len(request.messages) > 0:
+            if isinstance(request.messages[0].content, str):
+                if "describe" in request.messages[0].content.lower():
+                    content = "This is a beautiful landscape with mountains and a lake."
+
+        # Yield chunks
+        for i, word in enumerate(content.split()):
+            yield ChatCompletionChunk(
+                id="test-vlm-chunk-id",
+                created=int(time.time()),
+                model=request.model,
+                choices=[
+                    {
+                        "index": 0,
+                        "delta": ChatMessage(
+                            role=Role.ASSISTANT,
+                            content=word + " ",
+                        ),
+                        "finish_reason": None,
+                    }
+                ],
+            )
+        # Final chunk with finish reason
+        yield ChatCompletionChunk(
+            id="test-vlm-chunk-id",
+            created=int(time.time()),
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(
+                        role=Role.ASSISTANT,
+                        content="",
+                    ),
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+
+@pytest.fixture
+def client():
+    """Create test client"""
+    return TestClient(app)
+
+
+@pytest.fixture
+def openai_client(client):
+    """Create OpenAI client configured with test server and handle cache cleanup."""
+    # The test will use this client instance
+    yield OpenAI(
+        base_url="http://test/v1",
+        api_key="test",
+        http_client=client,
+    )
+
+    # Teardown logic: runs after the test is finished
+    # This clears the global model cache to prevent state pollution between tests
+    mlx_vlm_models.model_cache_manager.clear()
+
+
+class TestVlmChatCompletions:
+
+    @pytest.fixture(autouse=True)
+    def setup_and_teardown(self):
+        """Setup and teardown for each test"""
+        # Clear cache before each test
+        response_cache.clear()
+        yield
+        # Clear cache after each test
+        response_cache.clear()
+
+    def test_vlm_chat_completions_normal(self, openai_client):
+        """Test normal VLM chat completions with image"""
+        with patch("mlx_omni_server.chat.router._is_vlm_model", return_value=True), \
+                patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCacheManager.load_model") as mock_load_model:
+
+            # Mock the VLM model
+            mock_vlm_model = MockVlmModel()
+            mock_load_model.return_value = mock_vlm_model
+
+            try:
+                response = openai_client.chat.completions.create(
+                    model=VLM_MODEL_ID,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Describe this image"},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "https://example.com/test-image.jpg"
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                )
+
+                # Validate response
+                assert response.model == VLM_MODEL_ID, "Model name is not correct"
+                assert response.usage is not None, "No usage in response"
+                assert response.object == "chat.completion", "Object type is not correct"
+                assert len(response.choices) == 1, "Should have one choice"
+                assert response.choices[0].message.content is not None, "No content in response"
+                assert "test image description" in response.choices[0].message.content.lower(), "Content is not correct"
+
+                # Verify the mock was called
+                mock_load_model.assert_called()
+                assert mock_vlm_model.call_count == 1, "Generate method should be called once"
+
+            except Exception as e:
+                pytest.fail(f"Chat completion failed with error: {e}")
+
+    def test_vlm_chat_completions_streaming(self, openai_client):
+        """Test streaming VLM chat completions with image"""
+        with patch("mlx_omni_server.chat.router._is_vlm_model", return_value=True), \
+                patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCacheManager.load_model") as mock_load_model:
+
+            # Mock the VLM model
+            mock_vlm_model = MockVlmModel()
+            mock_load_model.return_value = mock_vlm_model
+
+            try:
+                response = openai_client.chat.completions.create(
+                    model=VLM_MODEL_ID,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Describe this image"},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "https://example.com/test-image.jpg"
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                    stream=True,
+                )
+
+                # Collect all chunks
+                chunks = []
+                for chunk in response:
+                    chunks.append(chunk)
+
+                # Validate chunks
+                assert len(chunks) > 0, "Should have received chunks"
+                assert chunks[0].model == VLM_MODEL_ID, "Model name is not correct"
+                assert chunks[0].object == "chat.completion.chunk", "Object type is not correct"
+
+                # Verify the mock was called
+                mock_load_model.assert_called()
+                assert mock_vlm_model.stream_call_count == 1, "Stream generate method should be called once"
+
+            except Exception as e:
+                pytest.fail(f"Streaming chat completion failed with error: {e}")
+
+    def test_vlm_model_detection(self):
+        """Test that VLM models are correctly detected"""
+        from mlx_omni_server.chat.router import _is_vlm_model
+
+        # Test VLM model names
+        assert _is_vlm_model("llava-hf/llava-1.5-7b-hf") == True
+        assert _is_vlm_model("Qwen/Qwen-VL-Chat") == True
+        assert _is_vlm_model("THUDM/cogvlm-chat-hf") == True
+        assert _is_vlm_model("google/paligemma-3b-pt-224") == True
+
+        # Test non-VLM model names
+        assert _is_vlm_model("mlx-community/gemma-3-1b-it-4bit-DWQ") == False
+        assert _is_vlm_model("meta-llama/Llama-3.2-1B-Instruct") == False
+
+    def test_vlm_model_cache_manager(self):
+        """Test VLM model cache manager"""
+        with patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModel") as mock_vlm_model_class, \
+             patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCache") as mock_model_cache_class:
+            # Mock the model cache
+            mock_model_cache = Mock()
+            mock_model_cache.model_id = ModelId(name=VLM_MODEL_ID)
+            mock_model_cache_class.return_value = mock_model_cache
+            
+            # Mock the VLM model instance
+            mock_vlm_model_instance = Mock()
+            mock_vlm_model_class.return_value = mock_vlm_model_instance
+
+            # Create cache manager
+            cache_manager = mlx_vlm_models.model_cache_manager
+
+            # Load model
+            model_id = ModelId(name=VLM_MODEL_ID)
+            model = cache_manager.load_model(model_id)
+
+            # Verify model was created
+            assert model is not None
+            mock_model_cache_class.assert_called_once_with(model_id)
+            mock_vlm_model_class.assert_called_once_with(model_cache=mock_model_cache)
+
+            # Load same model again (should reuse)
+            mock_vlm_model_class.reset_mock()
+            model2 = cache_manager.load_model(model_id)
+            assert model2 is model  # Should be the same instance
+            assert mock_vlm_model_class.call_count == 0  # Should not be called again
+
+    def test_vlm_request_multimodal_detection(self):
+        """Test detection of multimodal requests"""
+        # Create a multimodal request
+        request = ChatCompletionRequest(
+            model=VLM_MODEL_ID,
+            messages=[
+                ChatMessage(
+                    role=Role.USER,
+                    content=[
+                        MultimodalContentItem(type="text", text="Describe this image"),
+                        MultimodalContentItem(
+                            type="image_url",
+                            image_url=ImageUrl(url="https://example.com/test-image.jpg")
+                        )
+                    ]
+                )
+            ]
+        )
+
+        # Verify it's detected as multimodal
+        assert request.is_multimodal_request() == True
+
+        # Create a text-only request
+        text_request = ChatCompletionRequest(
+            model=VLM_MODEL_ID,
+            messages=[
+                ChatMessage(
+                    role=Role.USER,
+                    content="Hello, how are you?"
+                )
+            ]
+        )
+
+        # Verify it's not detected as multimodal
+        assert text_request.is_multimodal_request() == False
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

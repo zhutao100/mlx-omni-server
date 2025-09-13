@@ -33,7 +33,7 @@ The server implements OpenAI-compatible endpoints:
   - ✅ Tools, Function Calling
   - ✅ Structured Output
   - ✅ LogProbs
-  - 🚧 Vision
+  - ✅ Vision
 - [Audio](https://platform.openai.com/docs/api-reference/audio)
   - ✅ `/v1/audio/speech` - Text-to-Speech
   - ✅ `/v1/audio/transcriptions` - Speech-to-Text
@@ -286,6 +286,127 @@ curl http://localhost:10240/v1/chat/completions \
 ```
 </details>
 
+#### 🔍 Vision/Multimodal Requests
+
+Supported by Vision-Language Models (VLMs) like LLaVA, Qwen-VL, and CogVLM:
+
+```python
+# Image description from URL
+response = client.chat.completions.create(
+    model="llava-v1.6-7b",  # VLM model
+    messages=[{
+        "role": "user", 
+        "content": [
+            {"type": "text", "text": "What's in this image?"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "https://example.com/image.jpg"
+                }
+            }
+        ]
+    }]
+)
+
+print(response.choices[0].message.content)
+```
+
+<details>
+<summary><strong>Base64 Image Example</strong></summary>
+
+```python
+import base64
+from io import BytesIO
+from PIL import Image
+import requests
+
+# Load and encode image as base64
+image_url = "https://example.com/image.jpg"
+response = requests.get(image_url)
+image = Image.open(BytesIO(response.content))
+
+buffered = BytesIO()
+image.save(buffered, format="JPEG")
+img_str = base64.b64encode(buffered.getvalue()).decode()
+
+# Send to model
+response = client.chat.completions.create(
+    model="llava-v1.6-7b",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "What's in this image?"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{img_str}"
+                }
+            }
+        ]
+    }]
+)
+
+print(response.choices[0].message.content)
+```
+</details>
+
+<details>
+<summary><strong>Streaming with Images</strong></summary>
+
+```python
+response = client.chat.completions.create(
+    model="llava-v1.6-7b",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Describe this image in detail:"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "https://example.com/image.jpg"
+                }
+            }
+        ]
+    }],
+    stream=True
+)
+
+for chunk in response:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+</details>
+
+<details>
+<summary><strong>Multiple Images</strong></summary>
+
+```python
+response = client.chat.completions.create(
+    model="llava-v1.6-7b",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Compare these two images:"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "https://example.com/image1.jpg"
+                }
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "https://example.com/image2.jpg"
+                }
+            }
+        ]
+    }]
+)
+
+print(response.choices[0].message.content)
+```
+</details>
+
 #### 🔊 Audio Processing
 
 **Text-to-Speech (TTS)**
@@ -403,7 +524,67 @@ curl http://localhost:10240/v1/embeddings \
 
 </details>
 
+#### Multimodal Chat Completions
+
+This server supports multimodal chat completions with models like Llava. You can include images in your requests by providing a URL or a base64-encoded image.
+
+##### Example with Image URL
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:10240/v1/chat/completions",
+    json={
+        "model": "llava-hf/llava-1.5-7b-hf",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What's in this image?"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}},
+                ],
+            }
+        ],
+    },
+)
+
+print(response.json())
+```
+
+##### Example with Base64-Encoded Image
+
+```python
+import requests
+import base64
+
+with open("image.jpg", "rb") as f:
+    encoded_image = base64.b64encode(f.read()).decode("utf-8")
+
+response = requests.post(
+    "http://localhost:10240/v1/chat/completions",
+    json={
+        "model": "llava-hf/llava-1.5-7b-hf",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What's in this image?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"},
+                    },
+                ],
+            }
+        ],
+    },
+)
+
+print(response.json())
+```
+
 For more detailed examples, check out the [examples](examples) directory.
+
 
 ## 🤖 Supported Models
 
@@ -436,6 +617,17 @@ MLX Omni Server supports a comprehensive range of models optimized for Apple Sil
 | Model | Use Case |
 |-------|----------|
 | **Sentence Transformers** | `mlx-community/all-MiniLM-L6-v2-4bit` | Semantic search, similarity |
+
+### 👁️ Vision-Language Models (VLMs)
+
+| Model Family | Examples | Capabilities |
+|--------------|----------|--------------|
+| **LLaVA** | `llava-hf/llava-v1.6-mistral-7b-hf` | Image understanding, description, Q&A |
+| **Qwen-VL** | `Qwen/Qwen-VL-Chat` | Multimodal understanding, OCR, image analysis |
+| **CogVLM** | `THUDM/cogvlm-chat-hf` | Advanced visual reasoning, complex image tasks |
+| **PaliGemma** | `google/paligemma-3b-pt-224` | Image captioning, visual question answering |
+
+> 🔍 **Note**: VLM models require more memory and computational resources than text-only models. Ensure your system has adequate resources before using these models.
 
 > 💡 **Tip**: Look for quantized models (`4bit`, `8bit`) for better performance on resource-constrained systems.
 

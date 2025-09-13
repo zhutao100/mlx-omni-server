@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from openai import OpenAI
 
-from mlx_omni_server.chat.mlx import models as mlx_models
+from mlx_omni_server.chat.models.models_service import ModelId
+from mlx_omni_server.chat.mlx_lm import models as mlx_models
 from mlx_omni_server.chat.router import (
     CACHE_TTL,
     NonStreamCacheEntry,
@@ -296,7 +297,6 @@ class TestModelCreation:
 
         mock_load_model.assert_called_once()
         args, kwargs = mock_load_model.call_args
-        from mlx_omni_server.chat.mlx.models import ModelId
 
         assert args[0].name == "test-model"
         assert args[0].adapter_path is None
@@ -313,7 +313,6 @@ class TestModelCreation:
 
         mock_load_model.assert_called_once()
         args, kwargs = mock_load_model.call_args
-        from mlx_omni_server.chat.mlx.models import ModelId
 
         assert args[0].name == "test-model"
         assert args[0].adapter_path == "/path/to/adapter"
@@ -329,7 +328,6 @@ class TestModelCreation:
 
         mock_load_model.assert_called_once()
         args, kwargs = mock_load_model.call_args
-        from mlx_omni_server.chat.mlx.models import ModelId
 
         assert args[0].name == "test-model"
         assert args[0].adapter_path is None
