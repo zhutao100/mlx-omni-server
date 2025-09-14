@@ -22,7 +22,7 @@ from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import convert_prompt_to_str, safe_encode_prompt
 from .media_processor import MediaProcessor
-from .prompt_cache import PromptCacheManager, get_vlm_cache_config
+from .prompt_cache import PromptCache, PromptCacheManager, get_vlm_cache_config
 
 
 class MlxVlmModel(BaseTextModel):
@@ -550,12 +550,19 @@ class MlxVlmModel(BaseTextModel):
             for path in audio_paths:
                 media_hashes.append(self.media_processor.generate_media_hash(path))
 
-        # Get or create cache using our cache manager
-        model_key = f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}"
-        prompt_cache, _, cached_count = self._prompt_cache_manager.get_or_create_cache(
-            model, model_key, prompt_tokens, media_hashes
-        )
-        self._prompt_cache_tokens_count = cached_count
+        # TODO: re-enable prompt cache for VLM models
+        # # Get or create cache using our cache manager
+        # model_key = f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}"
+        # prompt_cache, _, cached_count = self._prompt_cache_manager.get_or_create_cache(
+        #     model, model_key, input_ids, media_hashes
+        # )
+        # self._prompt_cache_tokens_count = cached_count
+        prompt_cache = PromptCache(max_position_embeddings=self.context_length)
+        prompt_cache.reset_prompt_cache(
+            model, model_key=f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}",
+            prompt_tokens=prompt_tokens, media_hashes=media_hashes)
+        self._prompt_cache_tokens_count = 0
+
         # Prepare generation kwargs
         generate_kwargs = {
             "image": image_paths if image_paths else None,
