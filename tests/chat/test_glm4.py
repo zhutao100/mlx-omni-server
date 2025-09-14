@@ -140,6 +140,63 @@ class TestGlm4ToolParser:
         stock_args = json.loads(stock_call.function.arguments)
         assert stock_args == {"symbol": "AAPL"}
 
+    def test_multiple_tool_calls_malformed(self, glm4_parser):
+        text = '''
+        <tool_call><function=read_file>                                                                                                                                     
+        <parameter=path>                                                                                                                                                                    
+        /Users/taozhu/workspace/deeplearning/Watermark-Removal-Pytorch/_test/mmexport1533744568501.jpg                                                                                      
+        </parameter>                                                                                                                                                                        
+        </function>                                                                                                                                                                         
+        <|end_of_box|>                                                                                                                                                                      
+        Since the file is binary (JPEG), I'll need to use a tool that can display image information or describe its content. Let me check if we can get image dimensions and other metadata.
+        <tool_call><function=run_shell_command>                                                                                                                                             
+        <parameter=command>                                                                                                                                                                 
+        identify /Users/taozhu/workspace/deeplearning/Watermark-Removal-Pytorch/_test/mmexport1533744568501.jpg                                                                             
+        </parameter>                                                                                                                                                                        
+        </function>                                                                                                                                                                         
+        <|end_of_box|>                                                                                                                                                                      
+        Now I can describe the image based on the metadata and visual inspection (since I can't actually see the image, I'll provide a general description based on common image formats and
+        the filename context).
+        '''
+        tools = [
+            Tool(
+                type=ToolType.FUNCTION,
+                function=Function(
+                    name="read_file",
+                    description="Read a file from the filesystem",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "The file path to read"},
+                        },
+                        "required": ["path"],
+                    },
+                ),
+            ),
+            Tool(
+                type=ToolType.FUNCTION,
+                function=Function(
+                    name="run_shell_command",
+                    description="Run a shell command",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string", "description": "The shell command to execute"},
+                        },
+                        "required": ["command"],
+                    },
+                ),
+            ),
+        ]
+
+        rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=tools)
+        assert "Since the file is binary (JPEG)" in rest_text
+        assert "Now I can describe the image" in rest_text
+        assert len(tool_calls) == 2
+        tool_names = [tc.function.name for tc in tool_calls]
+        assert "read_file" in tool_names
+        assert "run_shell_command" in tool_names
+
     def test_no_tool_calls(self, glm4_parser, sample_tools):
         text = "This is a regular message with no tool calls."
         rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
@@ -155,7 +212,7 @@ class TestGlm4ToolParser:
         assert tool_call.function.name == "get_weather"
         args = json.loads(tool_call.function.arguments)
         assert args == {}
-    
+
         text = '''                                                                                                                                                                      
         <tool_call>
         <tool_call>get_weather
@@ -171,7 +228,7 @@ class TestGlm4ToolParser:
         tool_call = tool_calls[0]
         assert tool_call.function.name == "get_weather"
         args = json.loads(tool_call.function.arguments)
-        assert args == {"location": "Boston, MA", "unit": "celsius"} 
+        assert args == {"location": "Boston, MA", "unit": "celsius"}
 
     def test_malformed_tool_call_strict(self, glm4_parser, sample_tools):
         glm4_parser.strict = True

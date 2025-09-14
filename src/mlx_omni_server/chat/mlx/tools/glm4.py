@@ -18,6 +18,7 @@ from ...schema import (
 )
 from .chat_tokenizer import ToolParsingChatTokenizer
 from .tool_parser import GenericToolParser
+from .qwen3 import Qwen3ToolParser
 
 
 class Glm4ToolParser(GenericToolParser):
@@ -31,6 +32,7 @@ class Glm4ToolParser(GenericToolParser):
         self.arg_end_token: str = "</arg_key>"
         self.value_start_token: str = "<arg_value>"
         self.value_end_token: str = "</arg_value>"
+        self.qwen3_fallback_parser = Qwen3ToolParser()
 
     def update_tool_start_pattern(self, tools: list[Tool] | None):
         """Update the potential tool start pattern based on available tools."""
@@ -64,6 +66,13 @@ class Glm4ToolParser(GenericToolParser):
         It handles the standard format with a `<tool_call>` tag. If not in strict
         mode, it can also parse blocks that start directly with a valid tool name.
         """
+        logger.debug(escape("Parsing tool call block: %s"), text)
+
+        # Heuristic to detect Qwen3-style tool calls with <parameter> tags
+        if "<parameter=" in text and self.arg_start_token not in text:
+            logger.info("Detected Qwen3-style tool call format, using fallback parser.")
+            return self.qwen3_fallback_parser.parse_tool_call_block(text, tools)
+
         func_name = None
         pos = 0
 
@@ -184,7 +193,21 @@ class Glm4ToolParser(GenericToolParser):
 
             # Find end </tool_call>
             end_idx = model_output.find(self.tool_call_end_token, start_idx)
-            if end_idx == -1:
+
+            # Heuristic for Qwen3-style calls ending with </function>
+            func_end_idx = -1
+            if end_idx == -1:  # Only apply heuristic if standard end token is missing
+                _func_end_idx = model_output.find("</function>", start_idx)
+                if _func_end_idx != -1:
+                    preview = model_output[start_idx:_func_end_idx]
+                    if "<function=" in preview and "<parameter=" in preview:
+                        func_end_idx = _func_end_idx
+
+            if end_idx != -1:
+                block_end = end_idx + len(self.tool_call_end_token)
+            elif func_end_idx != -1:
+                block_end = func_end_idx + len("</function>")
+            else:
                 # If missing, recover until next tool_call or EOF
                 next_start_idx = pos + m.end() + 1
                 next_block = re.search(rf"{self.tool_call_start_token}", model_output[next_start_idx:])
@@ -204,8 +227,6 @@ class Glm4ToolParser(GenericToolParser):
                     block_end = min(candidates)
                 else:
                     block_end = n
-            else:
-                block_end = end_idx + len(self.tool_call_end_token)
 
             block = model_output[start_idx:block_end]
 
