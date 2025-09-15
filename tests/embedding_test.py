@@ -2,29 +2,12 @@ import logging
 import os
 
 import pytest
-from fastapi.testclient import TestClient
-from openai import OpenAI
-
-from src.mlx_omni_server.main import app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    return TestClient(app)
 
-
-@pytest.fixture
-def openai_client(client):
-    """Create OpenAI client configured to use test server"""
-    return OpenAI(
-        base_url="http://test/v1",
-        api_key="test",
-        http_client=client,
-    )
 
 
 def test_embeddings_single_text(openai_client):

@@ -4,11 +4,6 @@ import time
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import pytest
-import pytest_asyncio
-from fastapi import Request
-from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
-from openai import OpenAI
 
 from mlx_omni_server.chat.models.models import load_model
 from mlx_omni_server.chat.models.models_service import ModelId
@@ -33,7 +28,6 @@ from mlx_omni_server.chat.text_models import (
     ChatCompletionChunk,
     ChatCompletionResponse,
 )
-from mlx_omni_server.main import app
 
 # Constants
 VLM_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
@@ -121,26 +115,7 @@ class MockVlmModel(BaseTextModel):
         )
 
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    return TestClient(app)
 
-
-@pytest.fixture
-def openai_client(client):
-    """Create OpenAI client configured with test server and handle cache cleanup."""
-    # The test will use this client instance
-    yield OpenAI(
-        base_url="http://test/v1",
-        api_key="test",
-        http_client=client,
-    )
-
-    # Teardown logic: runs after the test is finished
-    # This clears the global model cache to prevent state pollution between tests
-    from mlx_omni_server.chat.models.models import model_cache_manager
-    model_cache_manager.clear()
 
 
 class TestVlmChatCompletions:

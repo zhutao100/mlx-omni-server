@@ -3,31 +3,12 @@ import json
 import logging
 
 import pytest
-from fastapi.testclient import TestClient
-from openai import OpenAI
-
-from mlx_omni_server.main import app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    return TestClient(app)
 
-
-@pytest.fixture
-def openai_client(client):
-    """Create OpenAI client configured with test server"""
-    yield OpenAI(
-        base_url="http://test/v1",
-        api_key="test",
-        http_client=client,
-    )
-
-    model_cache_manager.clear()
 
 
 class TestStructuredOutput:

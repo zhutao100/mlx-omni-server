@@ -1,35 +1,14 @@
 import logging
 
 import pytest
-from fastapi.testclient import TestClient
-from openai import OpenAI
 
 from mlx_omni_server.chat.models.models import model_cache_manager
-from mlx_omni_server.main import app
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def client():
-    """Create test client"""
-    return TestClient(app)
 
-
-@pytest.fixture
-def openai_client(client):
-    """Create OpenAI client configured with test server and handle cache cleanup."""
-    # The test will use this client instance
-    yield OpenAI(
-        base_url="http://test/v1",
-        api_key="test",
-        http_client=client,
-    )
-
-    # Teardown logic: runs after the test is finished
-    # This clears the global model cache to prevent state pollution between tests
-    model_cache_manager.clear()
 
 
 class TestChatCompletions:

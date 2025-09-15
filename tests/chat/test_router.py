@@ -1,14 +1,9 @@
 import asyncio
 import json
 import time
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-import pytest_asyncio
-from fastapi import Request
-from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
-from openai import OpenAI
 
 from mlx_omni_server.chat.models.models_service import ModelId
 from mlx_omni_server.chat.models.models import model_cache_manager
@@ -26,7 +21,6 @@ from mlx_omni_server.chat.text_models import (
     ChatCompletionChunk,
     ChatCompletionResponse,
 )
-from mlx_omni_server.main import app
 
 # Constants
 MODEL_ID = "mlx-community/gemma-3-1b-it-4bit-DWQ"
@@ -99,40 +93,6 @@ class MockTextModel(BaseTextModel):
 
 
 # Fixtures
-@pytest.fixture(autouse=True)
-def cleanup_caches():
-    """Fixture to automatically clean up caches after each test."""
-    response_cache.clear()
-    model_cache_manager.clear()
-    yield
-    response_cache.clear()
-    model_cache_manager.clear()
-
-
-@pytest.fixture
-def client():
-    """Create test client"""
-    with TestClient(app) as c:
-        yield c
-
-
-@pytest.fixture
-def openai_client(client):
-    """Create OpenAI client configured with test server."""
-    yield OpenAI(
-        base_url="http://test/v1",
-        api_key="test",
-        http_client=client,
-    )
-
-
-@pytest_asyncio.fixture
-async def async_client():
-    """Create an async client for concurrent requests."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
-
-
 @pytest.fixture
 def mock_request():
     """Create a mock request"""
@@ -151,13 +111,6 @@ def mock_stream_request():
         messages=[ChatMessage(role=Role.USER, content="Hello")],
         stream=True,
     )
-
-
-def create_mock_request():
-    """Create a FastAPI Request mock"""
-    request = Mock(spec=Request)
-    request.is_disconnected = AsyncMock(return_value=False)
-    return request
 
 
 # Unit Tests
