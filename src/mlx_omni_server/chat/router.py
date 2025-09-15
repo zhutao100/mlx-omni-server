@@ -124,7 +124,7 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     should_start_generation = False
     async with cache_lock:
         cached_entry = response_cache.get(req_hash)
-        if not isinstance(cached_entry, StreamCacheEntry):
+        if not isinstance(cached_entry, StreamCacheEntry) or cached_entry.stop_event.is_set():
             cached_entry = StreamCacheEntry()
             response_cache[req_hash] = cached_entry
             should_start_generation = True

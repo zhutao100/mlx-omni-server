@@ -1,14 +1,14 @@
+import asyncio
+import json
 import logging
 
 import pytest
+from httpx import AsyncClient
 
 from mlx_omni_server.chat.models.models import model_cache_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class TestChatCompletions:
@@ -172,3 +172,80 @@ class TestChatCompletions:
         except Exception as e:
             logger.error(f"Test error: {str(e)}")
             raise
+
+
+@pytest.mark.asyncio
+async def test_retry_canceled_stream_chat_completion(async_client: AsyncClient):
+    """
+    Tests that retrying a canceled streaming request starts a new generation.
+    """
+    payload = {
+        "model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
+        "messages": [
+            {"role": "user", "content": "Write a detailed essay about the history of artificial intelligence and machine learning."}
+        ],
+        "stream": True,
+        "max_tokens": 500,  # Make it longer so we have time to cancel
+    }
+
+    # --- First request, which we will cancel ---
+    lines_received = []
+    is_cancelled = False
+    logger.info("\n--- Starting first (canceled) request ---")
+    try:
+        async with async_client.stream("POST", "/v1/chat/completions", json=payload, timeout=5) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line and line.startswith("data:"):
+                    lines_received.append(line)
+                    if len(lines_received) >= 5:
+                        logger.info("--- Canceling first request by breaking early ---")
+                        is_cancelled = True
+                        break
+    except Exception as e:
+        logger.info(f"--- First request terminated as expected: {e} ---")
+        pass
+
+    assert is_cancelled, "Test failed to cancel the first stream mid-generation."
+
+    full_first_response = "\n".join(lines_received)
+    assert "data: [DONE]" not in full_first_response, "Canceled stream should not be complete"
+
+    # Give the server a moment to process the disconnection
+    await asyncio.sleep(1)
+
+    # --- Second request, which should succeed ---
+    all_lines = []
+    logger.info("\n--- Starting second (retry) request ---")
+    async with async_client.stream("POST", "/v1/chat/completions", json=payload, timeout=15) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if line:
+                all_lines.append(line)
+
+    full_response = "\n".join(all_lines)
+    logger.info(f"--- Full response from second request: ---\n{full_response}")
+
+    # The second request should complete successfully
+    assert "data: [DONE]" in full_response, "Full stream should end with [DONE]"
+
+    # Verify the content of the full stream
+    assert len(all_lines) > len(lines_received), "Second request should return more lines than the canceled one"
+
+    # Check that the content is what we expect from a fresh generation
+    content = ""
+    for line in all_lines:
+        if line.startswith("data:"):
+            data_part = line[len("data: "):].strip()
+            if data_part and data_part != "[DONE]":
+                try:
+                    chunk_json = json.loads(data_part)
+                    if "choices" in chunk_json and chunk_json["choices"][0].get("delta", {}).get("content"):
+                        content += chunk_json["choices"][0]["delta"]["content"]
+                except json.JSONDecodeError:
+                    pytest.fail(f"Failed to decode JSON chunk: {data_part}")
+
+    logger.info(f"--- Reconstructed content from second request: ---\n{content}")
+    # Check for expected content in the response
+    assert "artificial" in content.lower() or "machine" in content.lower()
+    assert len(content) > 50, "Should have generated a reasonable amount of content"
