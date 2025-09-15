@@ -6,7 +6,6 @@ import mlx.core as mx
 from mlx_lm.generate import GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
-from mlx_lm.utils import get_model_path, load_config
 from rich.markup import escape
 
 from ...utils.logger import logger
@@ -19,7 +18,7 @@ from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import (normalize_to_list, normalize_token, safe_decode_token,
                      safe_encode_prompt)
-from .model_types import MlxLmModelCache
+from ..models.models_service import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCacheManager
 
@@ -29,23 +28,28 @@ class MlxLmModel(BaseTextModel):
 
     def __init__(
         self,
-        model_cache: MlxLmModelCache,
+        model_cache: MlxModelCache,
     ):
         """Initialize MlxLmModel with model cache object.
 
         Args:
-            model_cache: MlxLmModelCache object containing models and tokenizers
+            model_cache: MlxModelCache object containing models and tokenizers
         """
         self._model_cache = model_cache
         self._default_max_tokens = 1048576
-        if not model_cache.chat_tokenizer:
-            raise ValueError("model_cache.chat_tokenizer cannot be None")
-        self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
+
+        # Import here to avoid circular imports
+        from .model_types import load_tools_handler
+
+        # Initialize chat_tokenizer here instead of using from model_cache
+        self._chat_tokenizer: ChatTokenizer = load_tools_handler(
+            model_cache.model_type, model_cache.tokenizer
+        )
+
         if model_cache.tokenizer is None:
             raise ValueError("model_cache.tokenizer cannot be None")
-        self._reasoning_decoder = ReasoningDecoder(thinking_tag=model_cache.chat_tokenizer.thinking_tag)
-        model_path = get_model_path(model_cache.model_id.name)[0]
-        self._model_config = load_config(model_path)
+        self._reasoning_decoder = ReasoningDecoder(thinking_tag=self._chat_tokenizer.thinking_tag)
+        self._model_config = self._model_cache.model_config or {}
         if "max_position_embeddings" in self._model_config and isinstance(
             self._model_config["max_position_embeddings"], int
         ):

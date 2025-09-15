@@ -1,52 +1,92 @@
-from fastapi import APIRouter, HTTPException, Request
+import gc
+from threading import Lock
+from typing import Optional
 
-from .models_service import ModelsService
-from .schema import Model, ModelDeletion, ModelList
+from mlx.core import clear_cache
 
-router = APIRouter(tags=["models"])
-models_service = ModelsService()
-
-
-def extract_model_id_from_path(request: Request) -> str:
-    """Extract full model ID from request path"""
-    path = request.url.path
-    prefix = "/v1/models/" if "/v1/models/" in path else "/models/"
-    return path[len(prefix) :]
+from ...utils.logger import logger
+from .models_service import MlxModelCache, ModelId
+from ..text_models import BaseTextModel
+from ..mlx_lm.mlx_lm_model import MlxLmModel
+from ..mlx_vlm.mlx_vlm_model import MlxVlmModel
 
 
-def handle_model_error(e: Exception) -> None:
-    """Handle model-related errors and raise appropriate HTTP exceptions"""
-    if isinstance(e, ValueError):
-        raise HTTPException(status_code=404, detail=str(e))
-    print(f"Error processing request: {str(e)}")
-    raise HTTPException(status_code=500, detail=str(e))
+class MlxModelCacheManager:
+    """Singleton class that manages lifecycle of MlxModelCache and ensures
+    only one model (LM or VLM) is loaded at a time."""
+
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        self._model_cache: MlxModelCache | None = None
+        self._mlx_model: BaseTextModel | None = None
+        self._lock = Lock()
+
+    def load_model(self, model_id: ModelId) -> BaseTextModel:
+        """Load (or reuse) a model and return a BaseTextModel instance."""
+
+        with self._lock:
+            if (
+                self._model_cache is None
+                or self._model_cache.model_id != model_id
+            ):
+                # Release old models first
+                self._release()
+
+                # Create new caches
+                self._model_cache = MlxModelCache(model_id)
+                
+                # Determine if this is a VLM or LM model based on the model config
+                if self._is_vlm_model(self._model_cache):
+                    self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
+                else:
+                    self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+            else:
+                if not self._mlx_model:
+                    logger.error("Unexpected: model cache exists but model is missing.")
+                    self._model_cache = MlxModelCache(model_id)
+                    # Determine if this is a VLM or LM model based on the model config
+                    if self._is_vlm_model(self._model_cache):
+                        self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
+                    else:
+                        self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+
+            return self._mlx_model
+
+    def _is_vlm_model(self, model_cache: MlxModelCache) -> bool:
+        """Determine if the model is a VLM model based on its configuration."""
+        # Check if model is supported by mlx_vlm but not mlx_lm
+        from ..models.models_service import _is_model_supported_by_module, MLX_VLM_MODULE, MLX_LM_MODULE
+        
+        lm_supported = _is_model_supported_by_module(model_cache.model_type, MLX_LM_MODULE)
+        vlm_supported = _is_model_supported_by_module(model_cache.model_type, MLX_VLM_MODULE)
+        
+        # VLM preferred if it's supported by VLM but not LM
+        return vlm_supported and not lm_supported
+
+    def _release(self):
+        """Release current models and force memory cleanup."""
+
+        self._model_cache = None
+        self._mlx_model = None
+        clear_cache()
+        gc.collect()
+
+    def clear(self):
+        """Public method to clear cache (e.g., in tests)."""
+        with self._lock:
+            self._release()
 
 
-@router.get("/models", response_model=ModelList)
-@router.get("/v1/models", response_model=ModelList)
-async def list_models(include_details: bool = False) -> ModelList:
-    """List all available models"""
-    return models_service.list_models(include_details)
+# Create a single shared instance
+model_cache_manager = MlxModelCacheManager()
 
 
-@router.get("/models/{model_id:path}", response_model=Model)
-@router.get("/v1/models/{model_id:path}", response_model=Model)
-async def get_model(model_id: str, include_details: bool = False) -> Model:
-    """Get information about a specific model"""
-    model = models_service.get_model(model_id, include_details)
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-    return model
-
-
-@router.delete("/models/{model_id:path}", response_model=ModelDeletion)
-@router.delete("/v1/models/{model_id:path}", response_model=ModelDeletion)
-async def delete_model(request: Request) -> ModelDeletion:
-    """
-    Delete a fine-tuned model from local cache.
-    """
-    try:
-        model_id = extract_model_id_from_path(request)
-        return models_service.delete_model(model_id)
-    except Exception as e:
-        handle_model_error(e)
+def load_model(model_id: ModelId) -> BaseTextModel:
+    """Module-level wrapper for convenience."""
+    return model_cache_manager.load_model(model_id)

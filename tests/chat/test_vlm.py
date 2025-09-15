@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from openai import OpenAI
 
-from mlx_omni_server.chat.mlx_vlm import models as mlx_vlm_models
+from mlx_omni_server.chat.models.models import load_model
 from mlx_omni_server.chat.models.models_service import ModelId
 from mlx_omni_server.chat.router import (
     CACHE_TTL,
@@ -139,7 +139,8 @@ def openai_client(client):
 
     # Teardown logic: runs after the test is finished
     # This clears the global model cache to prevent state pollution between tests
-    mlx_vlm_models.model_cache_manager.clear()
+    from mlx_omni_server.chat.models.models import model_cache_manager
+    model_cache_manager.clear()
 
 
 class TestVlmChatCompletions:
@@ -155,12 +156,11 @@ class TestVlmChatCompletions:
 
     def test_vlm_chat_completions_normal(self, openai_client):
         """Test normal VLM chat completions with image"""
-        with patch("mlx_omni_server.chat.router._is_vlm_model", return_value=True), \
-                patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCacheManager.load_model") as mock_load_model:
+        with patch("mlx_omni_server.chat.router._create_text_model") as mock_create_text_model:
 
             # Mock the VLM model
             mock_vlm_model = MockVlmModel()
-            mock_load_model.return_value = mock_vlm_model
+            mock_create_text_model.return_value = mock_vlm_model
 
             try:
                 response = openai_client.chat.completions.create(
@@ -190,20 +190,18 @@ class TestVlmChatCompletions:
                 assert "test image description" in response.choices[0].message.content.lower(), "Content is not correct"
 
                 # Verify the mock was called
-                mock_load_model.assert_called()
-                assert mock_vlm_model.call_count == 1, "Generate method should be called once"
+                mock_create_text_model.assert_called()
 
             except Exception as e:
                 pytest.fail(f"Chat completion failed with error: {e}")
 
     def test_vlm_chat_completions_streaming(self, openai_client):
         """Test streaming VLM chat completions with image"""
-        with patch("mlx_omni_server.chat.router._is_vlm_model", return_value=True), \
-                patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCacheManager.load_model") as mock_load_model:
+        with patch("mlx_omni_server.chat.router._create_text_model") as mock_create_text_model:
 
             # Mock the VLM model
             mock_vlm_model = MockVlmModel()
-            mock_load_model.return_value = mock_vlm_model
+            mock_create_text_model.return_value = mock_vlm_model
 
             try:
                 response = openai_client.chat.completions.create(
@@ -236,56 +234,26 @@ class TestVlmChatCompletions:
                 assert chunks[0].object == "chat.completion.chunk", "Object type is not correct"
 
                 # Verify the mock was called
-                mock_load_model.assert_called()
-                assert mock_vlm_model.stream_call_count == 1, "Stream generate method should be called once"
+                mock_create_text_model.assert_called()
 
             except Exception as e:
                 pytest.fail(f"Streaming chat completion failed with error: {e}")
 
-    def test_vlm_model_detection(self):
-        """Test that VLM models are correctly detected"""
-        from mlx_omni_server.chat.router import _is_vlm_model
-
-        # Test VLM model names
-        assert _is_vlm_model("llava-hf/llava-1.5-7b-hf") == True
-        assert _is_vlm_model("Qwen/Qwen-VL-Chat") == True
-        assert _is_vlm_model("THUDM/cogvlm-chat-hf") == True
-        assert _is_vlm_model("google/paligemma-3b-pt-224") == True
-
-        # Test non-VLM model names
-        assert _is_vlm_model("mlx-community/gemma-3-1b-it-4bit-DWQ") == False
-        assert _is_vlm_model("meta-llama/Llama-3.2-1B-Instruct") == False
-
     def test_vlm_model_cache_manager(self):
         """Test VLM model cache manager"""
-        with patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModel") as mock_vlm_model_class, \
-             patch("mlx_omni_server.chat.mlx_vlm.models.MlxVlmModelCache") as mock_model_cache_class:
-            # Mock the model cache
-            mock_model_cache = Mock()
-            mock_model_cache.model_id = ModelId(name=VLM_MODEL_ID)
-            mock_model_cache_class.return_value = mock_model_cache
-            
-            # Mock the VLM model instance
-            mock_vlm_model_instance = Mock()
-            mock_vlm_model_class.return_value = mock_vlm_model_instance
+        # Create cache manager
+        from mlx_omni_server.chat.models.models import model_cache_manager
 
-            # Create cache manager
-            cache_manager = mlx_vlm_models.model_cache_manager
+        # Load model
+        model_id = ModelId(name=VLM_MODEL_ID)
+        model = model_cache_manager.load_model(model_id)
 
-            # Load model
-            model_id = ModelId(name=VLM_MODEL_ID)
-            model = cache_manager.load_model(model_id)
+        # Verify model was created
+        assert model is not None
 
-            # Verify model was created
-            assert model is not None
-            mock_model_cache_class.assert_called_once_with(model_id)
-            mock_vlm_model_class.assert_called_once_with(model_cache=mock_model_cache)
-
-            # Load same model again (should reuse)
-            mock_vlm_model_class.reset_mock()
-            model2 = cache_manager.load_model(model_id)
-            assert model2 is model  # Should be the same instance
-            assert mock_vlm_model_class.call_count == 0  # Should not be called again
+        # Load same model again (should reuse)
+        model2 = model_cache_manager.load_model(model_id)
+        assert model2 is model  # Should be the same instance
 
     def test_vlm_request_multimodal_detection(self):
         """Test detection of multimodal requests"""

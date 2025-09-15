@@ -84,3 +84,7 @@ def start():
         use_colors=True,
         workers=args.workers,
     )
+
+
+if __name__ == "__main__":
+    start()

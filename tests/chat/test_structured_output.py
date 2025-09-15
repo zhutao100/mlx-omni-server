@@ -1,3 +1,4 @@
+from mlx_omni_server.chat.models.models import model_cache_manager
 import json
 import logging
 
@@ -20,11 +21,13 @@ def client():
 @pytest.fixture
 def openai_client(client):
     """Create OpenAI client configured with test server"""
-    return OpenAI(
+    yield OpenAI(
         base_url="http://test/v1",
         api_key="test",
         http_client=client,
     )
+
+    model_cache_manager.clear()
 
 
 class TestStructuredOutput:

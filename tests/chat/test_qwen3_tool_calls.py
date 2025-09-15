@@ -1,14 +1,16 @@
 
 import json
 import logging
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import patch
-from openai import OpenAI
 from fastapi.testclient import TestClient
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+from openai import OpenAI
+
+from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler
+from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.main import app
-from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler, load_config
-from unittest.mock import Mock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,40 +25,32 @@ def client():
 @pytest.fixture
 def openai_client(client):
     """Create OpenAI client configured with test server"""
-    return OpenAI(
+    yield OpenAI(
         base_url="http://test/v1",
         api_key="test",
         http_client=client,
     )
 
+    model_cache_manager.clear()
+
 
 class TestQwen3ToolCalls:
-    @patch('mlx_omni_server.chat.mlx.model_types.load_config')
-    def test_qwen3_model_type_detection(self, mock_load_config, openai_client):
+    def test_qwen3_model_type_detection(self, openai_client):
         """Test that Qwen3 model type is correctly detected and handled"""
-        # Mock the model config to return qwen3 model type
-        mock_load_config.return_value = {"model_type": "qwen3"}
-        
-        # Create a mock tokenizer
         mock_tokenizer = Mock(spec=TokenizerWrapper)
-        
+
         # Test that the correct tokenizer is loaded for qwen3
         tokenizer = load_tools_handler("qwen3", mock_tokenizer)
         from mlx_omni_server.chat.tools.qwen3 import Qwen3ChatTokenizer
         assert isinstance(tokenizer, Qwen3ChatTokenizer)
-        
+
         # Test that the correct tokenizer is loaded for qwen3_moe
         tokenizer = load_tools_handler("qwen3_moe", mock_tokenizer)
         assert isinstance(tokenizer, Qwen3ChatTokenizer)
 
-
-    @patch('mlx_omni_server.chat.mlx.model_types.load_config')
-    def test_qwen3_tool_call(self, mock_load_config, openai_client):
-        # Mock the model config to return qwen3 model type
-        mock_load_config.return_value = {"model_type": "qwen3"}
-        
+    def test_qwen3_tool_call(self, openai_client):
         request = {
-            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr9e8",
+            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8",
             "messages": [
                 {
                     "role": "user",
@@ -102,13 +96,9 @@ class TestQwen3ToolCalls:
         assert str(arguments["location"]).startswith("Boston")
         assert choice.message.content is ""
 
-    @patch('mlx_omni_server.chat.mlx.model_types.load_config')
-    def test_qwen3_tool_call_stream(self, mock_load_config, openai_client):
-        # Mock the model config to return qwen3 model type
-        mock_load_config.return_value = {"model_type": "qwen3"}
-        
+    def test_qwen3_tool_call_stream(self, openai_client):
         request = {
-            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr9e8",
+            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8",
             "messages": [
                 {
                     "role": "user",

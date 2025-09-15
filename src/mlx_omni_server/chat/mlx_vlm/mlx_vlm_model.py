@@ -8,11 +8,9 @@ import mlx.core as mx
 from mlx_vlm import GenerationResult, generate, stream_generate
 from mlx_vlm.prompt_utils import apply_chat_template
 from rich.markup import escape
-from transformers.tokenization_utils import PreTrainedTokenizer
-
 
 from ...utils.logger import logger
-from ..mlx_vlm.model_types import MlxVlmModelCache, ModelId
+from ..models.models_service import MlxModelCache
 from ..schema import (ChatCompletionChoice, ChatCompletionChunk,
                       ChatCompletionChunkChoice, ChatCompletionRequest,
                       ChatCompletionResponse, ChatCompletionUsage, ChatMessage,
@@ -28,17 +26,23 @@ from .prompt_cache import PromptCache, PromptCacheManager, get_vlm_cache_config
 class MlxVlmModel(BaseTextModel):
     """Handler for Vision-Language Models that can process both text and multimodal inputs"""
 
-    def __init__(self, model_cache: MlxVlmModelCache, **kwargs):
+    def __init__(self, model_cache: MlxModelCache, **kwargs):
         self._model_cache = model_cache
         self.media_processor = MediaProcessor()
         self.disable_auto_resize = kwargs.get("disable_auto_resize", False)
         self.context_length = kwargs.get("context_length", 65536)
-        if not model_cache.chat_tokenizer:
-            raise ValueError("model_cache.chat_tokenizer cannot be None")
-        self._chat_tokenizer: ChatTokenizer = model_cache.chat_tokenizer
+
+        # Import here to avoid circular imports
+        from .model_types import load_tools_handler
+
+        # Initialize chat_tokenizer here instead of using from model_cache
+        self._chat_tokenizer: ChatTokenizer = load_tools_handler(
+            model_cache.model_type, model_cache.tokenizer
+        )
+
         if model_cache.tokenizer is None:
             raise ValueError("model_cache.tokenizer cannot be None")
-        self._reasoning_decoder = ReasoningDecoder(thinking_tag=model_cache.chat_tokenizer.thinking_tag)
+        self._reasoning_decoder = ReasoningDecoder(thinking_tag=self._chat_tokenizer.thinking_tag)
         self.model_created = int(time.time())
 
         # Initialize prompt cache manager
@@ -58,13 +62,11 @@ class MlxVlmModel(BaseTextModel):
             # Prepare all generation components
             model, _, generate_kwargs, formatted_prompt = self._prepare_generation(request)
             tokenizer = self._model_cache.tokenizer
-            if not isinstance(tokenizer, PreTrainedTokenizer):
-                raise ValueError("Tokenizer is not a valid PreTrainedTokenizer instance")
 
             # Call the VLM model
             result = generate(
                 model,
-                tokenizer,
+                tokenizer, # type: ignore
                 formatted_prompt,
                 **generate_kwargs
             )
@@ -450,13 +452,11 @@ class MlxVlmModel(BaseTextModel):
             # Use safe_encode_prompt to get prompt tokens count
             prompt_tokens_len = len(prompt_tokens)
             tokenizer = self._model_cache.tokenizer
-            if not isinstance(tokenizer, PreTrainedTokenizer):
-                raise ValueError("Tokenizer is not a valid PreTrainedTokenizer instance")
 
             # Call the VLM model with streaming
             for response in stream_generate(
                 model,
-                tokenizer,
+                tokenizer, # type: ignore
                 formatted_prompt,
                 **generate_kwargs
             ):

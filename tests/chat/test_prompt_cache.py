@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from openai import OpenAI
 
+from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.main import app
 
 logging.basicConfig(level=logging.INFO)
@@ -28,11 +29,12 @@ def client():
 @pytest.fixture
 def openai_client(client):
     """Create OpenAI client configured with test server"""
-    return OpenAI(
+    yield OpenAI(
         base_url="http://test/v1",
         api_key="test",
         http_client=client,
     )
+    model_cache_manager.clear()
 
 
 class TestPromptCache:
@@ -42,7 +44,8 @@ class TestPromptCache:
         try:
             logger.info("\n===== Conversation with prompt cache =====")
             model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
-            prompt = "Can you tell me more about your capabilities?"
+            # Use a longer prompt to exceed the 100 token minimum for cache reuse
+            prompt = """Can you tell me more about your capabilities? I'm interested in understanding what you can do, what kind of tasks you're good at, and how you might be able to help me with my work. Please provide a comprehensive overview of your skills and areas of expertise. I'd like to know about your reasoning abilities, your knowledge domains, and what makes you different from other AI assistants. Also, please explain your approach to problem-solving and how you handle complex or ambiguous requests."""
 
             messages = [
                 {"role": "system", "content": "You are a helpful AI assistant."},

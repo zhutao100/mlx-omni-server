@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from openai import OpenAI
 
-from mlx_omni_server.chat.mlx_lm import models as mlx_models
+from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.chat.tools.tokens_decoder import ReasoningDecoder
 from mlx_omni_server.main import app
 
@@ -30,8 +30,7 @@ def openai_client(client):
 
     # Teardown logic: runs after the test is finished
     # This clears the global model cache to prevent state pollution between tests
-    mlx_models._model_cache = None
-    mlx_models._mlx_model_cache = None
+    model_cache_manager.clear()
 
 
 class TestReasoningResponse:
@@ -128,15 +127,9 @@ class TestReasoningDecoder:
     """Test functionality of the ReasoningDecoder class"""
 
     @pytest.fixture
-    def tokenizer_mock(self):
-        """Create a mock object for TokenizerWrapper"""
-        tokenizer_mock = MagicMock()
-        return tokenizer_mock
-
-    @pytest.fixture
-    def decoder(self, tokenizer_mock):
+    def decoder(self):
         """Create a ReasoningDecoder instance"""
-        decoder = ReasoningDecoder(tokenizer_mock, thinking_tag="think")
+        decoder = ReasoningDecoder(thinking_tag="think")
         return decoder
 
     def test_parse_response_with_thinking(self, decoder):

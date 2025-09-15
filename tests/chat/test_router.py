@@ -11,7 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from openai import OpenAI
 
 from mlx_omni_server.chat.models.models_service import ModelId
-from mlx_omni_server.chat.mlx_lm import models as mlx_models
+from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.chat.router import (
     CACHE_TTL,
     NonStreamCacheEntry,
@@ -103,12 +103,10 @@ class MockTextModel(BaseTextModel):
 def cleanup_caches():
     """Fixture to automatically clean up caches after each test."""
     response_cache.clear()
-    mlx_models._model_cache = None
-    mlx_models._mlx_model_cache = None
+    model_cache_manager.clear()
     yield
     response_cache.clear()
-    mlx_models._model_cache = None
-    mlx_models._mlx_model_cache = None
+    model_cache_manager.clear()
 
 
 @pytest.fixture
@@ -121,7 +119,7 @@ def client():
 @pytest.fixture
 def openai_client(client):
     """Create OpenAI client configured with test server."""
-    return OpenAI(
+    yield OpenAI(
         base_url="http://test/v1",
         api_key="test",
         http_client=client,
@@ -287,7 +285,7 @@ class TestNonStreamingCacheUnit:
 class TestModelCreation:
     """Test model creation functionality"""
 
-    @patch("mlx_omni_server.chat.router.load_model")
+    @patch("mlx_omni_server.chat.models.models.model_cache_manager.load_model")
     def test_create_text_model_basic(self, mock_load_model):
         """Test basic model creation"""
         mock_model = Mock()
@@ -303,7 +301,7 @@ class TestModelCreation:
         assert args[0].draft_model is None
         assert model == mock_model
 
-    @patch("mlx_omni_server.chat.router.load_model")
+    @patch("mlx_omni_server.chat.models.models.model_cache_manager.load_model")
     def test_create_text_model_with_adapter(self, mock_load_model):
         """Test model creation with adapter path"""
         mock_model = Mock()
@@ -317,8 +315,9 @@ class TestModelCreation:
         assert args[0].name == "test-model"
         assert args[0].adapter_path == "/path/to/adapter"
         assert args[0].draft_model is None
+        assert model == mock_model
 
-    @patch("mlx_omni_server.chat.router.load_model")
+    @patch("mlx_omni_server.chat.models.models.model_cache_manager.load_model")
     def test_create_text_model_with_draft(self, mock_load_model):
         """Test model creation with draft model"""
         mock_model = Mock()
@@ -332,6 +331,7 @@ class TestModelCreation:
         assert args[0].name == "test-model"
         assert args[0].adapter_path is None
         assert args[0].draft_model == "draft-model"
+        assert model == mock_model
 
 
 class TestCacheCleanup:
