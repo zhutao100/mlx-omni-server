@@ -100,10 +100,10 @@ For each function call, output the function name and arguments within the follow
 {%- endfor -%}
 
 {{- '\n<|system|>' }}
-Please check the observations, follow the user instructions, execute next steps.                                                                                                    
-For complex instructions, use todo list to execute tasks; do not prematurely jump to next tasks.                                                                                                                        
-DO NOT loop and repeat the last action.
-When the user refers to conversation history, it means all the observations and user instructions. 
+Check observations, follow instructions, execute next steps.
+Conversation history includes all assistant actions, observations, and user instructions.
+For complex tasks, use todo lists and subagents if available.
+*IMPORTANT* Track recent assistant actions to avoid repetition; find new approaches when stuck.
 
 {%- if add_generation_prompt -%}
     <|assistant|>{{- '\n<think></think>' if (enable_thinking is defined and not enable_thinking) else '' -}}
