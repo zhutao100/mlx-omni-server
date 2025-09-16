@@ -10,6 +10,23 @@
 
 **MLX Omni Server** is a high-performance local inference server built on Apple's MLX framework, optimized for Apple Silicon (M-series) chips. It provides OpenAI-compatible API endpoints, enabling seamless integration with existing OpenAI SDK clients while delivering fast, private AI processing directly on your Mac.
 
+## 🍴 Fork vs Original Project
+
+This repository is a fork of the [original MLX Omni Server](https://github.com/madroidmaq/mlx-omni-server) project with significant enhancements and modifications:
+
+### Key Enhancements in This Fork
+
+- **🍎 Vision/Multimodal Support**: Added comprehensive Vision-Language Model (VLM) support through mlx_vlm integration for image processing capabilities
+- **🔧 Advanced Tool Parsing**: Enhanced tool calling support for Qwen3 and GLM4 model families with sophisticated parsing logic including heuristic detection and malformed recovery mechanisms
+- **🧠 Intelligent Caching**: Reworked prompt cache and chat completion cache systems with improved caching efficiency and memory management
+- **⚡ Performance Improvements**: Enhanced streaming generation with better buffering and client disconnection handling
+
+### Differences from Original
+
+The original project provided dual API compatibility with both OpenAI and Anthropic APIs, while this fork focuses exclusively on OpenAI-compatible endpoints but with enhanced features and performance optimizations.
+
+For details on the original project, please refer to the [upstream repository](https://github.com/madroidmaq/mlx-omni-server).
+
 ## ✨ Features
 
 - 🚀 **Apple Silicon Optimized**: Built on MLX framework, specifically tuned for M1/M2/M3/M4 chips
@@ -58,7 +75,9 @@ Get up and running with MLX Omni Server in minutes:
 ### Installation
 
 ```bash
-pip install mlx-omni-server
+git clone https://github.com/zhutao100/mlx-omni-server.git
+cd mlx-omni-server
+pip install .
 ```
 
 ### Start the Server
@@ -840,13 +859,35 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
+This project is a fork of [MLX Omni Server by madroidmaq](https://github.com/madroidmaq/mlx-omni-server). We acknowledge and appreciate the original work that laid the foundation for this enhanced version.
+
+Core Frameworks:
 - Built with [MLX](https://github.com/ml-explore/mlx) by Apple
 - API design inspired by [OpenAI](https://openai.com)
-- Server implementation with [FastAPI](https://fastapi.tiangolo.com/)
-- Chat generation by [mlx-lm](https://github.com/ml-explore/mlx-examples/tree/main/llms/mlx_lm)
-- Image generation by [mflux](https://github.com/filipstrand/mflux)
-- Audio processing by [f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx), [mlx-whisper](https://github.com/ml-explore/mlx-examples/blob/main/whisper/README.md), and [mlx-audio](https://github.com/Blaizzy/mlx-audio)
+- Server implementation with [FastAPI](https://github.com/fastapi/fastapi)
+- Data validation with [Pydantic](https://github.com/pydantic/pydantic)
+- ASGI server with [Uvicorn](https://www.uvicorn.org/)
+- Rich console output with [Rich](https://github.com/Textualize/rich)
+
+MLX Components:
+- Text generation by [mlx-lm](https://github.com/ml-explore/mlx-lm)
+- Vision-Language Models by [mlx-vlm](https://github.com/Blaizzy/mlx-vlm)
+- Audio processing by [f5-tts-mlx](https://github.com/lucasnewman/f5-tts-mlx), [mlx-whisper](https://github.com/ml-explore/mlx-examples), and [mlx-audio](https://github.com/Blaizzy/mlx-audio)
 - Embeddings by [mlx-embeddings](https://github.com/Blaizzy/mlx-embeddings)
+
+Additional Libraries:
+- Image generation by [mflux](https://github.com/filipstrand/mflux)
+- Model management with [Hugging Face Hub](https://github.com/huggingface/huggingface_hub)
+- Structured output generation with [Outlines](https://github.com/dottxt-ai/outlines)
+- Streaming responses with [SSE-Starlette](https://github.com/sysid/sse-starlette)
+- HTTP client with [HTTPX](https://github.com/encode/httpx)
+- Numerical computing with [Numba](https://github.com/numba/numba)
+- Testing framework with [Pytest](https://github.com/pytest-dev/pytest)
+- Code formatting with [Black](https://github.com/psf/black) and [Isort](https://github.com/pycqa/isort)
+- Development tools with [Pre-commit](https://github.com/pre-commit/pre-commit)
+- Weave integration with [Weave](https://github.com/wandb/weave)
+- OpenAI client with [OpenAI](https://github.com/openai/openai-python)
+- File upload handling with [python-multipart](https://github.com/andrew-d/python-multipart)
 
 ## ⚠️ Disclaimer
 
