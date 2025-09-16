@@ -1,19 +1,18 @@
 
 import json
 import logging
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-import pytest
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler
-from mlx_omni_server.chat.models.models import model_cache_manager
+
+
+MODEL = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class TestQwen3ToolCalls:
@@ -32,7 +31,7 @@ class TestQwen3ToolCalls:
 
     def test_qwen3_tool_call(self, openai_client):
         request = {
-            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8",
+            "model": MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -80,7 +79,7 @@ class TestQwen3ToolCalls:
 
     def test_qwen3_tool_call_stream(self, openai_client):
         request = {
-            "model": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8",
+            "model": MODEL,
             "messages": [
                 {
                     "role": "user",

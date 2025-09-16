@@ -1,14 +1,11 @@
-from mlx_omni_server.chat.models.models import model_cache_manager
 import json
 import logging
 
-import pytest
+
+MODEL = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class TestStructuredOutput:
@@ -16,7 +13,7 @@ class TestStructuredOutput:
     def test_structured_output_with_json_schema(self, openai_client):
         """Test structured generation with a JSON schema."""
         prompt = "List three colors and their hex codes."
-        model_name = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+        model_name = MODEL
 
         json_schema = {
             "name": "colors",
@@ -86,7 +83,7 @@ class TestStructuredOutput:
             colors: list[Color]
 
         prompt = "List three colors and their hex codes."
-        model_name = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        model_name = MODEL
 
         try:
             response = openai_client.beta.chat.completions.parse(

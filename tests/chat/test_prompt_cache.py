@@ -9,15 +9,8 @@ This test file verifies the prompt caching functionality in the chat completion 
 
 import logging
 
-import pytest
-
-from mlx_omni_server.chat.models.models import model_cache_manager
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class TestPromptCache:
@@ -26,7 +19,7 @@ class TestPromptCache:
     def test_conversation_with_prompt_cache(self, openai_client):
         try:
             logger.info("\n===== Conversation with prompt cache =====")
-            model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+            model = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
             # Use a longer prompt to exceed the 100 token minimum for cache reuse
             prompt = """Can you tell me more about your capabilities? I'm interested in understanding what you can do, what kind of tasks you're good at, and how you might be able to help me with my work. Please provide a comprehensive overview of your skills and areas of expertise. I'd like to know about your reasoning abilities, your knowledge domains, and what makes you different from other AI assistants. Also, please explain your approach to problem-solving and how you handle complex or ambiguous requests."""
 

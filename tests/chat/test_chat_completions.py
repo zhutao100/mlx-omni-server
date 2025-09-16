@@ -5,7 +5,7 @@ import logging
 import pytest
 from httpx import AsyncClient
 
-from mlx_omni_server.chat.models.models import model_cache_manager
+MODEL = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ class TestChatCompletions:
 
     def test_chat_completions_normal(self, openai_client):
         try:
-            model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+            model = MODEL
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
@@ -35,7 +35,7 @@ class TestChatCompletions:
 
     def test_chat_completions_extra_body(self, openai_client):
         try:
-            model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+            model = MODEL
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
@@ -62,13 +62,13 @@ class TestChatCompletions:
 
     def test_chat_completions_draft_model(self, openai_client):
         try:
-            model = "mlx-community/gemma-3-27b-it-4bit-DWQ"
+            model = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
                 max_completion_tokens=50,
                 extra_body={
-                    "draft-model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
+                    "draft-model": MODEL,
                 },
             )
             logger.info(f"Chat Completion Response:\n{response}\n")
@@ -87,7 +87,7 @@ class TestChatCompletions:
     def test_chat_completions_stream(self, openai_client):
         """Test basic streaming chat completion functionality"""
         try:
-            model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+            model = MODEL
             stream = openai_client.chat.completions.create(
                 model=model, messages=[{"role": "user", "content": "hi"}], stream=True
             )
@@ -123,7 +123,7 @@ class TestChatCompletions:
     def test_chat_completions_stream_options(self, openai_client):
         """Test streaming chat completion with additional options"""
         try:
-            model = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+            model = MODEL
             stream = openai_client.chat.completions.create(
                 model=model,
                 messages=[
@@ -135,7 +135,7 @@ class TestChatCompletions:
                 ],
                 stream=True,
                 stream_options={"include_usage": True},
-                max_tokens=50,
+                max_tokens=200,
             )
 
             # Validate streaming response
@@ -180,7 +180,7 @@ async def test_retry_canceled_stream_chat_completion(async_client: AsyncClient):
     Tests that retrying a canceled streaming request starts a new generation.
     """
     payload = {
-        "model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
+        "model": MODEL,
         "messages": [
             {"role": "user", "content": "Write a detailed essay about the history of artificial intelligence and machine learning."}
         ],

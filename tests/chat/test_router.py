@@ -5,25 +5,17 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from mlx_omni_server.chat.models.models_service import ModelId
-from mlx_omni_server.chat.models.models import model_cache_manager
-from mlx_omni_server.chat.router import (
-    CACHE_TTL,
-    NonStreamCacheEntry,
-    StreamCacheEntry,
-    _create_text_model,
-    make_request_hash,
-    response_cache,
-)
-from mlx_omni_server.chat.schema import ChatCompletionRequest, ChatMessage, Role
-from mlx_omni_server.chat.text_models import (
-    BaseTextModel,
-    ChatCompletionChunk,
-    ChatCompletionResponse,
-)
+from mlx_omni_server.chat.router import (CACHE_TTL, NonStreamCacheEntry,
+                                         StreamCacheEntry, _create_text_model,
+                                         make_request_hash, response_cache)
+from mlx_omni_server.chat.schema import (ChatCompletionRequest, ChatMessage,
+                                         Role)
+from mlx_omni_server.chat.text_models import (BaseTextModel,
+                                              ChatCompletionChunk,
+                                              ChatCompletionResponse)
 
 # Constants
-MODEL_ID = "mlx-community/gemma-3-1b-it-4bit-DWQ"
+MODEL_ID = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
 
 
 # Mock Classes

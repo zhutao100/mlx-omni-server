@@ -1,16 +1,11 @@
 import logging
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.chat.tools.tokens_decoder import ReasoningDecoder
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class TestReasoningResponse:
@@ -19,7 +14,7 @@ class TestReasoningResponse:
     def test_streaming_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit"
+            model = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
             logger.info("Streaming response:")
             # Create a streaming chat completion
             # The 'stream=True' parameter is crucial for enabling streaming
@@ -49,7 +44,7 @@ class TestReasoningResponse:
     def test_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-0.6B-4bit"
+            model = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],
