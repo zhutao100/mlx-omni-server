@@ -9,16 +9,16 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.markup import escape
 
 from ...utils.logger import logger
+from ..models.models_service import MlxModelCache
 from ..schema import (ChatCompletionChoice, ChatCompletionChunk,
                       ChatCompletionChunkChoice, ChatCompletionRequest,
                       ChatCompletionResponse, ChatCompletionUsage, ChatMessage,
-                      Role)
+                      PromptTokensDetails, Role)
 from ..text_models import BaseTextModel, GenerateResult, GenerationParams
 from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import (normalize_to_list, normalize_token, safe_decode_token,
                      safe_encode_prompt)
-from ..models.models_service import MlxModelCache
 from .outlines_logits_processor import OutlinesLogitsProcessor
 from .prompt_cache import PromptCacheManager
 
@@ -452,45 +452,35 @@ class MlxLmModel(BaseTextModel):
                         choices=choices,
                     )
 
-            final_message = self._chat_tokenizer.parse_buffer(request.tools)
-            if final_message:
-                created = int(time.time())
-                if final_message.tool_calls:
-                    finish_reason = "tool_calls"
-                else:
-                    finish_reason = "stop"
-                # Send final chunk with finish reason
-                choices = [
-                    ChatCompletionChunkChoice(
-                        index=0,
-                        delta=final_message,
-                        finish_reason=finish_reason,
-                        logprobs=None,
-                    )
-                ]
-                yield ChatCompletionChunk(
-                    id=chat_id,
-                    created=created,
-                    model=request.model,
-                    choices=choices,
+            final_message = self._chat_tokenizer.parse_buffer(
+                request.tools) or ChatMessage(role=Role.ASSISTANT, content="")
+            finish_reason = "tool_calls" if final_message.tool_calls else "stop"
+            # Send final chunk with finish reason
+            choices = [
+                ChatCompletionChunkChoice(
+                    index=0,
+                    delta=final_message,
+                    finish_reason=finish_reason,
+                    logprobs=None,
                 )
+            ]
+            yield ChatCompletionChunk(
+                id=chat_id,
+                created=int(time.time()),
+                model=request.model,
+                choices=choices,
+            )
 
             if result and request.stream_options and request.stream_options.include_usage:
-                created = int(time.time())
                 cached_tokens = self._prompt_cache_tokens_count
                 logger.debug(f"Stream response with {cached_tokens} cached tokens")
-
                 prompt_tokens_details = None
                 if cached_tokens > 0:
-                    from ..schema import PromptTokensDetails
-
-                    prompt_tokens_details = PromptTokensDetails(
-                        cached_tokens=cached_tokens
-                    )
+                    prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
                 yield ChatCompletionChunk(
                     id=chat_id,
-                    created=created,
+                    created=int(time.time()),
                     model=request.model,
                     choices=[
                         ChatCompletionChunkChoice(
