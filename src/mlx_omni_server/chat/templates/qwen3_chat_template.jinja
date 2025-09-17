@@ -1,17 +1,12 @@
-{% macro render_item_list(item_list, tag_name='required') %}
-    {%- if item_list is defined and item_list is iterable and item_list | length > 0 %}
-        {%- if tag_name %}{{- '\n<' ~ tag_name ~ '>' -}}{% endif %}
-            {{- '[' }}
-                {%- for item in item_list -%}
-                    {%- if loop.index > 1 %}{{- ", "}}{% endif -%}
-                    {%- if item is string -%}
-                        {{ "`" ~ item ~ "`" }}
-                    {%- else -%}
-                        {{ item }}
-                    {%- endif -%}
-                {%- endfor -%}
-            {{- ']' }}
-        {%- if tag_name %}{{- '</' ~ tag_name ~ '>' -}}{% endif %}
+{% macro render_extra_keys(json_dict, handled_keys) %}
+    {%- if json_dict is mapping %}
+        {%- for json_key in json_dict if json_key not in handled_keys %}
+            {%- if json_dict[json_key] is mapping %}
+                {{- '\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | tojson | safe) ~ '</' ~ json_key ~ '>' }}
+            {%- else %}
+                {{-'\n<' ~ json_key ~ '>' ~ (json_dict[json_key] | string) ~ '</' ~ json_key ~ '>' }}
+            {%- endif %}
+        {%- endfor %}
     {%- endif %}
 {% endmacro %}
 
@@ -42,39 +37,30 @@
             {%- set tool = tool.function %}
         {%- endif %}
         {{- "\n<function>\n<name>" ~ tool.name ~ "</name>" }}
-        {{- '\n<description>' ~ (tool.description | trim) ~ '</description>' }}
-        {{- '\n<parameters>' }}
-        {%- for param_name, param_fields in tool.parameters.properties|items %}
-            {{- '\n<parameter>' }}
-            {{- '\n<name>' ~ param_name ~ '</name>' }}
-            {%- if param_fields.type is defined %}
-                {{- '\n<type>' ~ (param_fields.type | string) ~ '</type>' }}
-            {%- endif %}
-            {%- if param_fields.description is defined %}
-                {{- '\n<description>' ~ (param_fields.description | trim) ~ '</description>' }}
-            {%- endif %}
-            {{- render_item_list(param_fields.enum, 'enum') }}
-            {%- set handled_keys = ['type', 'description', 'enum', 'required'] %}
-            {%- for json_key in param_fields.keys() | reject("in", handled_keys) %}
-                {%- set normed_json_key = json_key | replace("-", "_") | replace(" ", "_") | replace("$", "") %}
-                {%- if param_fields[json_key] is mapping %}
-                    {{- '\n<' ~ normed_json_key ~ '>' ~ (param_fields[json_key] | tojson | safe) ~ '</' ~ normed_json_key ~ '>' }}
-                {%- else %}
-                    {{-'\n<' ~ normed_json_key ~ '>' ~ (param_fields[json_key] | string) ~ '</' ~ normed_json_key ~ '>' }}
-                {%- endif %}
-            {%- endfor %}
-            {{- render_item_list(param_fields.required, 'required') }}
-            {{- '\n</parameter>' }}
-        {%- endfor %}
-        {{- render_item_list(tool.parameters.required, 'required') }}
-        {{- '\n</parameters>' }}
-        {%- if tool.return is defined %}
-            {%- if tool.return is mapping %}
-                {{- '\n<return>' ~ (tool.return | tojson | safe) ~ '</return>' }}
-            {%- else %}
-                {{- '\n<return>' ~ (tool.return | string) ~ '</return>' }}
-            {%- endif %}
+        {%- if tool.description is defined %}
+            {{- '\n<description>' ~ (tool.description | trim) ~ '</description>' }}
         {%- endif %}
+        {{- '\n<parameters>' }}
+        {%- if tool.parameters is defined and tool.parameters is mapping and tool.parameters.properties is defined and tool.parameters.properties is mapping %}
+            {%- for param_name, param_fields in tool.parameters.properties|items %}
+                {{- '\n<parameter>' }}
+                {{- '\n<name>' ~ param_name ~ '</name>' }}
+                {%- if param_fields.type is defined %}
+                    {{- '\n<type>' ~ (param_fields.type | string) ~ '</type>' }}
+                {%- endif %}
+                {%- if param_fields.description is defined %}
+                    {{- '\n<description>' ~ (param_fields.description | trim) ~ '</description>' }}
+                {%- endif %}
+                {%- set handled_keys = ['name', 'type', 'description'] %}
+                {{- render_extra_keys(param_fields, handled_keys) }}
+                {{- '\n</parameter>' }}
+            {%- endfor %}
+        {%- endif %}
+        {% set handled_keys = ['type', 'properties'] %}
+        {{- render_extra_keys(tool.parameters, handled_keys) }}
+        {{- '\n</parameters>' }}
+        {%- set handled_keys = ['type', 'name', 'description', 'parameters'] %}
+        {{- render_extra_keys(tool, handled_keys) }}
         {{- '\n</function>' }}
     {%- endfor %}
     {{- "\n</tools>" }}
