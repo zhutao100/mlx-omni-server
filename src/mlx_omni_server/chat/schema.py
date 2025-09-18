@@ -301,3 +301,43 @@ class ChatCompletionRequest(BaseModel):
                     if hasattr(item, 'type') and item.type in ["image_url", "input_audio"]:
                         return True
         return False
+
+    def log_structured_request(self, verbose: bool = False) -> dict[str, Any]:
+        """Structured logging with summary information"""
+
+        summary = {
+            "model": self.model,
+            "message_count": len(self.messages),
+            "tool_count": len(self.tools) if self.tools else 0,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": self.stream,
+        }
+
+        # Log first and last message for context
+        if self.messages:
+            first_msg = self.messages[0]
+            summary.update({
+                "first_message_role": first_msg.role.value,
+                "first_message_preview": self._truncate_content(first_msg.content, 100),
+            })
+            if len(self.messages) > 1:
+                last_msg = self.messages[-1]
+                summary.update({
+                    "last_message_role": last_msg.role.value,
+                    "last_message_preview": self._truncate_content(last_msg.content, 100)
+                })
+
+        if verbose:
+            summary.update(**self.get_extra_params())
+
+        return summary
+
+    def _truncate_content(self, content, max_length: int):
+        if content is None:
+            return None
+        if isinstance(content, str):
+            return content[:max_length] + "..." if len(content) > max_length else content
+        elif isinstance(content, list):
+            return f"[Multimodal content with {len(content)} items]"
+        return str(content)[:max_length]

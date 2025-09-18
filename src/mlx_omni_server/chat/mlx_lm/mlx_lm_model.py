@@ -190,7 +190,7 @@ class MlxLmModel(BaseTextModel):
 
         # Prepare sampler parameters
         sampler_kwargs = {
-            "temp": (1.0 if request.temperature is None else request.temperature),
+            "temp": (0.6 if request.temperature is None else request.temperature),
             "top_p": (1.0 if request.top_p is None else request.top_p),
             "min_p": 0.0,
             "min_tokens_to_keep": 1,

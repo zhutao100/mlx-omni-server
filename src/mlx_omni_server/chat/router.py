@@ -92,6 +92,7 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     server's event loop. All MLX operations are serialized to prevent
     concurrent GPU access issues.
     """
+    logging.debug(f"Received chat completion request: {request.log_structured_request(verbose=True)}")
     req_hash = make_request_hash(request)
 
     # --- Step 1: Handle non-streaming requests ---

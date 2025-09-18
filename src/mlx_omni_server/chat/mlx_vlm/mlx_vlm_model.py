@@ -2,10 +2,9 @@ import asyncio
 import gc
 import time
 import uuid
-from typing import Any, Dict, Generator, List, Tuple, Union
+from typing import Any, Generator, Tuple
 
-import mlx.core as mx
-from mlx_vlm import GenerationResult, generate, stream_generate
+from mlx_vlm import generate, stream_generate
 from mlx_vlm.prompt_utils import apply_chat_template
 from rich.markup import escape
 
@@ -66,7 +65,7 @@ class MlxVlmModel(BaseTextModel):
             # Call the VLM model
             result = generate(
                 model,
-                tokenizer, # type: ignore
+                tokenizer,  # type: ignore
                 formatted_prompt,
                 **generate_kwargs
             )
@@ -193,8 +192,18 @@ class MlxVlmModel(BaseTextModel):
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise
 
-    def _prepare_multimodal_request(self, request: ChatCompletionRequest) -> Tuple[List[Dict[str, Any]], List[str], List[str], Dict[str, Any]]:
-        """Prepare multimodal request by processing messages with text, images, and audio"""
+    def _prepare_multimodal_request(self, request: ChatCompletionRequest) -> Tuple[list[dict[str, Any]], list[str], list[str]]:
+        """Prepare multimodal request by processing messages with text, images, and audio
+        Args:
+            request: The chat completion request containing messages with multimodal content
+        Returns:
+            A tuple containing:
+            - List of chat messages formatted for the model
+            - List of local image file paths
+            - List of local audio file paths
+        Raises:
+            ValueError: If there are too many images or audio files in a single message
+        """
         chat_messages = []
         image_urls = []
         audio_urls = []
@@ -336,16 +345,7 @@ class MlxVlmModel(BaseTextModel):
             image_paths = [path for path in image_paths if path is not None]
             audio_paths = [path for path in audio_paths if path is not None]
 
-            # Extract model parameters
-            model_params = {
-                "temperature": request.temperature if request.temperature is not None else 0.7,
-                "top_p": request.top_p if request.top_p is not None else 1.0,
-                "frequency_penalty": request.frequency_penalty if request.frequency_penalty is not None else 0.0,
-                "presence_penalty": request.presence_penalty if request.presence_penalty is not None else 0.0,
-                "max_tokens": request.max_tokens if request.max_tokens is not None else 1024,
-            }
-
-            return chat_messages, image_paths, audio_paths, model_params
+            return chat_messages, image_paths, audio_paths
 
         except ValueError as e:
             logger.error(f"Validation error in preparing multimodal request: {e}")
@@ -443,7 +443,7 @@ class MlxVlmModel(BaseTextModel):
             # Call the VLM model with streaming
             for response in stream_generate(
                 model,
-                tokenizer, # type: ignore
+                tokenizer,  # type: ignore
                 formatted_prompt,
                 **generate_kwargs
             ):
@@ -514,7 +514,7 @@ class MlxVlmModel(BaseTextModel):
         model_path = self._model_cache.model_id.name
 
         # Process multimodal request
-        chat_messages, image_paths, audio_paths, model_params = self._prepare_multimodal_request(request)
+        chat_messages, image_paths, audio_paths = self._prepare_multimodal_request(request)
 
         # Prepare the prompt using the chat template
         formatted_prompt = convert_prompt_to_str(apply_chat_template(
@@ -552,11 +552,11 @@ class MlxVlmModel(BaseTextModel):
 
         # Prepare generation kwargs
         generate_kwargs = {
-            "image": image_paths if image_paths else None,
-            "audio": audio_paths if audio_paths else None,
+            "image": image_paths or None,
+            "audio": audio_paths or None,
             "prompt_cache": prompt_cache.cache if hasattr(prompt_cache, 'cache') else prompt_cache,
             "max_tokens": request.max_completion_tokens or request.max_tokens or self._default_max_tokens,
-            "temperature": request.temperature if request.temperature is not None else 0.7,
+            "temperature": request.temperature if request.temperature is not None else 0.6,
             "top_p": request.top_p if request.top_p is not None else 1.0,
             "frequency_penalty": request.frequency_penalty if request.frequency_penalty is not None else 0.0,
             "presence_penalty": request.presence_penalty if request.presence_penalty is not None else 0.0,
@@ -572,7 +572,6 @@ class MlxVlmModel(BaseTextModel):
 
         logger.debug(f"Formatted prompt: {escape(formatted_prompt)}")
         logger.debug(f"Using {self._prompt_cache_tokens_count} cached tokens out of {len(prompt_tokens)} total tokens")
-        logger.debug(f"Image paths: {image_paths}")
-        logger.debug(f"Audio paths: {audio_paths}")
+        logger.debug(f"Generation kwargs: {generate_kwargs}")
 
         return model, prompt_tokens, generate_kwargs, formatted_prompt
