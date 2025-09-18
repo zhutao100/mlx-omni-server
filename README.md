@@ -878,7 +878,7 @@ MLX Components:
 Additional Libraries:
 - Image generation by [mflux](https://github.com/filipstrand/mflux)
 - Model management with [Hugging Face Hub](https://github.com/huggingface/huggingface_hub)
-- Structured output generation with [Outlines](https://github.com/dottxt-ai/outlines)
+- Structured output generation with [lm-format-enforcer](https://github.com/noamgat/lm-format-enforcer)
 - Streaming responses with [SSE-Starlette](https://github.com/sysid/sse-starlette)
 - HTTP client with [HTTPX](https://github.com/encode/httpx)
 - Numerical computing with [Numba](https://github.com/numba/numba)

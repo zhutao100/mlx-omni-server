@@ -19,7 +19,7 @@ from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import (normalize_to_list, normalize_token, safe_decode_token,
                      safe_encode_prompt)
-from .outlines_logits_processor import OutlinesLogitsProcessor
+from .json_logits_processor import JsonLogitsProcessor
 from .prompt_cache import PromptCacheManager
 
 
@@ -236,7 +236,7 @@ class MlxLmModel(BaseTextModel):
         # Setup logits processors
         if request.response_format and request.response_format.json_schema:
             generate_kwargs["logits_processors"] = [
-                OutlinesLogitsProcessor(
+                JsonLogitsProcessor(
                     tokenizer, request.response_format
                 )
             ]
