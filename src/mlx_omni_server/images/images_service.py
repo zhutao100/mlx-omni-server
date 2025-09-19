@@ -11,12 +11,16 @@ from mflux.callbacks.instances.memory_saver import MemorySaver
 from mflux.config.config import Config
 from mflux.config.model_config import ModelConfig
 from mflux.error.exceptions import StopImageGenerationException
-from mflux.flux.flux import Flux1
 from PIL import Image
 
 from ..utils.logger import logger
 from .schema import ImageGenerationRequest, ImageObject, ResponseFormat
 
+# Attempt to import Flux1 from different paths for compatibility
+try:
+    from mflux.flux.flux import Flux1 # type: ignore
+except ImportError:
+    from mflux.models.flux.variants.txt2img.flux import Flux1 # type: ignore
 
 class MFluxImageGenerator:
     """Image generator using mflux library"""
