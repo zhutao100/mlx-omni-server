@@ -157,7 +157,8 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
                             async with cached_entry.condition:
                                 cached_entry.chunks.append(sse_data)
                                 cached_entry.condition.notify_all()
-                        asyncio.run_coroutine_threadsafe(notify(), loop)
+                        future = asyncio.run_coroutine_threadsafe(notify(), loop)
+                        future.result()
                 except Exception as e:
                     error_data = {"error": "Generation failed", "message": str(e)}
                     sse_error = f"data: {json.dumps(error_data)}\n\n"
@@ -166,14 +167,16 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
                         async with cached_entry.condition:
                             cached_entry.chunks.append(sse_error)
                             cached_entry.condition.notify_all()
-                    asyncio.run_coroutine_threadsafe(notify_error(), loop)
+                    future = asyncio.run_coroutine_threadsafe(notify_error(), loop)
+                    future.result()
                 finally:
                     async def notify_done():
                         async with cached_entry.condition:
                             cached_entry.chunks.append("data: [DONE]\n\n")
                             cached_entry.finished = True
                             cached_entry.condition.notify_all()
-                    asyncio.run_coroutine_threadsafe(notify_done(), loop)
+                    future = asyncio.run_coroutine_threadsafe(notify_done(), loop)
+                    future.result()
 
             async def run_generation_task():
                 async with mlx_lock:

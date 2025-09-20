@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import json
 import time
 from unittest.mock import Mock, patch
@@ -549,6 +550,85 @@ async def test_streaming_cache_late_client_integration(async_client):
     assert headers2["x-idempotent-replay"] == "true"
 
     assert result1 == result2
+
+
+@pytest.mark.asyncio
+async def test_streaming_emits_final_chunk_before_done(async_client):
+    """Ensure final chunk notifies before the [DONE] sentinel."""
+    scheduled = []
+
+    def fake_run_coroutine_threadsafe(coro, loop):
+        fut = concurrent.futures.Future()
+        scheduled.append((coro, fut))
+        return fut
+
+    with patch('mlx_omni_server.chat.router.asyncio.run_coroutine_threadsafe', side_effect=fake_run_coroutine_threadsafe):
+        with patch('mlx_omni_server.chat.router._create_text_model') as mock_create_model:
+            mock_model = MockTextModel()
+            mock_create_model.return_value = mock_model
+
+            request_payload = {
+                'model': MODEL_ID,
+                'messages': [{'role': 'user', 'content': 'stream please'}],
+                'stream': True,
+            }
+            json_payload = json.dumps(request_payload)
+
+            async def stream_request():
+                chunks = []
+                async with async_client.stream(
+                    'POST',
+                    '/v1/chat/completions',
+                    content=json_payload,
+                    headers={'Content-Type': 'application/json'},
+                ) as response:
+                    assert response.status_code == 200
+                    async for line in response.aiter_lines():
+                        if not line.startswith('data:'):
+                            continue
+                        data = line[len('data: '):]
+                        if data.strip() == '[DONE]':
+                            break
+                        chunks.append(json.loads(data))
+                return chunks
+
+            async def wait_for(predicate, timeout: float = 1.0):
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + timeout
+                while not predicate():
+                    if loop.time() >= deadline:
+                        raise AssertionError('Timed out waiting for condition')
+                    await asyncio.sleep(0)
+
+            async def run_next(expected_name: str):
+                coro, fut = scheduled.pop(0)
+                name = getattr(getattr(coro, 'cr_code', None), 'co_name', '')
+                assert name == expected_name
+                try:
+                    await coro
+                finally:
+                    fut.set_result(None)
+                await asyncio.sleep(0)
+
+            stream_task = asyncio.create_task(stream_request())
+
+            await wait_for(lambda: len(scheduled) >= 1)
+            await run_next('notify')
+
+            await wait_for(lambda: len(scheduled) >= 1)
+            assert not any(
+                getattr(getattr(coro, 'cr_code', None), 'co_name', '') == 'notify_done'
+                for coro, _ in scheduled
+            ), 'notify_done scheduled before final chunk'
+
+            await run_next('notify')
+
+            await wait_for(lambda: len(scheduled) >= 1)
+            await run_next('notify_done')
+
+            chunks = await stream_task
+            assert chunks, 'Expected at least one streamed chunk'
+            assert chunks[-1]['choices'][0]['finish_reason'] == 'stop'
 
 
 @pytest.mark.asyncio
