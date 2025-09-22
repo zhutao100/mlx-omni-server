@@ -1,33 +1,15 @@
-import asyncio
-import json
 import time
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
-from mlx_omni_server.chat.models.models import load_model
+from mlx_omni_server.chat.generation_service import response_cache
 from mlx_omni_server.chat.models.models_service import ModelId
-from mlx_omni_server.chat.router import (
-    CACHE_TTL,
-    NonStreamCacheEntry,
-    StreamCacheEntry,
-    _create_text_model,
-    make_request_hash,
-    response_cache,
-)
-from mlx_omni_server.chat.schema import (
-    ChatCompletionRequest,
-    ChatMessage,
-    Role,
-    MultimodalContentItem,
-    ImageUrl,
-    AudioInput
-)
-from mlx_omni_server.chat.text_models import (
-    BaseTextModel,
-    ChatCompletionChunk,
-    ChatCompletionResponse,
-)
+from mlx_omni_server.chat.schema import (ChatCompletionRequest, ChatMessage,
+                                         ImageUrl, MultimodalContentItem, Role)
+from mlx_omni_server.chat.text_models import (BaseTextModel,
+                                              ChatCompletionChunk,
+                                              ChatCompletionResponse)
 
 # Constants
 VLM_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
@@ -131,7 +113,7 @@ class TestVlmChatCompletions:
 
     def test_vlm_chat_completions_normal(self, openai_client):
         """Test normal VLM chat completions with image"""
-        with patch("mlx_omni_server.chat.router._create_text_model") as mock_create_text_model:
+        with patch("mlx_omni_server.chat.generation_service._create_text_model") as mock_create_text_model:
 
             # Mock the VLM model
             mock_vlm_model = MockVlmModel()
@@ -172,7 +154,7 @@ class TestVlmChatCompletions:
 
     def test_vlm_chat_completions_streaming(self, openai_client):
         """Test streaming VLM chat completions with image"""
-        with patch("mlx_omni_server.chat.router._create_text_model") as mock_create_text_model:
+        with patch("mlx_omni_server.chat.generation_service._create_text_model") as mock_create_text_model:
 
             # Mock the VLM model
             mock_vlm_model = MockVlmModel()

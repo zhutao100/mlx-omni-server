@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from .chat.router import background_cache_cleanup
+from .chat.generation_service import background_cache_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
 from .routers import api_router
 

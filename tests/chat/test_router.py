@@ -6,9 +6,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from mlx_omni_server.chat.router import (CACHE_TTL, NonStreamCacheEntry,
-                                         StreamCacheEntry, _create_text_model,
-                                         make_request_hash, response_cache)
+from mlx_omni_server.chat.generation_service import (CACHE_TTL,
+                                                     NonStreamCacheEntry,
+                                                     StreamCacheEntry,
+                                                     _create_text_model,
+                                                     make_request_hash,
+                                                     response_cache)
 from mlx_omni_server.chat.schema import (ChatCompletionRequest, ChatMessage,
                                          Role)
 from mlx_omni_server.chat.text_models import (BaseTextModel,
@@ -155,7 +158,7 @@ class TestCacheEntries:
     def test_stream_cache_entry_defaults(self):
         """Test StreamCacheEntry default values"""
         entry = StreamCacheEntry()
-        assert entry.chunks == []
+        assert entry.items == []
         assert isinstance(entry.condition, asyncio.Condition)
         assert isinstance(entry.stop_event, asyncio.Event)
         assert isinstance(entry.created_at, float)
@@ -182,7 +185,7 @@ class TestCacheEntries:
 class TestNonStreamingCacheUnit:
     """Test non-streaming cache functionality with mocks"""
 
-    @patch("mlx_omni_server.chat.router._create_text_model")
+    @patch("mlx_omni_server.chat.generation_service._create_text_model")
     def test_non_streaming_cache_miss(self, mock_create_model, client, mock_request):
         """Test non-streaming request with cache miss"""
         mock_model = MockTextModel()
@@ -199,7 +202,7 @@ class TestNonStreamingCacheUnit:
         assert req_hash in response_cache
         assert isinstance(response_cache[req_hash], NonStreamCacheEntry)
 
-    @patch("mlx_omni_server.chat.router._create_text_model")
+    @patch("mlx_omni_server.chat.generation_service._create_text_model")
     def test_non_streaming_cache_hit(self, mock_create_model, client, mock_request):
         """Test non-streaming request with cache hit"""
         mock_model = MockTextModel()
@@ -214,7 +217,7 @@ class TestNonStreamingCacheUnit:
         assert response1.json() == response2.json()
         assert response2.headers.get("X-Idempotent-Replay") == "true"
 
-    @patch("mlx_omni_server.chat.router._create_text_model")
+    @patch("mlx_omni_server.chat.generation_service._create_text_model")
     def test_non_streaming_different_requests(self, mock_create_model, client):
         """Test that different requests don't hit the same cache"""
         mock_model = MockTextModel()
@@ -240,7 +243,7 @@ class TestNonStreamingCacheUnit:
 class TestNonStreamingErrorCaching:
     """Test non-streaming error caching functionality"""
 
-    @patch("mlx_omni_server.chat.router._create_text_model")
+    @patch("mlx_omni_server.chat.generation_service._create_text_model")
     def test_non_streaming_error_caching(self, mock_create_model, client, mock_request):
         """Test that errors from non-streaming requests are cached."""
         mock_model = Mock()
@@ -421,7 +424,7 @@ class TestCacheCleanup:
 
         # Run one cycle of the cleanup logic
         # The original function has an infinite loop, so we extract the core logic
-        from mlx_omni_server.chat.router import cache_lock
+        from mlx_omni_server.chat.generation_service import cache_lock
         cutoff = time.time() - CACHE_TTL
         async with cache_lock:
             for k in list(response_cache.keys()):
@@ -562,8 +565,8 @@ async def test_streaming_emits_final_chunk_before_done(async_client):
         scheduled.append((coro, fut))
         return fut
 
-    with patch('mlx_omni_server.chat.router.asyncio.run_coroutine_threadsafe', side_effect=fake_run_coroutine_threadsafe):
-        with patch('mlx_omni_server.chat.router._create_text_model') as mock_create_model:
+    with patch('mlx_omni_server.chat.generation_service.asyncio.run_coroutine_threadsafe', side_effect=fake_run_coroutine_threadsafe):
+        with patch('mlx_omni_server.chat.generation_service._create_text_model') as mock_create_model:
             mock_model = MockTextModel()
             mock_create_model.return_value = mock_model
 

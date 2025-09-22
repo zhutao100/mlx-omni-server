@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 from typing import Any, Callable, Dict, Generator
@@ -98,6 +99,10 @@ class MlxLmModel(BaseTextModel):
             # Others
             "reasoning",
         }
+        incompatible_params = {
+            "include",
+            "prompt_cache_key",
+        }
 
         sampler_kwargs = {}
         model_kwargs = {}
@@ -111,6 +116,8 @@ class MlxLmModel(BaseTextModel):
                 model_kwargs[key] = value
             elif key in template_params:
                 template_kwargs[key] = value
+            elif key in incompatible_params:
+                logging.warning(f"Generation parameter '{key} : {value}' is not supported, dropping.")
             else:
                 generate_kwargs[key] = value
 

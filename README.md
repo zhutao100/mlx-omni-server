@@ -17,6 +17,7 @@ This repository is a fork of the [original MLX Omni Server](https://github.com/m
 ### Key Enhancements in This Fork
 
 - **🍎 Vision/Multimodal Support**: Added comprehensive Vision-Language Model (VLM) support through mlx_vlm integration for image processing capabilities
+- **🔄 Responses API Endpoint**: Added support for OpenAI's Responses API (`/v1/responses`) as an alternative to chat completions with enhanced structured output capabilities, improved tool calling workflows, and better streaming event handling
 - **🔧 Advanced Tool Parsing**: Enhanced tool calling support for Qwen3 and GLM4 model families with sophisticated parsing logic including heuristic detection and malformed recovery mechanisms
 - **🧠 Intelligent Caching**: Reworked prompt cache and chat completion cache systems with improved caching efficiency and memory management
 - **⚡ Performance Improvements**: Enhanced streaming generation with better buffering and client disconnection handling
@@ -46,6 +47,7 @@ For details on the original project, please refer to the [upstream repository](h
 The server implements OpenAI-compatible endpoints:
 
 - [Chat completions](https://platform.openai.com/docs/api-reference/chat): `/v1/chat/completions`
+- [Responses](https://platform.openai.com/docs/guides/migrate-to-responses): `/v1/responses`
   - ✅ Chat
   - ✅ Tools, Function Calling
   - ✅ Structured Output
@@ -99,6 +101,20 @@ curl http://localhost:10240/v1/chat/completions \
       {
         "role": "user",
         "content": "What can you do?"
+      }
+    ]
+  }'
+
+curl http://localhost:10240/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mlx-community/gemma-3-1b-it-4bit-DWQ",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "What can you do?"}
+        ]
       }
     ]
   }'

@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from openai import OpenAI
 
+from mlx_omni_server.chat.generation_service import response_cache
 from mlx_omni_server.chat.models.models import model_cache_manager
-from mlx_omni_server.chat.router import response_cache
 from mlx_omni_server.main import app
 
 # Add project root to path
