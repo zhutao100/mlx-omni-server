@@ -7,12 +7,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import mlx.nn as nn
-from huggingface_hub import CachedRepoInfo, scan_cache_dir
+from huggingface_hub import CachedRepoInfo, scan_cache_dir, snapshot_download
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from mlx_lm.utils import MODEL_REMAPPING as LM_MODEL_REMAPPING
-from mlx_lm.utils import get_model_path as lm_get_model_path
+from mlx_lm.utils import hf_repo_to_path
 from mlx_lm.utils import load as lm_load
-from mlx_lm.utils import load_config as lm_load_config
 from mlx_vlm.utils import MODEL_REMAPPING as VLM_MODEL_REMAPPING
 from mlx_vlm.utils import load as vlm_load
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -31,7 +30,7 @@ ModelPath = Path
 ModelConfig = Dict[str, Any]
 ModelType = str
 ModelModule = nn.Module
-TokenizerType = Union[TokenizerWrapper, PreTrainedTokenizerBase]
+TokenizerType = Union[TokenizerWrapper, PreTrainedTokenizerBase, Any]
 
 # More accurate function type definitions
 LoaderFunc = Callable[..., Tuple[ModelModule, TokenizerType]]
@@ -73,6 +72,76 @@ def load_vlm_chat_template(model_type: str) -> str | None:
     return None
 
 
+def _read_model_config_file(config_path: Path) -> Optional[ModelConfig]:
+    """Read a config.json file and return the parsed contents."""
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.error(f"Config file not found at {config_path}")
+    except json.JSONDecodeError as exc:
+        logger.error(f"Invalid JSON in config file {config_path}: {exc}")
+    return None
+
+
+def _config_from_cache(model_id: str) -> Optional[Tuple[ModelPath, ModelConfig]]:
+    """Attempt to resolve a cached model path and config for the given model id."""
+    try:
+        cache_info = scan_cache_dir()
+    except Exception as exc:
+        logger.warning(f"Unable to scan Hugging Face cache: {exc}")
+        return None
+
+    for repo_info in cache_info.repos:
+        if repo_info.repo_id != model_id:
+            continue
+        for revision in repo_info.revisions:
+            config_file = next(
+                (f for f in revision.files if f.file_name == "config.json"),
+                None,
+            )
+            if not config_file:
+                continue
+            config_path = Path(config_file.file_path)
+            if config_data := _read_model_config_file(config_path):
+                return config_path.parent, config_data
+    return None
+
+
+def _resolve_model_path_and_config(model_name: str) -> Tuple[ModelPath, ModelConfig]:
+    """Resolve the local path and configuration for a model."""
+    candidate_path = Path(model_name)
+    if candidate_path.exists():
+        config_path = candidate_path / "config.json"
+        if config_data := _read_model_config_file(config_path):
+            return candidate_path, config_data
+        raise FileNotFoundError(f"Config not found at {config_path}")
+
+    if cached := _config_from_cache(model_name):
+        return cached
+
+    try:
+        repo_path = hf_repo_to_path(model_name)
+        config_path = repo_path / "config.json"
+        if config_data := _read_model_config_file(config_path):
+            return repo_path, config_data
+    except Exception as exc:
+        logger.debug(f"Model '{model_name}' not found in local HF cache: {exc}")
+
+    try:
+        snapshot_path = Path(snapshot_download(repo_id=model_name, allow_patterns=["config.json"]))
+        config_path = snapshot_path / "config.json"
+        if config_data := _read_model_config_file(config_path):
+            return snapshot_path, config_data
+    except Exception as exc:
+        logger.error(f"Failed to retrieve config for model '{model_name}': {exc}")
+
+    raise FileNotFoundError(
+        f"Unable to locate config.json for model '{model_name}'. "
+        "Ensure the model is downloaded or available locally."
+    )
+
+
 def _is_model_supported_by_module(raw_model_type: str, module_name: str) -> bool:
     """Check if a model type is supported by a given module."""
     if not raw_model_type:
@@ -93,6 +162,7 @@ def is_model_supported(raw_model_type: str) -> bool:
 @dataclass
 class ModelId:
     """Identifier for a model with optional adapter and draft model paths."""
+
     name: str
     adapter_path: Optional[str] = None
     draft_model: Optional[str] = None
@@ -101,6 +171,7 @@ class ModelId:
 @dataclass
 class MlxModelCache:
     """Unified model cache for LM and VLM models."""
+
     model_id: ModelId
     model_path: ModelPath = field(init=False)
     model_config: ModelConfig = field(init=False)
@@ -113,28 +184,42 @@ class MlxModelCache:
     def __post_init__(self) -> None:
         self._load_model()
 
-    def _setup_tokenizer_config(self, load_chat_template_func: ChatTemplateFunc) -> Dict[str, Any]:
+    def _setup_tokenizer_config(
+        self, load_chat_template_func: ChatTemplateFunc
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
         """Set up tokenizer configuration with chat template if available."""
         tokenizer_config: Dict[str, Any] = {"trust_remote_code": True}
-        if chat_template := load_chat_template_func(self.model_type):
-            logger.info(f"Using chat template {chat_template}")
+        chat_template = load_chat_template_func(self.model_type)
+        if chat_template:
+            logger.info("Applying chat template for model type '%s'", self.model_type)
             tokenizer_config["chat_template"] = chat_template
-        return tokenizer_config
+        return tokenizer_config, chat_template
 
-    def _load_draft_model(self, load_func: LoaderFunc) -> None:
+    def _load_draft_model(
+        self,
+        load_func: LoaderFunc,
+        tokenizer_config: Dict[str, Any],
+    ) -> None:
         """Load draft model if specified."""
         if not self.model_id.draft_model:
             return
+        draft_kwargs: Dict[str, Any] = {}
+        if load_func is lm_load:
+            draft_kwargs["tokenizer_config"] = dict(tokenizer_config)
+        else:
+            draft_kwargs["trust_remote_code"] = True
         self.draft_model, self.draft_tokenizer = load_func(
             self.model_id.draft_model,
-            tokenizer_config={"trust_remote_code": True}
+            **draft_kwargs,
         )
         # Check if both tokenizers are available before comparing vocab sizes
-        if (self.draft_tokenizer is not None and
-            self.tokenizer is not None and
-            hasattr(self.draft_tokenizer, 'vocab_size') and
-            hasattr(self.tokenizer, 'vocab_size') and
-                self.draft_tokenizer.vocab_size != self.tokenizer.vocab_size):
+        if (
+            self.draft_tokenizer is not None
+            and self.tokenizer is not None
+            and hasattr(self.draft_tokenizer, "vocab_size")
+            and hasattr(self.tokenizer, "vocab_size")
+            and self.draft_tokenizer.vocab_size != self.tokenizer.vocab_size
+        ):
             logger.warning(
                 f"Draft model '{self.model_id.draft_model}' tokenizer does not match main model tokenizer."
             )
@@ -148,40 +233,46 @@ class MlxModelCache:
     ) -> None:
         """Generic loader for LM/VLM models."""
         logger.info(f"Loading {model_label} model {self.model_id.name}")
-        tokenizer_config = self._setup_tokenizer_config(load_chat_template_func)
+        tokenizer_config, chat_template = self._setup_tokenizer_config(load_chat_template_func)
+
+        loader_kwargs: Dict[str, Any] = {"adapter_path": self.model_id.adapter_path}
+        if loader_func is lm_load:
+            loader_kwargs["tokenizer_config"] = tokenizer_config
+        else:
+            loader_kwargs["trust_remote_code"] = True
+
         self.model, self.tokenizer = loader_func(
             self.model_id.name,
-            tokenizer_config=tokenizer_config,
-            adapter_path=self.model_id.adapter_path,
+            **loader_kwargs,
         )
         logger.info(f"Loaded {model_label} model: {self.model_id.name}")
-        self._load_draft_model(loader_func)
+        self._load_draft_model(loader_func, tokenizer_config)
 
     def _load_model(self) -> None:
         """Decide LM or VLM loader based on model support."""
-        self.model_path, _ = lm_get_model_path(self.model_id.name)
-        self.model_config = lm_load_config(self.model_path)
-        self.model_type = self.model_config["model_type"]
+        self.model_path, self.model_config = _resolve_model_path_and_config(self.model_id.name)
+        raw_model_type = self.model_config.get("model_type")
+        if raw_model_type is None:
+            logger.warning(
+                "Model config for '%s' does not define 'model_type'.",
+                self.model_id.name,
+            )
+            self.model_type = ""
+        else:
+            self.model_type = str(raw_model_type).lower()
 
         lm_supported = _is_model_supported_by_module(self.model_type, MLX_LM_MODULE)
         vlm_supported = _is_model_supported_by_module(self.model_type, MLX_VLM_MODULE)
 
         if vlm_supported and not lm_supported:
-            self._load_model_generic(
-                vlm_load,
-                load_vlm_chat_template,
-                "VLM"
-            )
+            self._load_model_generic(vlm_load, load_vlm_chat_template, "VLM")
         else:  # LM preferred if both or fallback
             if not lm_supported:
                 logger.warning(
-                    f"Model type {self.model_type} not explicitly supported, attempting LM loader"
+                    "Model type '%s' not explicitly supported, attempting LM loader",
+                    self.model_type or raw_model_type,
                 )
-            self._load_model_generic(
-                lm_load,
-                load_lm_chat_template,
-                "LM"
-            )
+            self._load_model_generic(lm_load, load_lm_chat_template, "LM")
 
 
 class ModelCacheScanner:
@@ -209,8 +300,7 @@ class ModelCacheScanner:
             return None
 
     def _process_repo_info(
-        self,
-        repo_info: CachedRepoInfo
+        self, repo_info: CachedRepoInfo
     ) -> Optional[Tuple[CachedRepoInfo, ModelConfig]]:
         if repo_info.repo_type != "model":
             return None
@@ -219,10 +309,7 @@ class ModelCacheScanner:
         if not first_revision:
             return None
 
-        config_file = next(
-            (f for f in first_revision.files if f.file_name == "config.json"),
-            None
-        )
+        config_file = next((f for f in first_revision.files if f.file_name == "config.json"), None)
         if not config_file:
             return None
 
@@ -244,10 +331,7 @@ class ModelCacheScanner:
             if (res := self._process_repo_info(repo)) is not None
         ]
 
-    def get_model_info(
-        self,
-        model_id: str
-    ) -> Optional[Tuple[CachedRepoInfo, ModelConfig]]:
+    def get_model_info(self, model_id: str) -> Optional[Tuple[CachedRepoInfo, ModelConfig]]:
         for repo_info in self.cache_info.repos:
             if repo_info.repo_id == model_id:
                 return self._process_repo_info(repo_info)
@@ -296,7 +380,7 @@ class ModelsService:
         self,
         repo_info: CachedRepoInfo,
         config_data: ModelConfig,
-        include_details: bool = False
+        include_details: bool = False,
     ) -> Model:
         model_kwargs = {
             "id": repo_info.repo_id,
