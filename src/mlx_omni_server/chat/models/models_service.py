@@ -1,6 +1,4 @@
-import importlib
 import json
-import os
 from dataclasses import dataclass, field
 from importlib import util as importlib_util
 from pathlib import Path
@@ -16,7 +14,7 @@ from mlx_vlm.utils import MODEL_REMAPPING as VLM_MODEL_REMAPPING
 from mlx_vlm.utils import load as vlm_load
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-from ...utils.file_loader import get_project_root
+from ...utils.file_loader import read_package_text
 from ...utils.logger import logger
 from .schema import Model, ModelDeletion, ModelList
 
@@ -36,40 +34,44 @@ TokenizerType = Union[TokenizerWrapper, PreTrainedTokenizerBase, Any]
 LoaderFunc = Callable[..., Tuple[ModelModule, TokenizerType]]
 ChatTemplateFunc = Callable[[str], Optional[str]]
 
+_CHAT_TEMPLATES_BASE = ("chat", "templates")
+
+
+def _load_chat_template_file(template_filename: str) -> str | None:
+    resource_parts = (*_CHAT_TEMPLATES_BASE, template_filename)
+    resource_identifier = "/".join(resource_parts)
+    try:
+        return read_package_text(*resource_parts)
+    except FileNotFoundError:
+        logger.error(f"Chat template file not found: {resource_identifier}")
+    except OSError as exc:
+        logger.error(f"Unable to read chat template '{resource_identifier}': {exc}")
+    return None
+
 
 def load_lm_chat_template(model_type: str) -> str | None:
     """Load chat template based on model type for LM models."""
-    templates_dir = os.path.join(get_project_root(), "src/mlx_omni_server/chat/templates")
     template_files = {
         "qwen3": "qwen3_chat_template.jinja",
         "qwen3_moe": "qwen3_chat_template.jinja",
         "glm4": "glm4_chat_template.jinja",
         "glm4_moe": "glm4_chat_template.jinja",
     }
-    if template_files.get(model_type):
-        template_path = os.path.join(templates_dir, template_files[model_type])
-        if os.path.exists(template_path):
-            with open(template_path, "r", encoding="utf-8") as f:
-                return f.read()
-        else:
-            logger.error(f"Chat template file not found: {template_path}")
-    return None
+    template_name = template_files.get(model_type)
+    if not template_name:
+        return None
+    return _load_chat_template_file(template_name)
 
 
 def load_vlm_chat_template(model_type: str) -> str | None:
     """Load chat template based on model type for VLM models."""
-    templates_dir = os.path.join(get_project_root(), "src/mlx_omni_server/chat/templates")
     template_files = {
         "glm4v_moe": "glm4v_chat_template.jinja",
     }
-    if template_files.get(model_type):
-        template_path = os.path.join(templates_dir, template_files[model_type])
-        if os.path.exists(template_path):
-            with open(template_path, "r", encoding="utf-8") as f:
-                return f.read()
-        else:
-            logger.error(f"Chat template file not found: {template_path}")
-    return None
+    template_name = template_files.get(model_type)
+    if not template_name:
+        return None
+    return _load_chat_template_file(template_name)
 
 
 def _read_model_config_file(config_path: Path) -> Optional[ModelConfig]:

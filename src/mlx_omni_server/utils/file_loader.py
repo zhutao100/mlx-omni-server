@@ -1,10 +1,24 @@
-from pathlib import Path
+from importlib import resources
 
 
-def get_project_root(start: Path | None = None) -> Path:
-    """Walk upwards until a project marker is found."""
-    start = start or Path(__file__).resolve()
-    for parent in [start, *start.parents]:
-        if (parent / "pyproject.toml").exists() or (parent / ".git").exists() or (parent / "setup.py").exists():
-            return parent
-    raise RuntimeError("Project root not found")
+def read_package_text(*path_parts: str, package: str | None = None, encoding: str = "utf-8") -> str:
+    """Read a text resource from the installed package."""
+    if not path_parts:
+        raise ValueError("path_parts must not be empty")
+
+    target_package = package or __package__.split(".")[0]
+    try:
+        resource = resources.files(target_package)
+    except (ModuleNotFoundError, AttributeError) as exc:
+        raise FileNotFoundError(f"Package '{target_package}' is not available") from exc
+
+    for part in path_parts:
+        resource = resource / part
+
+    try:
+        return resource.read_text(encoding=encoding)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        resource_name = "/".join(path_parts)
+        raise OSError(f"Unable to read resource '{resource_name}'") from exc
