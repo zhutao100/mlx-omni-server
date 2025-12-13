@@ -24,3 +24,4 @@
 - Some core dependency modules can be accessed locally:
   - [mlx-lm](https://github.com/ml-explore/mlx-lm): ~/workspace/custom-builds/mlx-lm
   - [mlx-vlm](https://github.com/zhutao100/mlx-vlm): ~/workspace/custom-builds/mlx-vlm
+  - [transformers](https://github.com/huggingface/transformers): ~/workspace/custom-builds/transformers

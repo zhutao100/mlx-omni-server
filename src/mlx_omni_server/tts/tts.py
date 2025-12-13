@@ -25,6 +25,8 @@ async def create_speech(request: TTSRequest):
             request=request,
         )
 
+        response_format = request.response_format or AudioFormat.WAV
+
         # Create content type mapping
         content_type_mapping = {
             AudioFormat.MP3: "audio/mpeg",
@@ -38,11 +40,13 @@ async def create_speech(request: TTSRequest):
         # Create response
         return StreamingResponse(
             io.BytesIO(audio_content),
-            media_type=content_type_mapping[request.response_format],
+            media_type=content_type_mapping[response_format],
             headers={
-                "Content-Disposition": f'attachment; filename="speech.{request.response_format.value}"'
+                "Content-Disposition": f'attachment; filename="speech.{response_format.value}"'
             },
         )
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -11,7 +11,7 @@ The `responses` component is a unique module that acts as an **adapter or transl
 
 -   **Adapter Pattern:** The component's primary function is to adapt the `Response` format to the server's internal `ChatCompletion` format.
     -   The `router.py` file receives a `ResponseRequest`, immediately converts it to a `ChatCompletionRequest` using a function from `adapter.py`.
-    -   It then delegates the actual model generation to the existing `chat_generation_service`, thereby re-using all of its logic, including caching, stream multiplexing, and the `mlx_lock`.
+    -   It then delegates the actual model generation to the existing `chat_generation_service`, thereby re-using all of its logic, including caching, stream multiplexing, and the shared MLX gate in the inference runtime.
     -   After receiving the result from the chat service, it uses functions and classes from `adapter.py` to convert the `ChatCompletionResponse` (or stream of `ChatCompletionChunk`s) back into the `ResponseResponse` format (or stream of `ResponseStreamEvent`s).
 -   **No Direct MLX Interaction:** This component does not have its own service class and does not interact with any MLX libraries directly. It is purely a data transformation layer.
 

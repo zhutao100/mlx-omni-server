@@ -16,7 +16,7 @@ The `EmbeddingsService` class contains the core implementation.
 -   **Generation:**
     -   The service uses the `mlx-embeddings` library to perform the embedding generation.
     -   It contains logic to handle different types of model outputs, with specific handling for BERT-like models (mean pooling or CLS token extraction) and a generic fallback.
--   **Concurrency Model:** The embedding generation implementation is **synchronous** and is called directly from an `async` FastAPI route (i.e., it is not run in a thread pool). Slow embedding models will therefore block the server's event loop. There is also no shared MLX gate/lock equivalent to the `mlx_lock` used by chat.
+-   **Concurrency Model:** Embedding generation is executed via the shared inference runtime (`run_mlx`), which runs blocking work in a thread pool and serializes MLX-backed compute through a shared gate. This keeps the event loop responsive and prevents embeddings from contending unsafely with other MLX workloads.
 
 ## Summary
 

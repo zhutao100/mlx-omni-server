@@ -2,10 +2,12 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
+from ..inference.runtime import run_mlx
 from .images_service import ImagesService
 from .schema import ImageGenerationRequest, ImageGenerationResponse
 
 router = APIRouter(tags=["images"])
+images_service = ImagesService()
 
 
 @router.post("/images/generations")
@@ -15,10 +17,7 @@ async def create_image(request: ImageGenerationRequest) -> ImageGenerationRespon
     Creates an image given a prompt.
     """
     try:
-        service = ImagesService()
-
-        # Generate images
-        images = service.generate_images(request)
+        images = await run_mlx(images_service.generate_images, request)
 
         # Create response
         return ImageGenerationResponse(created=int(time.time()), data=images)

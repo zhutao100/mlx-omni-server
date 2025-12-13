@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from ..inference.runtime import run_mlx
 from .embeddings_service import EmbeddingsService
 from .schema import EmbeddingRequest, EmbeddingResponse
 
@@ -16,6 +17,6 @@ async def create_embeddings(request: EmbeddingRequest) -> EmbeddingResponse:
     which can be used for semantic search, clustering, and other NLP tasks.
     """
     try:
-        return embeddings_service.generate_embeddings(request)
+        return await run_mlx(embeddings_service.generate_embeddings, request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

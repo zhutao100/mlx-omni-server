@@ -8,7 +8,7 @@ The server is a standard `FastAPI` application launched with `uvicorn`.
 
 -   **Configuration:** A `start()` function, exposed as a command-line script `mlx-omni-server`, handles server configuration. It uses `argparse` to set the `host`, `port`, `workers`, and `log-level`.
 -   **Workers:** The CLI exposes `--workers` and passes it to `uvicorn`. This creates multiple *processes* (not threads), so each worker has its own in-memory caches and its own “global” locks. For MLX-bound workloads, `workers=1` is typically the safest default unless you explicitly design for multi-process coordination and memory budgeting.
--   **Lifecycle Management:** The application uses a `lifespan` manager to run background tasks. Currently it starts `background_cache_cleanup()` from the chat subsystem, which periodically evicts chat response cache entries.
+-   **Lifecycle Management:** The application uses a `lifespan` manager to run background tasks. It starts `background_cache_cleanup()` from the chat subsystem and a URL-mode image artifact cleanup task (TTL-based cleanup).
 -   **Middleware:** Custom logging middleware (`RequestResponseLoggingMiddleware`) is registered, indicating that all requests and responses are logged.
 -   **Root Router:** The application's API is consolidated into a single `APIRouter` instance imported from the `routers` module.
 

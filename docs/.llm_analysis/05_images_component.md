@@ -12,10 +12,10 @@ The `images` component provides an OpenAI DALL-E compatible API for text-to-imag
 The logic is split between a service class and a generator class.
 
 -   **`ImagesService`:**
-    -   This is a lightweight service class that is instantiated on each request.
-    -   It defines a cache of `MFluxImageGenerator` instances keyed by model name, but because `ImagesService` is instantiated per request, this cache does not persist across requests (it only helps within a single request that generates multiple images).
-    -   It handles file system operations: saving generated images to a temporary directory, encoding them to Base64, and optionally cleaning them up (Base64 mode deletes the temp file; URL mode returns a `file://` path and leaves the file on disk).
-    -   Output filenames are derived from second-level timestamps, which can collide across concurrent requests.
+    -   A shared service instance is created at module import time, allowing its generator cache to persist across requests.
+    -   It maintains a cache of `MFluxImageGenerator` instances keyed by model name (enabling cross-request reuse).
+    -   It handles file system operations: saving generated images to a temporary directory, encoding them to Base64, and optionally cleaning them up (Base64 mode deletes the temp file; URL mode returns a `file://` path).
+    -   URL-mode artifacts use UUID filenames and are periodically cleaned up via a background TTL-based cleanup task.
 
 -   **`MFluxImageGenerator`:**
     -   This class acts as a wrapper around the `mflux` library, specifically the `Flux1` model for text-to-image generation.
@@ -23,10 +23,9 @@ The logic is split between a service class and a generator class.
     -   It translates the API request parameters into the configuration objects required by `mflux`.
 
 -   **Concurrency Model:**
-    -   The FastAPI route is `async`, but image generation is implemented synchronously and is called directly from the route (no thread pool), so long generations will block the server's event loop.
-    -   There is **no locking/gating mechanism** equivalent to the `mlx_lock` used by chat. Multiple concurrent image generations may contend for unified memory and trigger GPU OOM.
-    -   The shared temp output directory and collision-prone filenames introduce additional request-safety hazards under concurrency.
+    -   Image generation is executed via the shared inference runtime (`run_mlx`), which runs blocking work in a thread pool and serializes MLX-backed compute through a shared gate.
+    -   This prevents event-loop blocking and makes contention policy explicit (one MLX-backed job at a time by default).
 
 ## Summary
 
-The images component is a capable text-to-image API endpoint that relies on the `mflux` library. However, its current implementation blocks the event loop for generation, lacks an MLX concurrency gate, and has collision-prone on-disk artifact naming. It also does not currently achieve cross-request model/generator reuse because `ImagesService` is instantiated per request.
+The images component is a capable text-to-image API endpoint that relies on the `mflux` library. It uses a shared images service (cross-request generator caching), runs generation off the event loop under the shared MLX gate, and uses collision-safe filenames plus TTL cleanup for URL-mode artifacts.

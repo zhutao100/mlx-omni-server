@@ -1,8 +1,10 @@
+import asyncio
 import base64
 import os
 import random
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -16,6 +18,44 @@ from PIL import Image
 
 from ..utils.logger import logger
 from .schema import ImageGenerationRequest, ImageObject, ResponseFormat
+
+IMAGE_URL_TTL_SECONDS = 60 * 60  # 1 hour
+IMAGE_CLEANUP_INTERVAL_SECONDS = 10 * 60  # 10 minutes
+
+
+def cleanup_expired_url_images(output_dir: Path, ttl_seconds: int = IMAGE_URL_TTL_SECONDS) -> int:
+    """Delete old image artifacts left behind for `response_format=url`."""
+    if not output_dir.exists():
+        return 0
+
+    now = time.time()
+    removed = 0
+    for image_path in output_dir.glob("*.png"):
+        try:
+            if now - image_path.stat().st_mtime > ttl_seconds:
+                image_path.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+async def background_url_image_cleanup(
+    output_dir: Path,
+    ttl_seconds: int = IMAGE_URL_TTL_SECONDS,
+    interval_seconds: int = IMAGE_CLEANUP_INTERVAL_SECONDS,
+) -> None:
+    """Periodic cleanup task for URL-mode image artifacts."""
+    from ..inference.runtime import run_blocking
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            removed = await run_blocking(cleanup_expired_url_images, output_dir, ttl_seconds)
+            if removed:
+                logger.info("Cleaned up %d expired image artifacts", removed)
+        except Exception:
+            logger.exception("Error during image artifact cleanup")
 
 
 class MFluxImageGenerator:
@@ -183,7 +223,7 @@ class ImagesService:
 
         for i in range(request.n):
             # Generate unique identifier for this image
-            uid = f"{int(time.time())}_{i}"
+            uid = uuid.uuid4().hex
             output_path = self._get_output_path(uid)
 
             try:

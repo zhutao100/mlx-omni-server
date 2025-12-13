@@ -9,6 +9,7 @@ The project uses `pytest` for testing and appears to have a comprehensive test s
 -   **Structure:** The `tests/` directory is well-organized, mirroring the main `src/` directory structure.
 -   **Coverage:** There is a strong focus on testing the `chat` component, which is the most complex. Tests cover API endpoints, specific model behaviors (tokenizers, tool parsing for different models), and advanced features like JSON-forced output, VLM (Vision Language Model) capabilities, and prompt caching. Other components like audio, images, and embeddings also have dedicated tests.
 -   **Test Types:** The suite is a mix of unit tests and integration-style tests that exercise the FastAPI app in-process (via `fastapi.testclient.TestClient` and `httpx`'s ASGI transport). Some tests use the OpenAI Python client configured against the in-process app.
+-   **Concurrency Regression:** There are lightweight tests that monkeypatch ML backends to validate request-scoped artifacts and shared gating behavior without running real models.
 
 ## Examples (`examples/`)
 

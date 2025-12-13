@@ -6,6 +6,7 @@ from typing import Union
 from mlx_whisper import transcribe
 from mlx_whisper.writers import WriteSRT, WriteVTT
 
+from ..inference.runtime import run_blocking, run_mlx
 from .schema import (
     ResponseFormat,
     STTRequestForm,
@@ -18,10 +19,14 @@ class WhisperModel:
 
     async def _save_upload_file(self, file) -> str:
         suffix = Path(file.filename).suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            return tmp.name
+        content = await file.read()
+
+        def write_temp() -> str:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(content)
+                return tmp.name
+
+        return await run_blocking(write_temp)
 
     def generate(self, audio_path: str, request: STTRequestForm):
         word_timestamps = False
@@ -124,14 +129,11 @@ class STTService:
         self,
         request: STTRequestForm,
     ) -> Union[dict, str, TranscriptionResponse]:
+        audio_path: str | None = None
         try:
             audio_path = await self.model._save_upload_file(request.file)
-            result = self.model.generate(audio_path=audio_path, request=request)
-            response = self.model._format_response(result, request)
-            Path(audio_path).unlink(missing_ok=True)
-            return response
-
-        except Exception as e:
-            if "audio_path" in locals():
+            result = await run_mlx(self.model.generate, audio_path, request)
+            return await run_blocking(self.model._format_response, result, request)
+        finally:
+            if audio_path:
                 Path(audio_path).unlink(missing_ok=True)
-            raise e

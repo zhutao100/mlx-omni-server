@@ -2,7 +2,7 @@
 
 ## 1. High-Level Summary
 
-MLX Omni Server is a high-performance web server built with FastAPI that provides OpenAI-compatible APIs for a wide range of machine learning tasks. It is designed to run on Apple Silicon, leveraging the `MLX` framework for efficient inference. The server is highly modular, offering endpoints for chat (including multimodal and tool-use), text embeddings, text-to-image generation, speech-to-text, and text-to-speech. It also includes an adapter-based endpoint that provides an alternative interface to the chat functionality. The project is mature, with a comprehensive test suite and a rich set of examples, but exhibits significant architectural inconsistencies in its handling of concurrency across different components.
+MLX Omni Server is a high-performance web server built with FastAPI that provides OpenAI-compatible APIs for a wide range of machine learning tasks. It is designed to run on Apple Silicon, leveraging the `MLX` framework for efficient inference. The server is highly modular, offering endpoints for chat (including multimodal and tool-use), text embeddings, text-to-image generation, speech-to-text, and text-to-speech. It also includes an adapter-based endpoint that provides an alternative interface to the chat functionality. The project is mature, with a comprehensive test suite and a rich set of examples, and now enforces a shared “MLX gate + threadpool” execution contract across endpoints (see `docs/concurrency_contract.md`).
 
 ## 2. Technology Stack
 
@@ -27,7 +27,7 @@ The server follows a classic modular, service-oriented architecture.
 -   **Routing:** A central router in `routers.py` aggregates modular `APIRouter` instances from each of the functional sub-packages (chat, embeddings, images, stt, tts, and responses).
 -   **Service Layer:** Each functional component encapsulates its core logic within a "service" class (e.g., `ChatGenerationService`, `EmbeddingsService`). These services are responsible for interacting with the underlying MLX libraries.
 -   **Adapter Layer:** The `responses` component acts as an adapter, translating a custom API format to the internal chat API format, demonstrating a separation of interface from core logic.
--   **Model Management:** Caching and lifecycle management is implemented inconsistently: chat and embeddings maintain explicit in-process caches, while images currently constructs a new service per request (so its in-Python generator cache does not persist across requests) and STT/TTS largely rely on the underlying libraries. MLX execution is performed by the underlying libraries (`mlx-lm`, `mlx-embeddings`, `mflux`, `mlx-whisper`, etc.).
+-   **Model Management:** Chat, embeddings, and images use shared in-process service instances with caching (chat response cache + model cache, embeddings model cache, images generator cache). STT/TTS are per-request services but execute ML work via the shared inference runtime gate. MLX execution is performed by the underlying libraries (`mlx-lm`, `mlx-embeddings`, `mflux`, `mlx-whisper`, etc.).
 
 ## 4. Component Deep Dive
 
@@ -36,39 +36,35 @@ The server follows a classic modular, service-oriented architecture.
 This is the most advanced and well-architected component.
 -   **Features:** Supports multimodal inputs (text, image, audio), tool use (function calling), streaming, and enforced structured output (JSON Schema).
 -   **Design:** Uses a single, shared `ChatGenerationService` instance. It features a sophisticated request caching and stream multiplexing system, allowing multiple clients to connect to a single ongoing generation.
--   **Concurrency:** It correctly handles blocking MLX calls by running them in a thread pool (`run_in_threadpool`). Crucially, it uses a global `mlx_lock` to ensure only **one** MLX generation task runs at a time, serializing heavy computation and preventing GPU contention.
+-   **Concurrency:** All blocking work (including model loading and generation) is executed in a thread pool and is serialized through a shared MLX gate (via `mlx_omni_server.inference.runtime.get_mlx_gate`) to avoid unified-memory contention.
 
 ### 4.2. Embeddings (`/v1/embeddings`)
 
 A straightforward and solid component.
 -   **Features:** Generates text embeddings for single or multiple input strings.
 -   **Design:** Uses a shared `EmbeddingsService` instance that caches loaded models. It relies on the `mlx-embeddings` library for generation.
--   **Concurrency:** The route is `async` but calls synchronous embedding generation directly, so slow embeddings will block the event loop. It also does not use the shared `mlx_lock`, so concurrent embedding requests can contend with other MLX workloads.
+-   **Concurrency:** Embedding generation runs in a thread pool and is serialized through the shared MLX gate (same as chat) to avoid contention with other MLX workloads.
 
 ### 4.3. Image Generation (`/v1/images/generations`)
 
 This component is functional but has concurrency risks.
 -   **Features:** Provides a DALL-E compatible text-to-image endpoint.
--   **Design:** Uses the `mflux` library. The implementation defines a generator cache on `ImagesService`, but the router currently instantiates `ImagesService` per request, so the cache does not persist across requests (each request starts “cold” unless the underlying library caches internally). It writes images to a temp directory and returns either base64 content or a `file://` URL.
--   **Concurrency:** The `async` endpoint runs synchronous image generation on the event loop and lacks any MLX gating/locking. Concurrent requests can contend for unified memory and can also race on output filenames (current IDs are second-based).
+-   **Design:** Uses the `mflux` library via a shared `ImagesService` instance that caches `MFluxImageGenerator` instances per model. It writes images to a temp directory and returns either base64 content or a `file://` URL. URL-mode artifacts use collision-safe UUID filenames and are periodically cleaned up by a background task.
+-   **Concurrency:** Image generation runs in a thread pool and is serialized through the shared MLX gate to avoid unified-memory contention.
 
 ### 4.4. Speech-to-Text (`/v1/audio/transcriptions`)
 
-This component is functional but has serious performance and concurrency flaws.
+This component is functional and follows the shared concurrency contract.
 -   **Features:** Provides a Whisper-based audio transcription API that accepts file uploads.
 -   **Design:** Wraps the `mlx-whisper` library.
--   **Concurrency:** This component's design is highly problematic.
-    1.  **Event Loop Blocking:** The blocking `transcribe` function is called directly from an `async` method without using a thread pool, which will **freeze the entire server** during transcription.
-    2.  **No Locking:** Like the `images` component, it lacks a lock, allowing concurrent, event-loop-blocking requests to pile up.
+-   **Concurrency:** Upload persistence, transcription, and response formatting are executed off the event loop. The MLX-backed transcription call is serialized through the shared MLX gate (`mlx_omni_server.inference.runtime.run_mlx`) to avoid unified-memory contention.
 
 ### 4.5. Text-to-Speech (`/v1/audio/speech`)
 
-This component is functional but unsafe for concurrent use.
+This component is functional and safe for concurrent use under the shared gate.
 -   **Features:** Provides a text-to-speech endpoint.
 -   **Design:** Uses an adapter pattern to support both `f5-tts-mlx` and `mlx-audio` libraries.
--   **Concurrency:** This component has the most severe design flaws.
-    1.  **Event Loop Blocking:** Like the STT component, it calls a blocking generation function from an `async` context.
-    2.  **Race Condition:** It uses a **hardcoded temporary filename** (`sample.wav`) for all generations, which will cause race conditions and incorrect output if two requests are handled at the same time.
+-   **Concurrency:** Generation runs off the event loop and is serialized through the shared MLX gate. Outputs are written to request-scoped temporary paths (no shared filenames). (The `f5-tts-mlx` backend is currently constrained to WAV output.)
 
 ### 4.6. Responses (`/v1/responses`)
 
@@ -82,11 +78,8 @@ This component is an adapter or translation layer, not a new ML capability.
 -   **OpenAI Compatibility:** The primary API surface is designed to be a drop-in replacement for OpenAI's APIs, which is a major strength.
 -   **Adapter Pattern:** The `responses` component is a strong example of the adapter pattern, providing a different API interface for the same underlying chat service. The `tts` component also uses an adapter to support multiple TTS backends.
 -   **Service-Oriented & Modular:** The code is well-organized into functional modules, each with its own router and service.
--   **Inconsistent Concurrency Model:** This is the most significant architectural issue.
-    -   The `chat` and `responses` services have a robust, production-ready concurrency model (thread pool + async lock).
-    -   The `embeddings` and `images` routes call synchronous inference/generation directly from `async` endpoints and do not use the `mlx_lock`, which can block the event loop and contend with other MLX workloads.
-    -   The `stt` and `tts` services have the same event-loop blocking + no-lock issue, and also have correctness hazards (e.g., shared filenames).
--   **Dynamic Model Caching:** Chat and embeddings implement explicit in-process caching. Other components rely more on underlying library caching, and images currently re-instantiates its service per request so its generator cache does not persist across requests.
+-   **Unified Concurrency Contract:** All MLX-backed compute is routed through a shared gate and threadpool helpers (`mlx_omni_server.inference.runtime.run_mlx`), keeping the event loop responsive and making concurrency behavior predictable.
+-   **Dynamic Model Caching:** Chat, embeddings, and images implement explicit in-process caching. Other components rely more on underlying library caching.
 
 ## 6. Architecture Diagram (ASCII)
 
@@ -119,8 +112,8 @@ v  v       v          v          v          v          v          v
 |                | Chat     | Embed    | Images   | STT      | TTS      |
 |                | Service  | Service  | Service  | Service  | Service  |
 |                +----------+----------+----------+----------+----------+
-|                  |     | (ThreadPool)   | (Sync)   | (Sync)   | (Sync)   | (Sync)
-|                  |     | + mlx_lock      | BLOCKING | BLOCKING | BLOCKING | BLOCKING
+|                  |     | (ThreadPool)   | (ThreadPool) | (ThreadPool) | (ThreadPool) | (ThreadPool)
+|                  |     | + mlx_gate (shared) across endpoints
 v                  v     v                v          v          v          v
 +-------------------------------------------------------------------------+
 |                              MLX Backend Libraries                        |
@@ -137,13 +130,10 @@ v                  v     v                v          v          v          v
 
 MLX Omni Server is a powerful and feature-rich project that successfully provides a comprehensive, OpenAI-compatible interface for MLX-based models. Its `chat` component is well-designed with a robust concurrency and caching model that could be considered production-ready.
 
-However, the project suffers from a critical lack of architectural consistency in its concurrency handling. The `embeddings`, `images`, `stt`, and `tts` components call synchronous ML work from `async` endpoints without a shared gate, which can block the event loop and lead to contention; `tts` and `images` also have request-safety hazards around shared/collision-prone filesystem artifacts.
+The server now enforces a consistent concurrency model across endpoints: blocking ML work runs off the event loop and is serialized through a shared MLX gate. Remaining architectural risks are primarily around multi-worker safety, memory budgeting, and centralized lifecycle/eviction policies.
 
 **Key Recommendations:**
 
-1.  **Unify the Concurrency Model:** Refactor the `embeddings`, `images`, `stt`, and `tts` services to adopt the same concurrency pattern as the `chat` service (see `docs/concurrency_contract.md`):
-    -   Run all blocking MLX generation calls within `fastapi.concurrency.run_in_threadpool`.
-    -   Protect all calls to the MLX backend with a shared, global `asyncio.Lock` (`mlx_lock`) to serialize GPU-intensive work and prevent contention.
-2.  **Fix Request-Scoped Artifact Handling:** The `tts` service must be changed to use unique temporary filenames (or in-memory buffers) per request; image outputs should use collision-safe unique IDs and a documented cleanup policy for on-disk artifacts (especially for `file://` URL responses).
-3.  **Share Service Instances Where Appropriate:** Consider using single, shared instances for services that claim to cache models/generators (notably images), similar to `chat` and `embeddings`.
-4.  **Multi-worker Safety:** `uvicorn --workers > 1` will create multiple processes with independent caches and independent “global” locks; defaulting to `workers=1` (or warning/guarding) is safer for MLX-bound workloads.
+1.  **Bounded execution + backpressure:** Introduce bounded queues and explicit 429/503 behavior when the MLX gate is saturated, instead of unbounded waiting.
+2.  **Centralized lifecycle + budgets:** Consolidate model/generator lifecycle management (load, cache, evict) with memory-aware admission control.
+3.  **Multi-worker safety:** `uvicorn --workers > 1` creates multiple processes with independent caches and independent “global” gates; defaulting to `workers=1` (or warning/guarding) is safer for MLX-bound workloads.

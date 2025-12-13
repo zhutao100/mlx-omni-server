@@ -6,12 +6,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
 
-from fastapi.concurrency import run_in_threadpool
-
+from ..inference.runtime import run_mlx
 from .models.models import load_model
 from .models.models_service import ModelId
-from .schema import (ChatCompletionRequest,
-                     ChatCompletionResponse)
+from .schema import ChatCompletionRequest, ChatCompletionResponse
 from .text_models import BaseTextModel
 
 
@@ -49,7 +47,6 @@ class NonStreamResult:
 response_cache: dict[str, StreamCacheEntry | NonStreamCacheEntry] = {}
 CACHE_TTL = 300
 cache_lock = asyncio.Lock()
-mlx_lock = asyncio.Lock()
 
 
 def make_request_hash(req: ChatCompletionRequest) -> str:
@@ -71,7 +68,6 @@ class ChatGenerationService:
     def __init__(self) -> None:
         self._response_cache = response_cache
         self._cache_lock = cache_lock
-        self._mlx_lock = mlx_lock
 
     async def generate_non_stream(self, request: ChatCompletionRequest) -> NonStreamResult:
         req_hash = make_request_hash(request)
@@ -85,17 +81,19 @@ class ChatGenerationService:
                 from_cache=True,
             )
 
-        text_model = _create_text_model(
-            request.model,
-            request.get_extra_params().get("adapter_path"),
-            request.get_extra_params().get("draft_model"),
-        )
-
         try:
-            async with self._mlx_lock:
-                completion: ChatCompletionResponse = await run_in_threadpool(
-                    text_model.generate, request
+            adapter_path = request.get_extra_params().get("adapter_path")
+            draft_model = request.get_extra_params().get("draft_model")
+
+            def load_and_generate() -> ChatCompletionResponse:
+                text_model = _create_text_model(
+                    request.model,
+                    adapter_path,
+                    draft_model,
                 )
+                return text_model.generate(request)
+
+            completion: ChatCompletionResponse = await run_mlx(load_and_generate)
             entry = NonStreamCacheEntry(payload=completion)
             async with self._cache_lock:
                 self._response_cache[req_hash] = entry
@@ -172,15 +170,18 @@ class ChatGenerationService:
         self, request: ChatCompletionRequest, req_hash: str
     ) -> StreamCacheEntry:
         cached_entry = StreamCacheEntry()
-        text_model = _create_text_model(
-            request.model,
-            request.get_extra_params().get("adapter_path"),
-            request.get_extra_params().get("draft_model"),
-        )
+        adapter_path = request.get_extra_params().get("adapter_path")
+        draft_model = request.get_extra_params().get("draft_model")
         loop = asyncio.get_running_loop()
 
         def run_blocking_generation() -> None:
             try:
+                text_model = _create_text_model(
+                    request.model,
+                    adapter_path,
+                    draft_model,
+                )
+
                 for chunk in text_model.stream_generate(request):
                     if cached_entry.stop_event.is_set():
                         logging.info(
@@ -228,8 +229,7 @@ class ChatGenerationService:
                 future.result()
 
         async def run_generation_task() -> None:
-            async with self._mlx_lock:
-                await run_in_threadpool(run_blocking_generation)
+            await run_mlx(run_blocking_generation)
 
         task = asyncio.create_task(
             run_generation_task(),

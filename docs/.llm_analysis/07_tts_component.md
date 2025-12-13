@@ -15,12 +15,12 @@ The `tts` component provides an OpenAI-compatible API for generating speech from
 
 ## Concurrency and File Handling Model
 
-The concurrency model of this component has several significant flaws:
+The component now follows the server’s shared concurrency contract:
 
--   **Event Loop Blocking:** The core audio generation is a synchronous, blocking function. It is called directly from an `async` method, which will **block the server's event loop** and prevent it from handling other requests until the audio generation is complete.
--   **No Locking:** There is no lock to serialize access to the MLX backend.
--   **Race Conditions:** The service uses a **hardcoded output filename** (`sample.wav`, relative to the working directory) for all generations. If two requests are processed concurrently, they will attempt to write to, read from, and delete the same file, leading to incorrect output and errors. This makes the component unsafe for concurrent use.
+-   **Threadpool Offload:** Audio generation and file I/O are executed off the event loop.
+-   **Shared MLX Gate:** Generation is executed via the shared inference runtime (`run_mlx`), serializing MLX-backed compute across endpoints.
+-   **Request-Scoped Artifacts:** Each request generates into its own temporary directory, eliminating filename collisions. (The `f5-tts-mlx` backend is currently constrained to WAV output.)
 
 ## Summary
 
-The TTS component features a good software design pattern (adapter) for handling different backends. However, its implementation of concurrency and file handling is flawed. The combination of event loop blocking and race conditions on the output file makes it unreliable under concurrent load.
+The TTS component features a good software design pattern (adapter) for handling different backends. It now executes generation off the event loop under a shared MLX gate and uses request-scoped output paths, making it safe under concurrent load.

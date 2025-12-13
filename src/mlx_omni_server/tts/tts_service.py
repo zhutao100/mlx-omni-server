@@ -1,17 +1,19 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from f5_tts_mlx.generate import generate
 from mlx_audio.tts.generate import generate_audio
 from pydantic import BaseModel, Field  # , PrivateAttr
 from typing_extensions import override
 
-from .schema import TTSRequest
+from ..inference.runtime import run_blocking, run_mlx
+from .schema import AudioFormat, TTSRequest
 
 
 class TTSModelAdapter(BaseModel):
     """Base class to adapt different TTS models to support the audio endpoint."""
 
-    path_or_hf_repo: str | Path = Field(
+    path_or_hf_repo: str | Path | None = Field(
         None, title="The path or the huggingface repository to load the model from."
     )
 
@@ -26,14 +28,14 @@ class TTSModelAdapter(BaseModel):
         Returns:
             bool: True if the audio was generated successfully, False otherwise.
         """
-        pass
+        raise NotImplementedError
 
     @classmethod
-    def from_path_or_hf_repo(cls, path_or_hf_repo: str) -> "TTSModelAdapter":
-        if path_or_hf_repo == "lucasnewman/f5-tts-mlx":
-            return F5Model(path_or_hf_repo=path_or_hf_repo)
-        else:
-            return MlxAudioModel(path_or_hf_repo=path_or_hf_repo)
+    def from_path_or_hf_repo(cls, path_or_hf_repo: str | Path) -> "TTSModelAdapter":
+        model_id = str(path_or_hf_repo)
+        if model_id == "lucasnewman/f5-tts-mlx":
+            return F5Model(path_or_hf_repo=model_id)
+        return MlxAudioModel(path_or_hf_repo=model_id)
 
 
 class F5Model(TTSModelAdapter):
@@ -83,20 +85,31 @@ class TTSService:
     model: TTSModelAdapter
 
     def __init__(self, path_or_hf_repo: str | Path | None = None):
-        self.model = TTSModelAdapter.from_path_or_hf_repo(path_or_hf_repo)
-        self.sample_audio_path = Path("sample.wav")
+        if path_or_hf_repo is None:
+            self.model = MlxAudioModel()
+        else:
+            self.model = TTSModelAdapter.from_path_or_hf_repo(path_or_hf_repo)
 
     async def generate_speech(
         self,
         request: TTSRequest,
     ) -> bytes:
-        try:
-            self.model.generate_audio(
-                request=request, output_path=self.sample_audio_path
-            )
-            with open(self.sample_audio_path, "rb") as audio_file:
-                audio_content = audio_file.read()
-            self.sample_audio_path.unlink(missing_ok=True)
-            return audio_content
-        except Exception as e:
-            raise Exception(f"Error reading audio file: {str(e)}")
+        response_format = request.response_format or AudioFormat.WAV
+        if isinstance(self.model, F5Model) and response_format is not AudioFormat.WAV:
+            raise ValueError("lucasnewman/f5-tts-mlx only supports response_format=wav")
+
+        suffix = response_format.value
+        with TemporaryDirectory(prefix="mlx_omni_tts_") as tmp_dir:
+            expected_path = Path(tmp_dir) / f"speech.{suffix}"
+
+            generated = await run_mlx(self.model.generate_audio, request, expected_path)
+            if not generated or not expected_path.exists():
+                candidates = sorted(Path(tmp_dir).glob("speech.*"))
+                if len(candidates) == 1:
+                    expected_path = candidates[0]
+                else:
+                    raise FileNotFoundError(
+                        f"Expected TTS output at {expected_path}, but it was not created"
+                    )
+
+            return await run_blocking(expected_path.read_bytes)

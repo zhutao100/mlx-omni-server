@@ -19,9 +19,9 @@ The implementation is split across `STTService` and `WhisperModel` classes.
 
 ## Concurrency Model
 
--   **Event Loop Blocking:** The core transcription logic (`WhisperModel.generate`) is a synchronous, blocking function. It is called directly from an `async` method in the `STTService` **without** being run in a thread pool. This is a significant performance flaw that will cause the server's main event loop to freeze during transcription.
--   **No Locking:** Similar to the `images` component, there is no lock to serialize access to the MLX backend. Concurrent requests will run in parallel and will also block the event loop in parallel, likely leading to very poor performance and potential GPU memory issues.
+-   **Threadpool Offload:** Upload persistence, transcription, and response formatting are executed off the event loop, keeping the server responsive during long transcriptions.
+-   **Shared MLX Gate:** The blocking MLX-backed transcription call is executed via the shared inference runtime (`run_mlx`), which serializes MLX-backed compute across endpoints to reduce unified-memory contention.
 
 ## Summary
 
-The STT component provides a functional Whisper API endpoint. However, its concurrency model is its biggest weakness. The direct call to a blocking function from an async context will severely limit server throughput and responsiveness.
+The STT component provides a functional Whisper API endpoint with an async-safe execution model: blocking work runs in a thread pool and the MLX-backed transcription is gated through the shared MLX gate.

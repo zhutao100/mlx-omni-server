@@ -17,8 +17,7 @@ The `chat` component is the most complex part of the `mlx-omni-server`, providin
 The `ChatGenerationService` orchestrates the entire process.
 
 -   **Concurrency Model:**
-    -   A global `mlx_lock` ensures that only **one MLX model generation runs at a time**. This serializes all heavy computation to avoid GPU contention.
-    -   Blocking model generation code is run in a separate thread pool (`run_in_threadpool`) to keep the main async event loop responsive.
+    -   The chat service uses the shared inference runtime (`run_mlx`), which runs blocking work in a thread pool and serializes MLX-backed compute through a shared gate (`mlx_gate`). This keeps the event loop responsive and makes contention policy explicit across endpoints.
 
 -   **Caching and Stream Multiplexing:**
     -   A sophisticated in-memory caching system is implemented to handle identical requests.

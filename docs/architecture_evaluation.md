@@ -5,11 +5,11 @@
 **Clearness: Good (7/10).**
 The project reads like a conventional FastAPI “modular routers + service layer” design. The separation by capability (chat/embeddings/images/stt/tts/responses) and OpenAI-compatible schemas are clear and make the codebase approachable.
 
-**Health: Mixed (5/10).**
-The chat/responses path is mature and production-oriented (caching, stream multiplexing, cancellation, cleanup). However, the other capability paths (embeddings/images/stt/tts) do not consistently follow the same operational contract: “never block the event loop; gate MLX-backed compute; ensure request-scoped filesystem artifacts are unique.”
+**Health: Good (7/10).**
+The server now enforces a consistent operational contract across endpoints: “never block the event loop; gate MLX-backed compute; ensure request-scoped filesystem artifacts are unique.” The chat/responses path remains the most mature, but embeddings/images/STT/TTS now follow the same execution model.
 
-**Robustness: Uneven, with critical concurrency hazards (4/10).**
-The server can be robust under concurrent load only insofar as clients predominantly hit the chat/responses endpoints. Under mixed workloads, embeddings/images/STT/TTS can degrade the entire process (event-loop blocking), images can trigger GPU contention / OOM, and multiple endpoints have request-safety hazards (e.g., shared filenames).
+**Robustness: Improved, with remaining operational risks (7/10).**
+Phase 0 eliminates the most severe failure modes (event-loop freezes, unsafe parallel MLX work, shared filenames). Remaining risks are primarily around multi-worker configuration, memory budgeting, and the fact that a single global gate can increase tail latency without explicit backpressure.
 
 ---
 
@@ -37,22 +37,17 @@ The server can be robust under concurrent load only insofar as clients predomina
 
 ## Primary architectural risks (in priority order)
 
-### 1. Inconsistent concurrency contract across components (systemic)
+### 1. Inconsistent concurrency contract across components (resolved in Phase 0)
 
-You effectively have **two different servers** in one process:
+This was the single biggest threat to reliability and predictability. It has been addressed by centralizing “threadpool offload + MLX gating” in `mlx_omni_server.inference.runtime` and adopting it across endpoints.
 
-* Chat/responses: “async-safe, MLX-gated, threadpooled”
-* Embeddings/Images/STT/TTS: “sync calls inside async + no gating” (and there are shared/collision-prone filesystem artifacts)
+### 2. Event loop blocking can freeze *all* endpoints (resolved in Phase 0)
 
-This is the single biggest threat to reliability and predictability.
+Blocking ML work is now executed in a thread pool, keeping the event loop responsive under mixed workloads.
 
-### 2. Event loop blocking (embeddings/images/STT/TTS) can freeze *all* endpoints
+### 3. GPU/MLX contention policy is implicit and not unified (resolved in Phase 0)
 
-A single long embeddings/images/STT/TTS call can block the reactor and stall unrelated traffic (including health checks). This is a production-stopper. STT/TTS and image generation are the most likely to be long-running, but embeddings can also become expensive with large/slow models.
-
-### 3. GPU/MLX contention policy is implicit and not unified
-
-Chat uses a global `mlx_lock` (serialize all heavy work). Others do not. Even if MLX/mflux/whisper were thread-safe, **memory pressure is not**, and Apple unified memory makes contention especially easy to trigger.
+All MLX-backed compute now goes through a single shared `mlx_gate`, making contention policy explicit and predictable. Even if individual libraries are thread-safe, **memory pressure is not**, and Apple unified memory makes this gate valuable as a first-line stability measure.
 
 ### 4. Multi-worker configuration is likely unsafe by default
 
@@ -67,29 +62,31 @@ Each capability relies on its library’s implicit caching or ad-hoc caches. The
 * observe cache hit/miss
 * prewarm hot models safely
 
-Additionally, some caches are currently scoped too narrowly to help across requests (e.g., images generator caching on a per-request service instance), which makes performance and memory behavior less predictable.
+Additionally, long-lived caches are still fragmented across capabilities (and multi-worker mode multiplies them), so memory budgeting and eviction remain an architectural gap.
 
 ---
 
 ## Supporting evidence (from current code)
 
-These issues are directly visible in the current implementation:
+Phase 0 is implemented in the current implementation:
 
-* Chat MLX gate + threadpool: `src/mlx_omni_server/chat/generation_service.py:95`
-* Embeddings runs sync inference inside an `async` route: `src/mlx_omni_server/embeddings/router.py:19`
-* Images instantiates its service per request and runs sync generation inside an `async` route: `src/mlx_omni_server/images/images.py:21`
-* Images output IDs are second-based (`int(time.time())`), so they can collide across concurrent requests: `src/mlx_omni_server/images/images_service.py:186`
-* STT performs synchronous transcription within an async request path: `src/mlx_omni_server/stt/whisper_model.py:129`
-* TTS uses a shared output path (`sample.wav`): `src/mlx_omni_server/tts/tts_service.py:87`
-* Multi-worker mode is exposed (`--workers`) and maps to `uvicorn workers=`: `src/mlx_omni_server/main.py:55`
+* Shared MLX gate + threadpool helpers: `src/mlx_omni_server/inference/runtime.py:19`
+* Embeddings offload + gating: `src/mlx_omni_server/embeddings/router.py:20`
+* Images shared service + offload + gating: `src/mlx_omni_server/images/images.py:10`
+* Images UUID filenames: `src/mlx_omni_server/images/images_service.py:227`
+* URL-mode image TTL cleanup: `src/mlx_omni_server/images/images_service.py:44`
+* STT offload + gating: `src/mlx_omni_server/stt/whisper_model.py:135`
+* TTS request-scoped temp outputs: `src/mlx_omni_server/tts/tts_service.py:102`
+* Background tasks started at startup (chat cache + image cleanup): `src/mlx_omni_server/main.py:20`
+* Multi-worker mode is still exposed (`--workers`) and maps to `uvicorn workers=`: `src/mlx_omni_server/main.py:65`
 
 ---
 
 ## Architecture improvement plan
 
-### Phase 0 (same-day fixes): stop correctness bugs and server-freeze paths
+### Phase 0 (implemented): stop correctness bugs and server-freeze paths
 
-1. **Eliminate event-loop blocking for embeddings/images/STT/TTS immediately**
+1. **Eliminate event-loop blocking for embeddings/images/STT/TTS**
 
    * Wrap *all* blocking inference/transcription/generation calls with `run_in_threadpool` (or `anyio.to_thread.run_sync`) from the async endpoints.
    * Ensure cancellation propagates (if client disconnects, stop work where possible; otherwise stop streaming and release resources).
@@ -106,7 +103,7 @@ These issues are directly visible in the current implementation:
 
 4. **Introduce a shared MLX gating mechanism used everywhere**
 
-   * Minimum viable: reuse the same global `mlx_lock` (or a shared `asyncio.Semaphore(1)`) for **chat, embeddings, images, stt, tts**.
+   * Minimum viable: reuse the same global `mlx_gate` (or a shared `asyncio.Semaphore(1)`) for **chat, embeddings, images, stt, tts**.
    * This is conservative but immediately stabilizes the system under concurrent load.
 
 Deliverable: `docs/concurrency_contract.md` (1–2 pages) stating:

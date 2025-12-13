@@ -3,6 +3,10 @@ import os
 import sys
 from unittest.mock import AsyncMock, Mock
 
+# Add project root to path before importing the package
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(project_root, "src"))
+
 import pytest
 import pytest_asyncio
 from fastapi import Request
@@ -13,10 +17,6 @@ from openai import OpenAI
 from mlx_omni_server.chat.generation_service import response_cache
 from mlx_omni_server.chat.models.models import model_cache_manager
 from mlx_omni_server.main import app
-
-# Add project root to path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(project_root, "src"))
 
 
 # Global fixtures that can be used across all tests

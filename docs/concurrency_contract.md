@@ -27,9 +27,10 @@ This document defines the operational rules for running MLX-backed work inside M
 
    `uvicorn --workers N` creates **N processes** with independent caches and independent “global” locks. Unless cross-process coordination and memory budgeting are implemented, the safe default for MLX-bound workloads is `workers=1`.
 
-## Current known violations (as of this codebase)
+## Current status (as of this codebase)
 
-- Chat/responses already follow the contract (threadpool + shared MLX gate).
-- Embeddings/images/STT/TTS currently call synchronous ML work from `async` routes without a shared gate.
-- TTS uses a shared output filename (`sample.wav`).
-- Images use collision-prone output naming (second-based IDs) and a shared temp directory.
+- A shared “MLX gate + threadpool” runtime is implemented in `src/mlx_omni_server/inference/runtime.py`.
+- Chat/embeddings/images/STT/TTS execute MLX-backed work via `run_mlx` (threadpool offload + shared gate).
+- TTS uses request-scoped temp outputs (no shared filenames).
+- Images use UUID filenames; URL-mode `file://` artifacts are cleaned up periodically (TTL-based cleanup in `src/mlx_omni_server/images/images_service.py`).
+- Multi-worker mode (`uvicorn --workers > 1`) still creates multiple processes with independent caches and independent gates; treat it as an opt-in, potentially unsafe configuration for MLX-bound workloads unless explicitly coordinated.

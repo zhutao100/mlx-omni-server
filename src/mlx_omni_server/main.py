@@ -7,6 +7,8 @@ import uvicorn
 from fastapi import FastAPI
 
 from .chat.generation_service import background_cache_cleanup
+from .images.images import images_service
+from .images.images_service import background_url_image_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
 from .routers import api_router
 
@@ -15,14 +17,22 @@ from .routers import api_router
 async def lifespan(app: FastAPI):
     """Manage startup and shutdown events for the application."""
     # Startup
-    cleanup_task = asyncio.create_task(background_cache_cleanup())
+    background_tasks = [
+        asyncio.create_task(background_cache_cleanup(), name="chat-cache-cleanup"),
+        asyncio.create_task(
+            background_url_image_cleanup(images_service.output_dir),
+            name="image-url-cleanup",
+        ),
+    ]
     yield
     # Shutdown
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+    for task in background_tasks:
+        task.cancel()
+    for task in background_tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="MLX Omni Server", lifespan=lifespan)
