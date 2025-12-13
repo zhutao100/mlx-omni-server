@@ -8,6 +8,9 @@ OpenAI's [createSpeech](https://platform.openai.com/docs/api-reference/audio/cre
 
 ### Sample
 
+<details>
+<summary>cURL Example</summary>
+
 ```shell
 curl -X POST "http://localhost:10240/v1/audio/speech" \
   -H "Content-Type: application/json" \
@@ -18,6 +21,21 @@ curl -X POST "http://localhost:10240/v1/audio/speech" \
   }' \
   --output ~/Desktop/mlx.wav
 ```
+</details>
+
+<details>
+<summary>Python Example</summary>
+
+```python
+speech_file_path = "mlx_example.wav"
+response = client.audio.speech.create(
+    model="lucasnewman/f5-tts-mlx",
+    voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
+    input="MLX project is awesome!",
+)
+response.stream_to_file(speech_file_path)
+```
+</details>
 
 ## Create transcription
 
@@ -43,6 +61,20 @@ curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
 }
 ```
 
+</details>
+
+<details>
+<summary>Python Example</summary>
+
+```python
+audio_file = open("speech.mp3", "rb")
+transcript = client.audio.transcriptions.create(
+    model="mlx-community/whisper-large-v3-turbo",
+    file=audio_file
+)
+
+print(transcript.text)
+```
 </details>
 
 ---
