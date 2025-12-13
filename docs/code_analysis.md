@@ -63,7 +63,7 @@ This component is functional and follows the shared concurrency contract.
 
 This component is functional and safe for concurrent use under the shared gate.
 -   **Features:** Provides a text-to-speech endpoint.
--   **Design:** Uses an adapter pattern to support both `f5-tts-mlx` and `mlx-audio` libraries.
+-   **Design:** Uses an adapter pattern to support the `mlx-audio` backend for the general cases, and the `f5-tts-mlx` backend when the `f5-tts-mlx` model is specified.
 -   **Concurrency:** Generation runs off the event loop and is serialized through the shared MLX gate. Outputs are written to request-scoped temporary paths (no shared filenames). (The `f5-tts-mlx` backend is currently constrained to WAV output.)
 
 ### 4.6. Responses (`/v1/responses`)

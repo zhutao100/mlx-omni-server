@@ -1,4 +1,24 @@
-## Architecture evaluation (based on `docs/` and spot-checking the current implementation)
+# Architecture Evaluation and Improvement Plan
+
+## Scope (targeted use cases)
+
+This plan is scoped to the project’s stated goals (see `docs/stack_accessment.md`):
+
+- **macOS + Apple Silicon** local inference, optimized for MLX and unified memory.
+- **Localhost/LAN, trusted clients** (not hardened for the public internet).
+- **Low concurrency (typically 1–5)**, optimized for low-latency single requests over high throughput.
+- **Robustness to malformed/unexpected requests** matters more than adversarial security.
+
+Derived architectural principles:
+
+- Keep the deployment **single-process by default** (`workers=1`) and make contention explicit.
+- Prefer **predictable latency** over “best effort” parallelism that risks unified-memory spikes.
+- Make optional modality backends **pluggable and isolatable** (extras + clear interfaces).
+- Treat “unreliable clients” as an input-quality problem: **bounded resources + good errors**.
+
+---
+
+## Current architecture (spot-checked against implementation)
 
 ### Overall assessment
 
@@ -9,7 +29,7 @@ The project reads like a conventional FastAPI “modular routers + service layer
 The server now enforces a consistent operational contract across endpoints: “never block the event loop; gate MLX-backed compute; ensure request-scoped filesystem artifacts are unique.” The chat/responses path remains the most mature, but embeddings/images/STT/TTS now follow the same execution model.
 
 **Robustness: Improved, with remaining operational risks (7/10).**
-Phase 0 eliminates the most severe failure modes (event-loop freezes, unsafe parallel MLX work, shared filenames). Remaining risks are primarily around multi-worker configuration, memory budgeting, and the fact that a single global gate can increase tail latency without explicit backpressure.
+Phase 0 eliminates the most severe failure modes (event-loop freezes, unsafe parallel MLX work, shared filenames). Remaining risks are primarily about **bounded execution/backpressure**, **memory-aware lifecycle management**, **multi-worker safety**, and the **dependency/plugin surface** (audio/image stacks).
 
 ---
 
@@ -35,40 +55,53 @@ Phase 0 eliminates the most severe failure modes (event-loop freezes, unsafe par
 
 ---
 
-## Primary architectural risks (in priority order)
+## Key remaining architectural gaps (priority order)
 
-### 1. Inconsistent concurrency contract across components (resolved in Phase 0)
+### 1. Backpressure is missing (unbounded waiting behind the MLX gate)
 
-This was the single biggest threat to reliability and predictability. It has been addressed by centralizing “threadpool offload + MLX gating” in `mlx_omni_server.inference.runtime` and adopting it across endpoints.
+The shared “one-at-a-time” MLX gate is stable for Apple unified memory, but without a bounded queue or explicit rejection policy, clients can pile up and experience very high tail latency.
 
-### 2. Event loop blocking can freeze *all* endpoints (resolved in Phase 0)
+For your low-concurrency target, the goal is not high throughput; it is to make overload behavior predictable:
 
-Blocking ML work is now executed in a thread pool, keeping the event loop responsive under mixed workloads.
+- bounded waiting (queue depth)
+- explicit 429/503 behavior
+- clear client guidance (“retry after”, etc.)
 
-### 3. GPU/MLX contention policy is implicit and not unified (resolved in Phase 0)
+### 2. Model lifecycle + caching is still fragmented (no budgets/admission control)
 
-All MLX-backed compute now goes through a single shared `mlx_gate`, making contention policy explicit and predictable. Even if individual libraries are thread-safe, **memory pressure is not**, and Apple unified memory makes this gate valuable as a first-line stability measure.
+Chat/embeddings/images have explicit in-process caches; STT/TTS mostly rely on underlying libraries. There is no single place to:
 
-### 4. Multi-worker configuration is likely unsafe by default
+- enforce memory budgets / headroom
+- evict models consistently (LRU/TTL)
+- prewarm hot models safely
+- observe cache hit/miss and model load time
+
+### 3. Multi-worker configuration is an attractive footgun
 
 `uvicorn --workers N` creates **N processes**, each with its own caches and its own “global” locks. If the CLI exposes `workers`, it is easy to configure into GPU overcommit and fail unpredictably unless explicitly constrained.
 
-### 5. Model lifecycle / caching is fragmented
+### 4. Dependency surface is monolithic vs. “optional modalities”
 
-Each capability relies on its library’s implicit caching or ad-hoc caches. There is no single place to:
+The current packaging pulls in chat + VLM + embeddings + images + STT + TTS stacks together. This increases install friction and makes the “long tail” (audio/image) stability profile part of the base experience. `docs/stack_accessment.md` recommends isolating these via **install extras** and keeping modality backends behind small interfaces.
 
-* enforce memory budgets
-* evict/TTL models consistently
-* observe cache hit/miss
-* prewarm hot models safely
+### 5. “Unreliable clients” hardening is incomplete (limits + error shape)
 
-Additionally, long-lived caches are still fragmented across capabilities (and multi-worker mode multiplies them), so memory budgeting and eviction remain an architectural gap.
+FastAPI/Pydantic give good schema validation, but robustness also needs explicit operational limits and consistent error responses:
+
+- upload / base64 payload size limits (413 instead of a 500)
+- timeouts on long-running requests
+- consistent OpenAI-style error payloads across endpoints (including overload/backpressure)
+- logging that won’t accidentally log huge/binary payloads
+
+### 6. Observability is not yet tied to the runtime contract
+
+Given the MLX gate is a central contention point, it should be measurable: queue length, time waiting, execution time, and cancellation rate.
 
 ---
 
 ## Supporting evidence (from current code)
 
-Phase 0 is implemented in the current implementation:
+Phase 0 (shared “MLX gate + threadpool” contract) is implemented:
 
 * Shared MLX gate + threadpool helpers: `src/mlx_omni_server/inference/runtime.py:19`
 * Embeddings offload + gating: `src/mlx_omni_server/embeddings/router.py:20`
@@ -84,7 +117,7 @@ Phase 0 is implemented in the current implementation:
 
 ## Architecture improvement plan
 
-### Phase 0 (implemented): stop correctness bugs and server-freeze paths
+### Phase 0 (done): correctness + responsiveness baseline
 
 1. **Eliminate event-loop blocking for embeddings/images/STT/TTS**
 
@@ -114,24 +147,24 @@ Deliverable: `docs/concurrency_contract.md` (1–2 pages) stating:
 
 ---
 
-### Phase 1 (1–2 weeks): unify the runtime model with an explicit “Inference Runtime” layer
+### Phase 1 (next, 1–2 weeks): make overload behavior explicit (bounded runtime + metrics)
 
-Create a new internal subsystem (name suggestion: `inference_runtime/`) used by all services.
+Evolve the existing runtime (`src/mlx_omni_server/inference/runtime.py`) into a small “inference runtime” layer used by all services.
 
 **Responsibilities:**
 
-1. **Execution offload**
+1. **Bounded execution**
 
-   * A single place that runs blocking work in a bounded thread pool.
+   * Keep MLX gating, but add a bounded wait/queue policy so overload doesn’t silently turn into minutes of tail latency.
 
 2. **Resource gating / scheduling**
 
-   * Start with `Semaphore(k)` where `k=1` (conservative).
-   * Add structured queueing and backpressure (reject or 503/429 when queue is full).
+   * Start conservative (`k=1`) but support explicit “fast lane vs heavy lane” options when needed (e.g., embeddings vs diffusion).
+   * Define and implement backpressure: reject with 429/503 once queue is full.
 
 3. **Observability hooks**
 
-   * Track: queue length, time waiting for gate, execution time, memory errors, model load time, cache hit/miss.
+   * Track at minimum: queue length, time waiting for gate, execution time, cancellation count, model load time, cache hit/miss.
 
 4. **Uniform cancellation semantics**
 
@@ -145,23 +178,22 @@ This makes “robustness” a shared property, not something each component reim
 
 ---
 
-### Phase 2 (2–6 weeks): make concurrency policy smart instead of purely serialized
+### Phase 2 (2–6 weeks): centralize lifecycle + budgets (predictable unified-memory behavior)
 
-The global “one-at-a-time” gate is stable but can leave performance on the table. Replace it with an explicit policy:
+Build a small lifecycle manager that sits above modality-specific services and makes “what is loaded” and “what can run” a deliberate policy.
 
 1. **Per-capability / per-model semaphores**
 
-   * Example: allow 2 concurrent embeddings jobs but only 1 diffusion job.
-   * Or per-model weights: diffusion consumes more “capacity units” than embeddings.
+   * Only if Phase 1 metrics show it’s valuable: allow limited parallelism for lighter jobs (e.g., embeddings) without destabilizing diffusion/chat workloads.
 
 2. **Memory-aware admission control**
 
    * Track approximate peak memory per job type/model (even coarse heuristics help).
-   * Reject or queue requests when predicted peak exceeds a configured headroom threshold.
+   * Reject, queue, or downshift concurrency when predicted peak exceeds configured headroom.
 
-3. **Separate “fast lane” vs “heavy lane”**
+3. **Unified caching + eviction**
 
-   * Avoid embeddings being stuck behind long image generations if you want snappy UX.
+   * Standardize how models/generators are cached and evicted across chat/embeddings/images (and any explicit STT/TTS caching you add).
 
 4. **Multi-worker safety**
 
@@ -170,20 +202,22 @@ The global “one-at-a-time” gate is stable but can leave performance on the t
 
 ---
 
-### Phase 3 (ongoing): lifecycle, consistency, and maintainability
+### Phase 3 (ongoing): dependency isolation + maintainability (from stack assessment)
 
-1. **Centralize model lifecycle management**
+This phase is about reducing churn from the modality ecosystem without changing the core architecture.
 
-   * Standardize: load, cache, evict, warmup, and “model handle” ownership.
-   * Implement LRU/TTL with explicit memory budgeting where possible.
+1. **Split optional capabilities into install extras**
 
-2. **Normalize service instantiation patterns**
+   * Example: `mlx-omni-server[chat]`, `[embeddings]`, `[images]`, `[stt]`, `[tts]`.
+   * Code should degrade gracefully when a backend isn’t installed (e.g., return a clear 501/400 with guidance).
 
-   * Prefer shared service instances (as chat/embeddings do) unless there is a strong reason not to.
-   * If per-request services exist, ensure they are stateless wrappers around shared caches/runtimes.
+2. **Keep modality backends behind narrow interfaces**
+
+   * The TTS adapter pattern is a good precedent; apply the same pattern where it helps (STT/image backends, optional “second runtime lane”).
 
 3. **Hardening & testing**
 
+   * Add a smoke-test matrix per extra/backend (pin upgrades are coordinated).
    * Add concurrency/load tests that reproduce:
 
      * STT/TTS event loop freeze regression
@@ -194,8 +228,9 @@ The global “one-at-a-time” gate is stable but can leave performance on the t
 
 4. **Operational polish**
 
-   * Structured logging + request IDs.
-   * Metrics/Tracing (OpenTelemetry or Prometheus-style counters): latencies by endpoint/model, queue wait time, model load time, error rates.
+   * Request limits (upload sizes, max base64 sizes), timeouts, and consistent OpenAI-style error payloads.
+   * Structured logging + request IDs (avoid logging large/binary payloads by default).
+   * Metrics/Tracing (minimal counters are enough): latencies by endpoint/model, queue wait time, model load time, error rates.
 
 ---
 
@@ -204,8 +239,9 @@ The global “one-at-a-time” gate is stable but can leave performance on the t
 * **DoD-1:** No endpoint calls a blocking ML library function on the event loop.
 * **DoD-2:** All MLX-backed compute goes through a shared gate (initially serialized).
 * **DoD-3:** TTS produces correct outputs under concurrent requests (no shared filenames, no cross-request artifact collisions).
-* **DoD-4:** Running with `--workers > 1` is either safe-by-design or explicitly prevented.
-* **DoD-5:** You can explain (and measure) the scheduling policy: “what runs concurrently, why, and with what limits.”
+* **DoD-4:** Overload behavior is explicit: bounded queues + 429/503 (no unbounded waiting).
+* **DoD-5:** Running with `--workers > 1` is either safe-by-design or explicitly prevented.
+* **DoD-6:** You can explain (and measure) the scheduling policy: “what runs concurrently, why, and with what limits.”
 
 ---
 
