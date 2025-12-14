@@ -128,6 +128,9 @@ mlx-omni-server --help
 | `--port` | `10240` | Port to bind the server to |
 | `--workers` | `1` | Number of worker processes |
 | `--log-level` | `info` | Logging level (debug, info, warning, error, critical) |
+| `--log-file` | `false` | Enable on-disk logging |
+| `--log-dir` | `~/Library/Logs/mlx-omni-server` | Directory for on-disk logs (used with `--log-file`) |
+| `--log-file-format` | `jsonl` | On-disk log format: `text` or `jsonl` (used with `--log-file`) |
 
 ## Documentation
 

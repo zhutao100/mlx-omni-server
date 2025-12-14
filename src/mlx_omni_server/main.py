@@ -1,7 +1,7 @@
 import argparse
 import asyncio
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -11,6 +11,7 @@ from .images.images import images_service
 from .images.images_service import background_url_image_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
 from .routers import api_router
+from .utils.logger import configure_logging, default_log_dir
 
 
 @asynccontextmanager
@@ -74,6 +75,24 @@ def build_parser():
         choices=["debug", "info", "warning", "error", "critical"],
         help="Set the logging level, defaults to info",
     )
+    parser.add_argument(
+        "--log-file",
+        action="store_true",
+        help="Enable on-disk logging",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=default_log_dir(),
+        help="Directory for on-disk logs (used with --log-file)",
+    )
+    parser.add_argument(
+        "--log-file-format",
+        type=str,
+        default="jsonl",
+        choices=["text", "jsonl"],
+        help="On-disk log format (used with --log-file), defaults to jsonl",
+    )
     return parser
 
 
@@ -82,8 +101,12 @@ def start():
     parser = build_parser()
     args = parser.parse_args()
 
-    # Set log level through environment variable
-    os.environ["MLX_OMNI_LOG_LEVEL"] = args.log_level
+    log_config = configure_logging(
+        log_level=args.log_level,
+        log_file=args.log_file,
+        log_dir=args.log_dir,
+        log_file_format=args.log_file_format,
+    )
 
     # Start server with uvicorn
     uvicorn.run(
@@ -91,6 +114,7 @@ def start():
         host=args.host,
         port=args.port,
         log_level=args.log_level,
+        log_config=log_config,
         use_colors=True,
         workers=args.workers,
     )

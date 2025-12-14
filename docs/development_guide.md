@@ -142,7 +142,7 @@ for model in response.data:
 
 ```bash
 # Multi-worker setup for better throughput
-mlx-omni-server --workers 2 --log-level warning
+mlx-omni-server --workers 2 --log-level warning --log-file
 ```
 
 ## Troubleshooting
