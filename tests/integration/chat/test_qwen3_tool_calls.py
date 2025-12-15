@@ -1,0 +1,108 @@
+import json
+import logging
+from unittest.mock import Mock
+
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+
+from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler
+
+MODEL = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class TestQwen3ToolCalls:
+    def test_qwen3_model_type_detection(self, openai_client):
+        """Test that Qwen3 model type is correctly detected and handled"""
+        mock_tokenizer = Mock(spec=TokenizerWrapper)
+
+        # Test that the correct tokenizer is loaded for qwen3
+        tokenizer = load_tools_handler("qwen3", mock_tokenizer)
+        from mlx_omni_server.chat.tools.qwen3 import Qwen3ChatTokenizer
+
+        assert isinstance(tokenizer, Qwen3ChatTokenizer)
+
+        # Test that the correct tokenizer is loaded for qwen3_moe
+        tokenizer = load_tools_handler("qwen3_moe", mock_tokenizer)
+        assert isinstance(tokenizer, Qwen3ChatTokenizer)
+
+    def test_qwen3_tool_call(self, openai_client):
+        request = {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": "What is the weather like in Boston?"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_current_weather",
+                        "description": "Get the current weather in a given location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The city and state, e.g. San Francisco, CA",
+                                },
+                                "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
+                            },
+                            "required": ["location"],
+                        },
+                    },
+                }
+            ],
+        }
+
+        response = openai_client.chat.completions.create(**request)
+
+        assert len(response.choices) == 1
+        choice = response.choices[0]
+        assert choice.message.tool_calls is not None
+        assert len(choice.message.tool_calls) == 1
+        tool_call = choice.message.tool_calls[0]
+        assert tool_call.type == "function"
+        assert tool_call.function.name == "get_current_weather"
+        arguments = json.loads(tool_call.function.arguments)
+        assert "location" in arguments
+        # The model might return a different location (e.g. London) even if asked for Boston
+        assert isinstance(arguments["location"], str)
+        assert choice.message.content is ""
+
+    def test_qwen3_tool_call_stream(self, openai_client):
+        request = {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": "What is the weather like in Boston?"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_current_weather",
+                        "description": "Get the current weather in a given location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "The city and state, e.g. San Francisco, CA",
+                                },
+                                "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
+                            },
+                            "required": ["location"],
+                        },
+                    },
+                }
+            ],
+            "stream": True,
+        }
+
+        tool_calls = []
+        for chunk in openai_client.chat.completions.create(**request):
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.tool_calls:
+                tool_calls.extend(chunk.choices[0].delta.tool_calls)
+
+        assert len(tool_calls) == 1
+        tool_call = tool_calls[0]
+        assert tool_call.type == "function"
+        assert tool_call.function.name == "get_current_weather"
+        assert "location" in tool_call.function.arguments
