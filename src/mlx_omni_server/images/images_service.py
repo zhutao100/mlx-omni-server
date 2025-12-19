@@ -53,7 +53,7 @@ async def background_url_image_cleanup(
         try:
             removed = await run_blocking(cleanup_expired_url_images, output_dir, ttl_seconds)
             if removed:
-                logger.info("Cleaned up %d expired image artifacts", removed)
+                logger.debug("Cleaned up %d expired image artifacts", removed)
         except Exception:
             logger.exception("Error during image artifact cleanup")
 

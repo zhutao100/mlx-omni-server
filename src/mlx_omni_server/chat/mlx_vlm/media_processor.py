@@ -1,21 +1,23 @@
 import asyncio
 import base64
+import gc
 import hashlib
 import os
 import tempfile
 import time
-import gc
-from PIL import Image
-from io import BytesIO
-from typing import List, Optional, Dict, Tuple
-from concurrent.futures import ThreadPoolExecutor
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple
+
+from PIL import Image
 
 from ...utils.logger import logger
 
+
 class BaseProcessor(ABC):
     """Base class for media processors with common caching and session management."""
-    
+
     def __init__(self, max_workers: int = 4, cache_size: int = 1000):
         # Use tempfile for macOS-efficient temporary file handling
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -33,20 +35,20 @@ class BaseProcessor(ABC):
         if media_url in self._hash_cache:
             self._cache_access_times[media_url] = time.time()
             return self._hash_cache[media_url]
-        
+
         # Generate hash
         if media_url.startswith("data:"):
             _, encoded = media_url.split(",", 1)
             data = base64.b64decode(encoded)
         else:
             data = media_url.encode('utf-8')
-        
+
         hash_value = hashlib.md5(data).hexdigest()
-        
+
         # Add to cache with size management
         if len(self._hash_cache) >= self._cache_size:
             self._evict_oldest_cache_entries()
-        
+
         self._hash_cache[media_url] = hash_value
         self._cache_access_times[media_url] = time.time()
         return hash_value
@@ -55,15 +57,15 @@ class BaseProcessor(ABC):
         """Remove oldest 20% of cache entries to make room."""
         if not self._cache_access_times:
             return
-            
+
         # Sort by access time and remove oldest 20%
         sorted_items = sorted(self._cache_access_times.items(), key=lambda x: x[1])
         to_remove = len(sorted_items) // 5  # Remove 20%
-        
+
         for url, _ in sorted_items[:to_remove]:
             self._hash_cache.pop(url, None)
             self._cache_access_times.pop(url, None)
-        
+
         # Force garbage collection after cache eviction
         gc.collect()
 
@@ -128,10 +130,10 @@ class BaseProcessor(ABC):
                 # Copy local file to cache
                 with open(media_url, 'rb') as f:
                     data = f.read()
-                
+
                 if not self._validate_media_data(data):
                     raise ValueError(f"Invalid {self._get_media_type_name()} file format")
-                
+
                 result_path = self._process_media_data(data, cached_path, **kwargs)
                 return result_path, media_hash
 
@@ -141,10 +143,10 @@ class BaseProcessor(ABC):
                 if estimated_size > self._get_max_file_size():
                     raise ValueError(f"Base64-encoded {self._get_media_type_name()} exceeds size limit")
                 data = base64.b64decode(encoded)
-                
+
                 if not self._validate_media_data(data):
                     raise ValueError(f"Invalid {self._get_media_type_name()} file format")
-                
+
                 result_path = self._process_media_data(data, cached_path, **kwargs)
                 return result_path, media_hash
             else:
@@ -196,7 +198,7 @@ class BaseProcessor(ABC):
 
 class ImageProcessor(BaseProcessor):
     """Image processor for handling image files with caching, validation, and processing."""
-    
+
     def __init__(self, max_workers: int = 4, cache_size: int = 1000):
         super().__init__(max_workers, cache_size)
         Image.MAX_IMAGE_PIXELS = 100000000  # Limit to 100 megapixels
@@ -210,7 +212,7 @@ class ImageProcessor(BaseProcessor):
         """Basic validation of image data."""
         if len(data) < 100:  # Too small to be a valid image file
             return False
-        
+
         # Check for common image file signatures
         image_signatures = [
             b'\xff\xd8\xff',  # JPEG
@@ -222,15 +224,15 @@ class ImageProcessor(BaseProcessor):
             b'MM\x00*',  # TIFF (big endian)
             b'RIFF',  # WebP (part of RIFF)
         ]
-        
+
         for sig in image_signatures:
             if data.startswith(sig):
                 return True
-        
+
         # Additional check for WebP
         if data.startswith(b'RIFF') and b'WEBP' in data[:20]:
             return True
-        
+
         return False
 
     def _get_timeout(self) -> int:
@@ -257,7 +259,7 @@ class ImageProcessor(BaseProcessor):
             new_width = int(width * max_size / height)
 
         image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        logger.info(f"Resized image to {new_width}x{new_height} from {width}x{height}")
+        logger.debug(f"Resized image to {new_width}x{new_height} from {width}x{height}")
 
         return image
 
@@ -283,7 +285,7 @@ class ImageProcessor(BaseProcessor):
                     image = self._resize_image_keep_aspect_ratio(image)
                 image = self._prepare_image_for_saving(image)
                 image.save(cached_path, 'PNG', quality=100, optimize=True)
-            
+
             self._cleanup_old_files()
             return cached_path
         finally:
@@ -302,7 +304,7 @@ class ImageProcessor(BaseProcessor):
         """Process multiple image URLs and return paths to cached files and their hashes."""
         tasks = [self.process_image_url(url, resize=resize) for url in image_urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Separate paths and hashes
         paths = []
         hashes = []
@@ -316,7 +318,7 @@ class ImageProcessor(BaseProcessor):
                 logger.error(f"Error processing image: {result}")
                 paths.append(None)
                 hashes.append(None)
-        
+
         # Force garbage collection after batch processing
         gc.collect()
         return paths, hashes
@@ -324,7 +326,7 @@ class ImageProcessor(BaseProcessor):
 
 class AudioProcessor(BaseProcessor):
     """Audio processor for handling audio files with caching and validation."""
-    
+
     def __init__(self, max_workers: int = 4, cache_size: int = 1000):
         super().__init__(max_workers, cache_size)
         # Supported audio formats
@@ -352,7 +354,7 @@ class AudioProcessor(BaseProcessor):
             ext = os.path.splitext(media_url.lower())[1]
             if ext in self._supported_formats:
                 return ext[1:]  # Remove the dot
-        
+
         # Default to wav if format cannot be determined
         return "wav"
 
@@ -360,7 +362,7 @@ class AudioProcessor(BaseProcessor):
         """Basic validation of audio data."""
         if len(data) < 100:  # Too small to be a valid audio file
             return False
-        
+
         # Check for common audio file signatures
         audio_signatures = [
             b'ID3',  # MP3 with ID3 tag
@@ -372,15 +374,15 @@ class AudioProcessor(BaseProcessor):
             b'fLaC',  # FLAC
             b'\x00\x00\x00\x20ftypM4A',  # M4A
         ]
-        
+
         for sig in audio_signatures:
             if data.startswith(sig):
                 return True
-        
+
         # Check for WAV format (RIFF header might be at different position)
         if b'WAVE' in data[:50]:
             return True
-        
+
         return True  # Allow unknown formats to pass through
 
     def _get_timeout(self) -> int:
@@ -410,7 +412,7 @@ class AudioProcessor(BaseProcessor):
         """Process multiple audio URLs and return paths to cached files and their hashes."""
         tasks = [self.process_audio_url(url) for url in audio_urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Separate paths and hashes
         paths = []
         hashes = []
@@ -424,7 +426,7 @@ class AudioProcessor(BaseProcessor):
                 logger.error(f"Error processing audio: {result}")
                 paths.append(None)
                 hashes.append(None)
-        
+
         # Force garbage collection after batch processing
         gc.collect()
         return paths, hashes
@@ -432,12 +434,12 @@ class AudioProcessor(BaseProcessor):
 
 class MediaProcessor:
     """Unified processor for handling images and audio with caching"""
-    
+
     def __init__(self, max_workers: int = 4):
         self.max_workers = max_workers
         self.image_processor = ImageProcessor(max_workers=max_workers)
         self.audio_processor = AudioProcessor(max_workers=max_workers)
-        
+
     def generate_media_hash(self, file_path: str) -> str:
         """Generate SHA256 hash for media file content."""
         if not file_path or not os.path.exists(file_path):
@@ -447,23 +449,23 @@ class MediaProcessor:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_sha256.update(chunk)
         return hash_sha256.hexdigest()
-        
+
     async def process_image_url(self, url: str, resize: bool = True) -> Tuple[str, str]:
         """Process a single image URL and return path to cached file and its hash"""
         return await self.image_processor.process_image_url(url, resize=resize)
-        
+
     async def process_audio_url(self, url: str) -> Tuple[str, str]:
         """Process a single audio URL and return path to cached file and its hash"""
         return await self.audio_processor.process_audio_url(url)
-        
+
     async def process_image_urls(self, urls: List[str], resize: bool = True) -> Tuple[List[str], List[str]]:
         """Process multiple image URLs concurrently and return paths and hashes"""
         return await self.image_processor.process_image_urls(urls, resize=resize)
-        
+
     async def process_audio_urls(self, urls: List[str]) -> Tuple[List[str], List[str]]:
         """Process multiple audio URLs concurrently and return paths and hashes"""
         return await self.audio_processor.process_audio_urls(urls)
-        
+
     async def cleanup(self):
         """Cleanup temporary files"""
         try:

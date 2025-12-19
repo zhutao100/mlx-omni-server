@@ -1,9 +1,9 @@
 import json
-from rich.markup import escape
 import time
 from typing import Callable, Optional
 
 from fastapi import Request, Response
+from rich.markup import escape
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..utils.logger import logger
@@ -68,7 +68,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         request_id = str(time.time())
 
         # Log request
-        logger.debug(
+        logger.info(
             f"Request [{request_id}]: {request.method} {request.url}\n"
             f"Headers:\n{json.dumps(dict(request.headers), indent=2)}\n"
             f"Body:\n{escape(format_body(body))}",
@@ -96,7 +96,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         except UnicodeDecodeError:
             body_text = "<Binary Content>"
 
-        logger.debug(
+        logger.info(
             f"Response [{request_id}] took {process_time:.2f}s:\n"
             f"Status: {response.status_code}\n"
             f"Headers:\n{json.dumps(dict(response.headers), indent=2)}\n"

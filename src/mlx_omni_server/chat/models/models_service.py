@@ -193,7 +193,7 @@ class MlxModelCache:
         tokenizer_config: Dict[str, Any] = {"trust_remote_code": True}
         chat_template = load_chat_template_func(self.model_type)
         if chat_template:
-            logger.info("Applying chat template for model type '%s'", self.model_type)
+            logger.debug("Applying chat template for model type '%s'", self.model_type)
             tokenizer_config["chat_template"] = chat_template
         return tokenizer_config, chat_template
 
@@ -323,7 +323,6 @@ class ModelCacheScanner:
         if model_type is not None and is_model_supported(model_type):
             return repo_info, config_data
 
-        logger.warning(f"Model {repo_info.repo_id} found but not compatible")
         return None
 
     def find_models_in_cache(self) -> List[Tuple[CachedRepoInfo, ModelConfig]]:
