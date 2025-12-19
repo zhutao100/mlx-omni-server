@@ -1,13 +1,24 @@
 import time
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
 from ..inference.runtime import run_mlx
-from .images_service import ImagesService
+from ..optional_features import missing_packages, not_installed_detail
 from .schema import ImageGenerationRequest, ImageGenerationResponse
 
 router = APIRouter(tags=["images"])
-images_service = ImagesService()
+
+_images_service: Any | None = None
+
+
+def get_images_service() -> Any:
+    global _images_service
+    if _images_service is None:
+        from .images_service import ImagesService
+
+        _images_service = ImagesService()
+    return _images_service
 
 
 @router.post("/images/generations")
@@ -16,13 +27,17 @@ async def create_image(request: ImageGenerationRequest) -> ImageGenerationRespon
     """
     Creates an image given a prompt.
     """
+    missing = missing_packages("images")
+    if missing:
+        raise HTTPException(
+            status_code=501,
+            detail=not_installed_detail("images", missing=missing),
+        )
+
     try:
-        images = await run_mlx(images_service.generate_images, request)
-
-        # Create response
+        images = await run_mlx(get_images_service().generate_images, request)
         return ImageGenerationResponse(created=int(time.time()), data=images)
-
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

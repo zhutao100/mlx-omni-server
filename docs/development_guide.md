@@ -14,7 +14,11 @@ This guide is intended for developers who want to contribute to MLX Omni Server 
 2. **Install dependencies:**
 
    ```bash
+   # Core install (chat + responses + embeddings)
    pip install -e .
+
+   # Optional modalities (images / STT / TTS)
+   pip install -e ".[all]"
    ```
 
 ## Running the Server in Development Mode

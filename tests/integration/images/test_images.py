@@ -3,8 +3,16 @@ import os
 
 import pytest
 
+from mlx_omni_server.optional_features import install_instructions, missing_packages
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+if missing_packages("images"):
+    pytest.skip(
+        f"Images extra is not installed; install with {install_instructions('images')}.",
+        allow_module_level=True,
+    )
 
 
 def test_images(openai_client):

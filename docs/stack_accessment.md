@@ -18,6 +18,8 @@ For a **Mac-only, Apple Silicon–optimized, low-concurrency (1–5) local/LAN**
 
 Where I would be most conservative is not the core web framework, but the **long-tail of modality libraries** (TTS/STT/image) and a couple of “plumbing” dependencies (multipart parsing, HTTP client) whose **release cadence is slower**. Those aren’t necessarily problems—just places to harden with pinning, fallbacks, and “optional extras”.
 
+In this codebase, that mitigation is now implemented: **images/STT/TTS are install-time optional extras**, and when a modality’s dependencies are not installed the **routes remain** but return **`501 Not Implemented` with an install hint**.
+
 ---
 
 ## Maintenance and currency snapshot (as of Dec 13, 2025)
@@ -28,7 +30,7 @@ Where I would be most conservative is not the core web framework, but the **long
 * **Uvicorn**: active; 0.38.0 released Oct 18, 2025.
 * **Pydantic**: active; 2.12.5 released Nov 26, 2025.
 * **SSE-Starlette** (streaming): active; 3.0.3 released Oct 30, 2025. ([PyPI][1])
-* **python-multipart** (uploads): stable but slower cadence; 0.0.20 released Dec 16, 2024. ([PyPI][2])
+* **python-multipart** (uploads; STT extra only): stable but slower cadence; 0.0.20 released Dec 16, 2024. ([PyPI][2])
 
   * This is common for “boring” parsers; it’s not an automatic red flag, but you should pin it and set explicit request size/time limits.
 
@@ -51,12 +53,13 @@ Takeaway: the **core MLX stack (mlx / mlx-lm / mlx-vlm / mflux)** looks healthy 
 * **lm-format-enforcer**: active; 0.11.3 released Aug 24, 2025. ([PyPI][10])
 * **openai (Python SDK)**: active; 2.11.0 released Dec 11, 2025. ([PyPI][11])
 
-  * Worth questioning whether the *server* needs this as a hard dependency (often it’s only needed for examples/tests/compat tooling).
+  * In this codebase, it is **dev/test tooling**, not a server runtime hard dependency.
 * **weave** (W&B): active; 0.52.22 released Dec 4, 2025. ([PyPI][12])
+  * In this codebase, it is an **optional extra** (used by examples/benchmarking), not required for the server.
 * **httpx**: stable line is older (0.28.1 released Dec 6, 2024) but PyPI also shows 1.0.0 dev releases in 2025, implying ongoing work toward 1.0. ([PyPI][13])
 * **Numba**: active (0.63.1 released Dec 10, 2025). ([PyPI][14])
 
-  * For your use case, the bigger question is *utility*, not maintenance: Numba won’t help MLX GPU kernels; it may help CPU-side audio/DSP or preprocessing, but it’s a heavy dependency on macOS if used only marginally.
+  * For your use case, the bigger question is *utility*, not maintenance: Numba won’t help MLX GPU kernels; it may help CPU-side audio/DSP or preprocessing, but it’s a heavy dependency on macOS if used only marginally. In this codebase, it is part of the **TTS extra**, not required for the base install.
 
 ### Dev/tooling (quick sanity check)
 
@@ -120,17 +123,19 @@ I would keep **mlx-audio** as a first-class alternative backend (it has more rec
 ## Practical recommendations (high leverage, minimal churn)
 
 1. **Split optional functionality into install extras**
-   Example: `mlx-omni-server[chat]`, `[images]`, `[stt]`, `[tts]`, `[weave]`. This reduces install friction and isolates less-stable stacks (audio/image) from users who only want chat/embeddings.
+   Implemented in this codebase via `pyproject.toml` extras:
+   `mlx-omni-server[images]`, `[stt]`, `[tts]`, `[weave]`, and `[all]`.
+   When extras are missing, the routes remain but return `501 Not Implemented` with a direct install hint.
 
 2. **Pin aggressively and test at the interface boundaries**
    Given MLX ecosystem velocity (mlx-lm, mlx-vlm, mflux ship frequently), treat upgrades as coordinated changes with a small compatibility matrix and smoke tests per endpoint. ([PyPI][6])
 
 3. **Re-evaluate “server needs openai + weave + numba” as hard deps**
    All are maintained (OpenAI SDK is very current; Weave is current; Numba is current). ([PyPI][11])
-   But if any are only used for examples/telemetry/optional acceleration, prefer extras to keep the base footprint lean.
+   In this codebase, this is now reflected in packaging: `openai` is dev-only, `weave` is an optional extra, and `numba` is part of the TTS extra.
 
 4. **Keep python-multipart and httpx pinned; treat them as stable plumbing**
-   They’re not as recently released as the rest, but that is typical for mature plumbing libraries; pinning plus request-size limits is the practical risk control. ([PyPI][2])
+   They’re not as recently released as the rest, but that is typical for mature plumbing libraries; pinning plus explicit request-size limits is the practical risk control. In this codebase, `python-multipart` is only required for the STT extra, and `httpx` is used in tests/dev tooling. ([PyPI][2])
 
 ---
 

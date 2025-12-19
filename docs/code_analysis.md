@@ -2,7 +2,7 @@
 
 ## 1. High-Level Summary
 
-MLX Omni Server is a high-performance web server built with FastAPI that provides OpenAI-compatible APIs for a wide range of machine learning tasks. It is designed to run on Apple Silicon, leveraging the `MLX` framework for efficient inference. The server is highly modular, offering endpoints for chat (including multimodal and tool-use), text embeddings, text-to-image generation, speech-to-text, and text-to-speech. It also includes an adapter-based endpoint that provides an alternative interface to the chat functionality. The project is mature, with a comprehensive test suite and a rich set of examples, and now enforces a shared “MLX gate + threadpool” execution contract across endpoints (see `docs/concurrency_contract.md`).
+MLX Omni Server is a high-performance web server built with FastAPI that provides OpenAI-compatible APIs for a wide range of machine learning tasks. It is designed to run on Apple Silicon, leveraging the `MLX` framework for efficient inference. The server is highly modular, offering endpoints for chat (including multimodal and tool-use), text embeddings, text-to-image generation, speech-to-text, and text-to-speech. It also includes an adapter-based endpoint that provides an alternative interface to the chat functionality. Image/STT/TTS dependencies are install-time optional extras; when not installed, the routes remain but return `501 Not Implemented` with an install hint. The project is mature, with a comprehensive test suite and a rich set of examples, and now enforces a shared “MLX gate + threadpool” execution contract across endpoints (see `docs/concurrency_contract.md`).
 
 ## 2. Technology Stack
 
@@ -13,8 +13,9 @@ MLX Omni Server is a high-performance web server built with FastAPI that provide
 -   **Core AI/ML Libraries:**
     -   Chat: `mlx-lm`, `mlx-vlm`
     -   Embeddings: `mlx-embeddings`
+-   **Optional modality libraries (install extras):**
     -   Image Generation: `mflux`
-    -   Speech-to-Text (STT): `mlx-whisper`
+    -   Speech-to-Text (STT): `mlx-whisper` (+ `python-multipart` for uploads)
     -   Text-to-Speech (TTS): `f5-tts-mlx`, `mlx-audio`
 -   **Model Management:** `huggingface-hub`
 -   **Testing:** `pytest`, `httpx`
@@ -24,7 +25,7 @@ MLX Omni Server is a high-performance web server built with FastAPI that provide
 The server follows a classic modular, service-oriented architecture.
 
 -   **Entry Point:** A single FastAPI application is instantiated in `main.py`. It's configured via command-line arguments and launched with Uvicorn.
--   **Routing:** A central router in `routers.py` aggregates modular `APIRouter` instances from each of the functional sub-packages (chat, embeddings, images, stt, tts, and responses).
+-   **Routing:** A central router in `routers.py` aggregates modular `APIRouter` instances from each of the functional sub-packages (chat, embeddings, images, stt, tts, and responses). Images/STT/TTS are optional extras; when their dependencies are missing, the routes return `501 Not Implemented` instead of failing app import.
 -   **Service Layer:** Each functional component encapsulates its core logic within a "service" class (e.g., `ChatGenerationService`, `EmbeddingsService`). These services are responsible for interacting with the underlying MLX libraries.
 -   **Adapter Layer:** The `responses` component acts as an adapter, translating a custom API format to the internal chat API format, demonstrating a separation of interface from core logic.
 -   **Model Management:** Chat, embeddings, and images use shared in-process service instances with caching (chat response cache + model cache, embeddings model cache, images generator cache). STT/TTS are per-request services but execute ML work via the shared inference runtime gate. MLX execution is performed by the underlying libraries (`mlx-lm`, `mlx-embeddings`, `mflux`, `mlx-whisper`, etc.).
@@ -50,6 +51,7 @@ A straightforward and solid component.
 This component is functional but has concurrency risks.
 -   **Features:** Provides a DALL-E compatible text-to-image endpoint.
 -   **Design:** Uses the `mflux` library via a shared `ImagesService` instance that caches `MFluxImageGenerator` instances per model. It writes images to a temp directory and returns either base64 content or a `file://` URL. URL-mode artifacts use collision-safe UUID filenames and are periodically cleaned up by a background task.
+    -   The shared `ImagesService` instance is created lazily on first use (to keep the server importable without `mflux` installed).
 -   **Concurrency:** Image generation runs in a thread pool and is serialized through the shared MLX gate to avoid unified-memory contention.
 
 ### 4.4. Speech-to-Text (`/v1/audio/transcriptions`)
@@ -57,6 +59,7 @@ This component is functional but has concurrency risks.
 This component is functional and follows the shared concurrency contract.
 -   **Features:** Provides a Whisper-based audio transcription API that accepts file uploads.
 -   **Design:** Wraps the `mlx-whisper` library.
+    -   This endpoint is provided as an optional extra; when STT dependencies are missing it returns `501 Not Implemented`.
 -   **Concurrency:** Upload persistence, transcription, and response formatting are executed off the event loop. The MLX-backed transcription call is serialized through the shared MLX gate (`mlx_omni_server.inference.runtime.run_mlx`) to avoid unified-memory contention.
 
 ### 4.5. Text-to-Speech (`/v1/audio/speech`)
@@ -64,6 +67,7 @@ This component is functional and follows the shared concurrency contract.
 This component is functional and safe for concurrent use under the shared gate.
 -   **Features:** Provides a text-to-speech endpoint.
 -   **Design:** Uses an adapter pattern to support the `mlx-audio` backend for the general cases, and the `f5-tts-mlx` backend when the `f5-tts-mlx` model is specified.
+    -   This endpoint is provided as an optional extra; when TTS dependencies are missing it returns `501 Not Implemented`.
 -   **Concurrency:** Generation runs off the event loop and is serialized through the shared MLX gate. Outputs are written to request-scoped temporary paths (no shared filenames). (The `f5-tts-mlx` backend is currently constrained to WAV output.)
 
 ### 4.6. Responses (`/v1/responses`)

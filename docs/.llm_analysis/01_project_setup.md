@@ -23,18 +23,16 @@ The project is a `FastAPI` web server designed to serve various AI models runnin
 
 The server is structured around providing several types of AI services, each with its own set of dependencies:
 
--   **Chat & Vision:**
+-   **Chat & Vision (core install):**
     -   `mlx-lm`: For running large language models on MLX.
     -   `mlx-vlm`: For running vision-language models on MLX.
     -   `sse-starlette`: Indicates support for streaming chat completions.
--   **Audio Processing:**
-    -   `mlx-whisper`: For Speech-to-Text (STT).
-    -   `f5-tts-mlx`: For Text-to-Speech (TTS).
-    -   `mlx-audio`: Core audio processing capabilities for MLX.
--   **Image Generation:**
-    -   `mflux`: A library for running diffusion models on MLX.
--   **Embeddings:**
+-   **Embeddings (core install):**
     -   `mlx-embeddings`: For generating text embeddings.
+-   **Optional modalities (install extras):**
+    -   `images`: `mflux` (text-to-image)
+    -   `stt`: `mlx-whisper` + `python-multipart` (uploads)
+    -   `tts`: `f5-tts-mlx` + `mlx-audio` (+ `numba`)
 -   **Model Management:**
     -   `huggingface-hub`: Used for downloading models.
 

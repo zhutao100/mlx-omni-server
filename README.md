@@ -79,7 +79,14 @@ For detailed API documentation and examples, please see the [API documentation](
 ```bash
 git clone https://github.com/zhutao100/mlx-omni-server.git
 cd mlx-omni-server
+# Core install (chat + responses + embeddings)
 pip install .
+
+# Optional modalities (keeps routes, returns 501 if not installed)
+pip install ".[images]"  # image generation
+pip install ".[stt]"     # speech-to-text
+pip install ".[tts]"     # text-to-speech
+pip install ".[all]"     # all optional features
 ```
 
 ### Start the Server

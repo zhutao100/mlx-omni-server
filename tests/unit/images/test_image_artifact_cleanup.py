@@ -2,6 +2,16 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
+from mlx_omni_server.optional_features import install_instructions, missing_packages
+
+if missing_packages("images"):
+    pytest.skip(
+        f"Images extra is not installed; install with {install_instructions('images')}.",
+        allow_module_level=True,
+    )
+
 from mlx_omni_server.images.images_service import cleanup_expired_url_images
 
 

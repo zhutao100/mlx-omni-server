@@ -3,12 +3,33 @@ import os
 
 import pytest
 
+from mlx_omni_server.optional_features import (
+    get_optional_extra,
+    install_instructions,
+    missing_packages,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_MISSING_TTS = missing_packages("tts")
+_MISSING_STT = missing_packages("stt")
+
+
+def _skip_if_missing(extra: str, missing: tuple[str, ...]) -> None:
+    if not missing:
+        return
+    feature_label = get_optional_extra(extra).feature_label
+    missing_text = ", ".join(missing)
+    pytest.skip(
+        f"{feature_label} extra is not installed; install with {install_instructions(extra)}. "
+        f"Missing: {missing_text}"
+    )
 
 
 def test_speech(openai_client):
     """Test text-to-speech functionality using OpenAI client"""
+    _skip_if_missing("tts", _MISSING_TTS)
     try:
         model = "lucasnewman/f5-tts-mlx"
         response = openai_client.audio.speech.create(
@@ -29,6 +50,7 @@ def test_speech(openai_client):
 
 def test_mlx_audio_kokoro_speech(openai_client):
     """Test text-to-speech functionality using OpenAI client"""
+    _skip_if_missing("tts", _MISSING_TTS)
     try:
         model = "mlx-community/Kokoro-82M-4bit"
         response = openai_client.audio.speech.create(
@@ -49,6 +71,7 @@ def test_mlx_audio_kokoro_speech(openai_client):
 
 def test_mlx_audio_dia_speech(openai_client):
     """Test text-to-speech functionality using OpenAI client"""
+    _skip_if_missing("tts", _MISSING_TTS)
     try:
         model = "mlx-community/Dia-1.6B-4bit"
         response = openai_client.audio.speech.create(
@@ -69,6 +92,7 @@ def test_mlx_audio_dia_speech(openai_client):
 
 def test_transcription(openai_client):
     """Test audio transcription functionality using OpenAI client"""
+    _skip_if_missing("stt", _MISSING_STT)
     try:
         audio_file_path = "tests/test_audio.wav"
 

@@ -8,7 +8,7 @@ The server is a standard `FastAPI` application launched with `uvicorn`.
 
 -   **Configuration:** A `start()` function, exposed as a command-line script `mlx-omni-server`, handles server configuration. It uses `argparse` to set the `host`, `port`, `workers`, and `log-level`.
 -   **Workers:** The CLI exposes `--workers` and passes it to `uvicorn`. This creates multiple *processes* (not threads), so each worker has its own in-memory caches and its own “global” locks. For MLX-bound workloads, `workers=1` is typically the safest default unless you explicitly design for multi-process coordination and memory budgeting.
--   **Lifecycle Management:** The application uses a `lifespan` manager to run background tasks. It starts `background_cache_cleanup()` from the chat subsystem and a URL-mode image artifact cleanup task (TTL-based cleanup).
+-   **Lifecycle Management:** The application uses a `lifespan` manager to run background tasks. It always starts `background_cache_cleanup()` from the chat subsystem, and starts the URL-mode image artifact cleanup task (TTL-based cleanup) only when the images extra (`mflux`) is installed.
 -   **Middleware:** Custom logging middleware (`RequestResponseLoggingMiddleware`) is registered, indicating that all requests and responses are logged.
 -   **Root Router:** The application's API is consolidated into a single `APIRouter` instance imported from the `routers` module.
 
@@ -25,6 +25,7 @@ The `routers.py` file acts as the central hub for defining the application's API
     -   `chat_router`: Endpoints for chat completions.
     -   `embeddings_router`: Endpoints for generating embeddings.
     -   `responses_router`: OpenAI Responses API endpoint implemented as an adapter over the chat service.
+    -   Note: Images/STT/TTS are optional extras; if their dependencies are not installed, the routes remain but return `501 Not Implemented` with an install hint.
 
 ## Architecture Summary
 

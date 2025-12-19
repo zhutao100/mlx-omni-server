@@ -7,9 +7,8 @@ import uvicorn
 from fastapi import FastAPI
 
 from .chat.generation_service import background_cache_cleanup
-from .images.images import images_service
-from .images.images_service import background_url_image_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
+from .optional_features import is_available
 from .routers import api_router
 from .utils.logger import configure_logging, default_log_dir
 
@@ -20,11 +19,23 @@ async def lifespan(app: FastAPI):
     # Startup
     background_tasks = [
         asyncio.create_task(background_cache_cleanup(), name="chat-cache-cleanup"),
-        asyncio.create_task(
-            background_url_image_cleanup(images_service.output_dir),
-            name="image-url-cleanup",
-        ),
     ]
+
+    if is_available("images"):
+        try:
+            from .images.images import get_images_service
+            from .images.images_service import background_url_image_cleanup
+
+            images_service = get_images_service()
+            background_tasks.append(
+                asyncio.create_task(
+                    background_url_image_cleanup(images_service.output_dir),
+                    name="image-url-cleanup",
+                )
+            )
+        except Exception:
+            # Images are an optional extra; avoid failing app startup if something is missing.
+            pass
     yield
     # Shutdown
     for task in background_tasks:

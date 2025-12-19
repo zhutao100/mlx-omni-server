@@ -1,6 +1,7 @@
 # Speech-to-Text (STT) Component Analysis
 
 The `stt` component provides an OpenAI-compatible API for audio transcription, based on the Whisper model.
+It is shipped as an optional install extra; if `mlx-whisper` (or the upload parser dependency `python-multipart`) is not installed, the endpoints remain but return `501 Not Implemented` with an install hint.
 
 ## API and Schema
 

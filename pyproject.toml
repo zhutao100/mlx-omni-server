@@ -28,24 +28,45 @@ dependencies = [
     "pydantic>=2.9.2",
     "uvicorn>=0.34.0",
     "rich>=13.9.4",
-    # chat
+    # chat (+ models, responses)
     "mlx-lm>=0.28.2",
     "mlx-vlm>=0.3.4",
-    "python-multipart>=0.0.20",
+    "Pillow>=10.0.0",
     "sse-starlette>=2.1.3",
     "lm-format-enforcer",
     "regex",
     # models
     "huggingface-hub>=0.30",
-    # audio
-    "f5-tts-mlx>=0.2.5",
-    "mlx-whisper>=0.4.1",
-    "mlx-audio>=0.2.4",
-    "numba>=0.57.0",
-    # images
-    "mflux>=0.11.0",
     # embeddings
     "mlx-embeddings>=0.0.3",
+]
+
+[project.optional-dependencies]
+images = [
+    "mflux>=0.11.0,<0.13.0",
+]
+stt = [
+    "python-multipart>=0.0.20",
+    "mlx-whisper>=0.4.1",
+]
+tts = [
+    "f5-tts-mlx>=0.2.5",
+    "mlx-audio>=0.2.4",
+    "numba>=0.57.0",
+    "typing-extensions>=4.12.0",
+]
+weave = [
+    "weave>=0.51.46",
+]
+all = [
+    "mflux>=0.11.0,<0.13.0",
+    "python-multipart>=0.0.20",
+    "mlx-whisper>=0.4.1",
+    "f5-tts-mlx>=0.2.5",
+    "mlx-audio>=0.2.4",
+    "numba>=0.57.0",
+    "typing-extensions>=4.12.0",
+    "weave>=0.51.46",
 ]
 
 [project.urls]

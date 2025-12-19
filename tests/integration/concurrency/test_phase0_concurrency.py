@@ -9,6 +9,15 @@ from mlx_omni_server.embeddings.schema import (
     EmbeddingResponse,
     EmbeddingUsage,
 )
+from mlx_omni_server.optional_features import install_instructions, missing_packages
+
+_missing_tts_deps = missing_packages("tts")
+if _missing_tts_deps:
+    pytest.skip(
+        f"TTS extra is not installed; install with {install_instructions('tts')}. "
+        f"Missing: {', '.join(_missing_tts_deps)}",
+        allow_module_level=True,
+    )
 
 
 @pytest.mark.asyncio

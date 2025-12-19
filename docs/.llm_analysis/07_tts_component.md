@@ -1,6 +1,7 @@
 # Text-to-Speech (TTS) Component Analysis
 
 The `tts` component provides an OpenAI-compatible API for generating speech from text.
+It is shipped as an optional install extra; if the TTS backend dependencies are not installed, the endpoints remain but return `501 Not Implemented` with an install hint.
 
 ## API and Schema
 
