@@ -5,10 +5,10 @@ from typing import Optional
 from mlx.core import clear_cache
 
 from ...utils.logger import logger
-from .models_service import MlxModelCache, ModelId
-from ..text_models import BaseTextModel
 from ..mlx_lm.mlx_lm_model import MlxLmModel
 from ..mlx_vlm.mlx_vlm_model import MlxVlmModel
+from ..text_models import BaseTextModel
+from .models_service import MlxModelCache, ModelId
 
 
 class MlxModelCacheManager:
@@ -40,7 +40,7 @@ class MlxModelCacheManager:
 
                 # Create new caches
                 self._model_cache = MlxModelCache(model_id)
-                
+
                 # Determine if this is a VLM or LM model based on the model config
                 if self._is_vlm_model(self._model_cache):
                     self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
@@ -61,13 +61,14 @@ class MlxModelCacheManager:
     def _is_vlm_model(self, model_cache: MlxModelCache) -> bool:
         """Determine if the model is a VLM model based on its configuration."""
         # Check if model is supported by mlx_vlm but not mlx_lm
-        from ..models.models_service import _is_model_supported_by_module, MLX_VLM_MODULE, MLX_LM_MODULE
-        
-        lm_supported = _is_model_supported_by_module(model_cache.model_type, MLX_LM_MODULE)
+        from ..models.models_service import (
+            MLX_VLM_MODULE,
+            _is_model_supported_by_module,
+        )
+
         vlm_supported = _is_model_supported_by_module(model_cache.model_type, MLX_VLM_MODULE)
-        
-        # VLM preferred if it's supported by VLM but not LM
-        return vlm_supported and not lm_supported
+
+        return vlm_supported
 
     def _release(self):
         """Release current models and force memory cleanup."""

@@ -266,7 +266,7 @@ class MlxModelCache:
         lm_supported = _is_model_supported_by_module(self.model_type, MLX_LM_MODULE)
         vlm_supported = _is_model_supported_by_module(self.model_type, MLX_VLM_MODULE)
 
-        if vlm_supported and not lm_supported:
+        if vlm_supported:
             self._load_model_generic(vlm_load, load_vlm_chat_template, "VLM")
         else:  # LM preferred if both or fallback
             if not lm_supported:
