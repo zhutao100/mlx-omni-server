@@ -111,7 +111,7 @@ Supported by Vision-Language Models (VLMs) like LLaVA, Qwen-VL, and CogVLM:
 ```python
 # Image description from URL
 response = client.chat.completions.create(
-    model="llava-v1.6-7b",  # VLM model
+    model="mlx-community/GLM-4.6V-Flash-mxfp4",  # VLM model
     messages=[
         {
             "role": "user",
@@ -151,7 +151,7 @@ img_str = base64.b64encode(buffered.getvalue()).decode()
 
 # Send to model
 response = client.chat.completions.create(
-    model="llava-v1.6-7b",
+    model="mlx-community/GLM-4.6V-Flash-mxfp4",
     messages=[
         {
             "role": "user",
@@ -177,7 +177,7 @@ print(response.choices[0].message.content)
 
 ```python
 response = client.chat.completions.create(
-    model="llava-v1.6-7b",
+    model="mlx-community/GLM-4.6V-Flash-mxfp4",
     messages=[
         {
             "role": "user",
@@ -206,7 +206,7 @@ for chunk in response:
 
 ```python
 response = client.chat.completions.create(
-    model="llava-v1.6-7b",
+    model="mlx-community/GLM-4.6V-Flash-mxfp4",
     messages=[
         {
             "role": "user",
@@ -245,7 +245,7 @@ import requests
 response = requests.post(
     "http://localhost:10240/v1/chat/completions",
     json={
-        "model": "llava-hf/llava-1.5-7b-hf",
+        "mlx-community/GLM-4.6V-Flash-mxfp4",
         "messages": [
             {
                 "role": "user",
@@ -273,7 +273,7 @@ with open("image.jpg", "rb") as f:
 response = requests.post(
     "http://localhost:10240/v1/chat/completions",
     json={
-        "model": "llava-hf/llava-1.5-7b-hf",
+        "mlx-community/GLM-4.6V-Flash-mxfp4",
         "messages": [
             {
                 "role": "user",

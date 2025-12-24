@@ -19,7 +19,7 @@ from mlx_omni_server.chat.text_models import (
 )
 
 # Constants
-VLM_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
+VLM_MODEL_ID = "mlx-community/GLM-4.6V-Flash-mxfp4"
 
 
 # Mock Classes
