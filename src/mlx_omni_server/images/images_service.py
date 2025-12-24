@@ -6,14 +6,11 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, List, Tuple
 
-from mflux.callbacks.callback_registry import CallbackRegistry
 from mflux.callbacks.instances.memory_saver import MemorySaver
-from mflux.config.config import Config
-from mflux.config.model_config import ModelConfig
-from mflux.error.exceptions import StopImageGenerationException
-from mflux.models.flux.variants.txt2img.flux import Flux1
+from mflux.models.common.config import ModelConfig
+from mflux.models.z_image.variants.turbo import ZImageTurbo
+from mflux.utils.exceptions import StopImageGenerationException
 from PIL import Image
 
 from ..utils.logger import logger
@@ -61,13 +58,13 @@ async def background_url_image_cleanup(
 class MFluxImageGenerator:
     """Image generator using mflux library"""
 
-    def __init__(self, model_version: str = "dhairyashil/FLUX.1-schnell-mflux-4bit"):
+    def __init__(self, model_version: str = "filipstrand/Z-Image-Turbo-mflux-4bit"):
         self.model_version = model_version
 
         # Initialize model instance (lazy loading)
-        self._flux = None
+        self._model = None
 
-    def _extra_base_model(self, model_name: str):
+    def _extra_base_model(self, model_name: str) -> str | None:
         # List of supported base models
         supported_base_models = ["schnell", "dev", "dev-fill", "dev-depth", "dev-redux"]
         base_model = None
@@ -89,33 +86,30 @@ class MFluxImageGenerator:
 
         return base_model
 
-    def _get_flux(self, params: dict = None) -> Flux1:
-        """Get or initialize Flux1 instance"""
-        if self._flux is None:
-            # Extract model name from full path
-            model_name = self.model_version
+    def _build_model(self, params: dict | None = None) -> ZImageTurbo:
+        model_name = self.model_version
+        base_model = params.get("base-model") if params else None
+        if "/" in model_name and not base_model:
+            base_model = self._extra_base_model(model_name)
 
-            # Get base_model from params or extract from model_name
-            base_model = params.get("base-model") if params else None
+        return ZImageTurbo(
+            model_config=ModelConfig.from_name(
+                model_name=model_name,
+                base_model=base_model,  # type: ignore[arg-type]
+            ),
+            quantize=params.get("quantize") if params else None,
+            model_path=params.get("local_path") if params else None,
+            lora_paths=params.get("lora-paths") if params else None,
+            lora_scales=params.get("lora-scales") if params else None,
+        )
 
-            # If base_model is not provided, try to extract it from model_name
-            if model_name.__contains__("/") and not base_model:
-                base_model = self._extra_base_model(model_name)
+    def _get_model(self, params: dict | None = None) -> ZImageTurbo:
+        """Get or initialize ZImageTurbo instance."""
+        if self._model is None:
+            self._model = self._build_model(params)
+        return self._model
 
-            # Let mflux handle model configuration
-            self._flux = Flux1(
-                model_config=ModelConfig.from_name(
-                    model_name=model_name, base_model=base_model
-                ),
-                quantize=params.get("quantize"),
-                local_path=params.get("local_path"),
-                lora_paths=params.get("lora-paths") if params else None,
-                lora_scales=params.get("lora-scales") if params else None,
-            )
-
-        return self._flux
-
-    def _parse_size(self, size_str: str) -> Tuple[int, int]:
+    def _parse_size(self, size_str: str) -> tuple[int, int]:
         """Parse size string to width and height"""
         try:
             width, height = map(int, size_str.split("x"))
@@ -140,36 +134,38 @@ class MFluxImageGenerator:
         all_extra_params = {**request_extra_params, **extra_params}
         logger.info(f"all_extra_params: {all_extra_params}")
 
+        low_ram = bool(
+            all_extra_params.pop("low_ram", False)
+            or all_extra_params.pop("low_memory_mode", False)
+            or all_extra_params.pop("low_arm", False)
+        )
+
         # Generate random seed if not specified
         seed = all_extra_params.pop("seed", random.randint(0, 2**32 - 1))
 
-        # Get or initialize Flux1 instance
-        flux = self._get_flux(all_extra_params)
+        # MemorySaver mutates the model by unloading encoders; don't reuse the model across calls.
+        model = (
+            self._build_model(all_extra_params) if low_ram else self._get_model(all_extra_params)
+        )
 
-        # Generate image
-        low_memory_mode = all_extra_params.get("low_arm", True)
         memory_saver = None
-        if low_memory_mode:
-            memory_saver = MemorySaver(model=flux, keep_transformer=seed > 1)
-            CallbackRegistry.register_before_loop(memory_saver)
-            CallbackRegistry.register_in_loop(memory_saver)
-            CallbackRegistry.register_after_loop(memory_saver)
+        if low_ram:
+            memory_saver = MemorySaver(model=model, keep_transformer=False)
+            model.callbacks.register(memory_saver)
 
         try:
             # Generate image
-            image = flux.generate_image(
+            image = model.generate_image(
                 seed=seed,
                 prompt=request.prompt,
-                config=Config(
-                    num_inference_steps=all_extra_params.pop("steps", 4),
-                    height=height,
-                    width=width,
-                    guidance=all_extra_params.pop("guidance", 4.0),
-                ),
+                num_inference_steps=all_extra_params.pop("steps", 8),
+                height=height,
+                width=width,
             )
 
             # Save image
-            image.save(path=output_path, export_json_metadata=False)
+            image.save(output_path)
+
             return image
         except StopImageGenerationException as e:
             raise Exception(f"Image generation interrupted: {str(e)}")
@@ -187,7 +183,7 @@ class ImagesService:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Cache loaded generator instances
-        self._generator_cache: Dict[str, MFluxImageGenerator] = {}
+        self._generator_cache: dict[str, MFluxImageGenerator] = {}
 
     def _get_generator(self, model_name: str) -> MFluxImageGenerator:
         """Get or create image generator instance"""
@@ -216,21 +212,19 @@ class ImagesService:
     def generate_images(
         self,
         request: ImageGenerationRequest,
-    ) -> List[ImageObject]:
+    ) -> list[ImageObject]:
         """Generate images based on the request"""
         generated_images = []
         generator = self._get_generator(model_name=request.model)
 
-        for i in range(request.n):
+        for _ in range(request.n):
             # Generate unique identifier for this image
             uid = uuid.uuid4().hex
             output_path = self._get_output_path(uid)
 
             try:
                 # Generate the image
-                generator.generate(
-                    request=request, output_path=output_path, low_memory_mode=True
-                )
+                generator.generate(request=request, output_path=output_path)
 
                 # Create response object based on format
                 image_object = ImageObject(revised_prompt=request.prompt)

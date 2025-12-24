@@ -19,7 +19,7 @@ def test_images(openai_client):
     """Test standard image generation functionality."""
     try:
         response = openai_client.images.generate(
-            model="dhairyashil/FLUX.1-schnell-mflux-4bit",
+            model="filipstrand/Z-Image-Turbo-mflux-4bit",
             prompt="A cute baby sea otter.",
             n=1,
             size="512x512",
@@ -40,7 +40,7 @@ def test_images_b64_json(openai_client):
     """Test image generation with b64_json response format."""
     try:
         response = openai_client.images.generate(
-            model="dhairyashil/FLUX.1-schnell-mflux-4bit",
+            model="filipstrand/Z-Image-Turbo-mflux-4bit",
             prompt="A beautiful sunset over the mountains.",
             n=1,
             size="512x512",

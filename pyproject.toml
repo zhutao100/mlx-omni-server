@@ -43,7 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 images = [
-    "mflux>=0.11.0,<0.13.0",
+    "mflux>=0.13.0",
 ]
 stt = [
     "python-multipart>=0.0.20",
@@ -59,7 +59,7 @@ weave = [
     "weave>=0.51.46",
 ]
 all = [
-    "mflux>=0.11.0,<0.13.0",
+    "mflux>=0.13.0",
     "python-multipart>=0.0.20",
     "mlx-whisper>=0.4.1",
     "f5-tts-mlx>=0.2.5",
