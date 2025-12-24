@@ -50,7 +50,7 @@ A straightforward and solid component.
 
 This component is functional but has concurrency risks.
 -   **Features:** Provides a DALL-E compatible text-to-image endpoint.
--   **Design:** Uses the `mflux` library via a shared `ImagesService` instance that caches `MFluxImageGenerator` instances per model. It writes images to a temp directory and returns either base64 content or a `file://` URL. URL-mode artifacts use collision-safe UUID filenames and are periodically cleaned up by a background task.
+-   **Design:** Uses the `mflux` library via a shared `ImagesService` instance that caches `MFluxImageGenerator` instances per model. For `response_format=url`, it writes images to a temp directory and returns a `file://` URL; for `response_format=b64_json`, it encodes the generated PNG in-memory (no temp file). URL-mode artifacts use collision-safe UUID filenames and are periodically cleaned up by a background task.
     -   The shared `ImagesService` instance is created lazily on first use (to keep the server importable without `mflux` installed).
 -   **Concurrency:** Image generation runs in a thread pool and is serialized through the shared MLX gate to avoid unified-memory contention.
 

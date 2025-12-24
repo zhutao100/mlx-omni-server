@@ -24,5 +24,6 @@
   - [mlx-lm](https://github.com/ml-explore/mlx-lm): ~/workspace/custom-builds/mlx-lm
   - [mlx-vlm](https://github.com/zhutao100/mlx-vlm): ~/workspace/custom-builds/mlx-vlm
   - [transformers](https://github.com/huggingface/transformers): ~/workspace/custom-builds/transformers
+  - [mflux](https://github.com/filipstrand/mflux): ~/workspace/custom-builds/mflux
 - When need to inspect model files, they are typically managed by huggingface CLI and stored in `~/.cache/huggingface/hub`.
 - When running python commands, use the virutual env `venv313` by pretending `PYENV_VERSION=venv313 pyenv exec ` to the commands.

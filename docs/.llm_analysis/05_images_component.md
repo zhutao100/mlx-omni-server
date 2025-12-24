@@ -15,14 +15,15 @@ The logic is split between a service class and a generator class.
 -   **`ImagesService`:**
     -   A shared service instance is created lazily on first use, allowing its generator cache to persist across requests while keeping the server importable without `mflux` installed.
     -   It maintains a cache of `MFluxImageGenerator` instances keyed by model name (enabling cross-request reuse).
-    -   It handles file system operations: saving generated images to a temporary directory, encoding them to Base64, and optionally cleaning them up (Base64 mode deletes the temp file; URL mode returns a `file://` path).
-    -   URL-mode artifacts use UUID filenames and are periodically cleaned up via a background TTL-based cleanup task.
+    -   For `response_format=url`, it saves generated images to a temporary directory and returns a `file://` path. URL-mode artifacts use UUID filenames and are periodically cleaned up via a background TTL-based cleanup task.
+    -   For `response_format=b64_json`, it encodes the generated PNG in-memory (no temp file is written).
 
 -   **`MFluxImageGenerator`:**
     -   This class acts as a wrapper around the `mflux` library, specifically `ZImageTurbo` for text-to-image generation.
     -   It performs lazy loading of the MLX model; the model is only loaded into memory on the first generation request that uses it.
     -   It translates the API request parameters into the arguments required by `mflux`.
     -   For low-RAM mode (`low_ram` / `low_memory_mode`), it avoids reusing the same model instance across calls because `mflux`'s `MemorySaver` unloads encoders.
+    -   When model init parameters change (e.g., `quantize`, `model_path`, LoRAs), it rebuilds the cached model instead of silently reusing the old one.
 
 -   **Concurrency Model:**
     -   Image generation is executed via the shared inference runtime (`run_mlx`), which runs blocking work in a thread pool and serializes MLX-backed compute through a shared gate.
