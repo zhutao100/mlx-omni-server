@@ -22,7 +22,8 @@ The `ChatGenerationService` orchestrates the entire process.
 -   **Caching and Stream Multiplexing:**
     -   A sophisticated in-memory caching system is implemented to handle identical requests.
     -   For streaming requests, multiple clients can connect to the same ongoing generation. The server sends the already-generated chunks (replay) and then streams the new ones live to all clients.
-    -   The system is resource-aware, automatically cancelling background generation tasks if all clients disconnect.
+    -   The system is resource-aware: if all clients disconnect, it cooperatively cancels the in-flight generation by setting a thread-safe stop signal that is propagated down into the model generation loop (including long prefill phases). Prompt-cache bookkeeping is updated incrementally based on model-reported prompt progress and emitted tokens so cache state stays consistent under early-stop.
+    -   Non-streaming requests use the same cancellation mechanism (via disconnect polling) and cancelled results are not cached.
     -   A background task periodically cleans up cache entries older than 5 minutes.
 
 -   **Dynamic Model Loading:**

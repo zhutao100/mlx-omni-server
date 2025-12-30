@@ -1,6 +1,6 @@
 import gc
-import struct
 import logging
+import struct
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -13,7 +13,6 @@ from mlx_lm.models.cache import (
 )
 
 from ...utils.logger import logger
-
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +63,9 @@ class PromptCache:
         if getattr(model_cache, "draft_model", None) is not None:
             self.cache += make_prompt_cache(model_cache.draft_model, max_kv_size=self.max_position_embeddings)
 
-        # store tokens
-        self.tokens = list(prompt_tokens)
+        # Tokens represent committed KV state; new cache starts empty and is
+        # advanced transactionally as generation progresses.
+        self.tokens = []
 
     def get_prompt_cache(self, model_cache, prompt: list[int]) -> Tuple[list[int], int]:
         """
@@ -90,8 +90,6 @@ class PromptCache:
         if com_prefix == cache_len:
             logger.debug(f"Cache is prefix (cache_len={cache_len}); processing suffix.")
             suffix = prompt[com_prefix:]
-            # update tokens to include appended suffix
-            self.tokens.extend(suffix)
             prompt_cached_tokens = com_prefix
             return suffix, prompt_cached_tokens
 
@@ -106,7 +104,6 @@ class PromptCache:
                 # trim_prompt_cache returns number trimmed (per layer), but state mutated in-place
                 self.tokens = self.tokens[:com_prefix]
                 suffix = prompt[com_prefix:]
-                self.tokens.extend(suffix)
                 prompt_cached_tokens = com_prefix
                 return suffix, prompt_cached_tokens
             else:
@@ -266,10 +263,30 @@ class PromptCacheManager:
 
             # Case B: divergence -> fork a new cache from the prefix (do NOT mutate original)
             logger.debug("Divergent prompt (common prefix=%d). Forking new branch.", best_prefix_len)
-            forked = best_cache.clone_up_to(best_prefix_len, model_cache)
+            if best_cache.cache and can_trim_prompt_cache(best_cache.cache):
+                try:
+                    forked = best_cache.clone_up_to(best_prefix_len, model_cache)
+                except Exception:
+                    logger.exception(
+                        "Failed to clone prompt cache at prefix_len=%d; falling back to cold cache.",
+                        best_prefix_len,
+                    )
+                    forked = None
+            else:
+                forked = None
+
+            # If we cannot safely fork a cache for the shared prefix (e.g. non-trimmable caches),
+            # fall back to a cold cache but keep the original branch intact.
+            if forked is None:
+                logger.debug("Cache fork not supported; creating new cache from scratch.")
+                new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
+                new_cache.reset_prompt_cache(model_cache, prompt)
+                key = tokens_key(prompt)
+                self.caches[key] = new_cache
+                self._evict_if_needed()
+                return new_cache, prompt, 0
+
             suffix_tokens = prompt[best_prefix_len:]
-            # append suffix tokens into forked token list so later extension uses them
-            forked.tokens.extend(suffix_tokens)
             new_key = tokens_key(prompt)
             self.caches[new_key] = forked
             self._evict_if_needed()

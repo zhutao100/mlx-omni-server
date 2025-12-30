@@ -1,10 +1,14 @@
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
+
+from mlx_lm.generate import GenerationCancelled
 
 from ..inference.runtime import run_mlx
 from .models.models import load_model
@@ -22,7 +26,7 @@ class StreamItem:
 @dataclass
 class StreamCacheEntry:
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
-    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    stop_event: threading.Event = field(default_factory=threading.Event)
     items: list[StreamItem] = field(default_factory=list)
     finished: bool = False
     generation_task: asyncio.Task | None = None
@@ -69,7 +73,11 @@ class ChatGenerationService:
         self._response_cache = response_cache
         self._cache_lock = cache_lock
 
-    async def generate_non_stream(self, request: ChatCompletionRequest) -> NonStreamResult:
+    async def generate_non_stream(
+        self,
+        request: ChatCompletionRequest,
+        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+    ) -> NonStreamResult:
         req_hash = make_request_hash(request)
 
         async with self._cache_lock:
@@ -79,6 +87,21 @@ class ChatGenerationService:
                 payload=cached_entry.payload,
                 is_error=cached_entry.is_error,
                 from_cache=True,
+            )
+
+        cancel_event = threading.Event()
+        watch_task: asyncio.Task[None] | None = None
+        if is_disconnected is not None:
+
+            async def watch_disconnect() -> None:
+                while not cancel_event.is_set():
+                    if await is_disconnected():
+                        cancel_event.set()
+                        return
+                    await asyncio.sleep(0.1)
+
+            watch_task = asyncio.create_task(
+                watch_disconnect(), name=f"watch-disconnect-{req_hash}"
             )
 
         try:
@@ -91,13 +114,20 @@ class ChatGenerationService:
                     adapter_path,
                     draft_model,
                 )
-                return text_model.generate(request)
+                return text_model.generate(request, should_cancel=cancel_event.is_set)
 
             completion: ChatCompletionResponse = await run_mlx(load_and_generate)
             entry = NonStreamCacheEntry(payload=completion)
             async with self._cache_lock:
                 self._response_cache[req_hash] = entry
             return NonStreamResult(payload=completion, is_error=False, from_cache=False)
+        except GenerationCancelled:
+            # Best-effort cancellation: never cache cancelled work.
+            return NonStreamResult(
+                payload={"error": "Request cancelled"},
+                is_error=True,
+                from_cache=False,
+            )
         except Exception as exc:  # pylint: disable=broad-except
             logging.error(
                 "Error during non-streaming generation for %s: %s",
@@ -110,6 +140,12 @@ class ChatGenerationService:
             async with self._cache_lock:
                 self._response_cache[req_hash] = entry
             return NonStreamResult(payload=error_payload, is_error=True, from_cache=False)
+        finally:
+            cancel_event.set()
+            if watch_task is not None:
+                watch_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await watch_task
 
     async def stream_chat_completion(
         self,
@@ -182,14 +218,10 @@ class ChatGenerationService:
                     draft_model,
                 )
 
-                for chunk in text_model.stream_generate(request):
-                    if cached_entry.stop_event.is_set():
-                        logging.info(
-                            "Stopping generation for %s as all clients disconnected.",
-                            req_hash,
-                        )
-                        break
-
+                for chunk in text_model.stream_generate(
+                    request,
+                    should_cancel=cached_entry.stop_event.is_set,
+                ):
                     stream_item = StreamItem(kind="chunk", data=chunk)
 
                     async def notify() -> None:
@@ -199,6 +231,11 @@ class ChatGenerationService:
 
                     future = asyncio.run_coroutine_threadsafe(notify(), loop)
                     future.result()
+            except GenerationCancelled:
+                logging.info(
+                    "Generation for %s cancelled.",
+                    req_hash,
+                )
             except Exception as exc:  # pylint: disable=broad-except
                 logging.error(
                     "Error during streaming generation for %s: %s",

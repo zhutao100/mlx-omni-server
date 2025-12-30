@@ -5,11 +5,13 @@ from typing import AsyncGenerator, Iterable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ..chat.generation_service import (chat_generation_service,
-                                       make_request_hash)
+from ..chat.generation_service import chat_generation_service, make_request_hash
 from ..chat.schema import ChatCompletionResponse
-from .adapter import (ResponseStreamAdapter, chat_response_to_response,
-                      response_request_to_chat_request)
+from .adapter import (
+    ResponseStreamAdapter,
+    chat_response_to_response,
+    response_request_to_chat_request,
+)
 from .schema import ResponseRequest, ResponseResponse, ResponseStreamEvent
 
 router = APIRouter(tags=["responses"])
@@ -28,7 +30,10 @@ async def create_response(request: ResponseRequest, raw_request: Request):
     chat_request = response_request_to_chat_request(request)
 
     if not chat_request.stream:
-        result = await chat_generation_service.generate_non_stream(chat_request)
+        result = await chat_generation_service.generate_non_stream(
+            chat_request,
+            raw_request.is_disconnected,
+        )
         payload = result.payload
 
         headers = {"X-Idempotent-Replay": "true"} if result.from_cache else {}

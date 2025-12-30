@@ -4,7 +4,7 @@ import uuid
 from typing import Any, Callable, Dict, Generator
 
 import mlx.core as mx
-from mlx_lm.generate import GenerationResponse, stream_generate
+from mlx_lm.generate import GenerationCancelled, GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_logits_processors, make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.markup import escape
@@ -275,6 +275,8 @@ class MlxLmModel(BaseTextModel):
     def _stream_generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> Generator[GenerateResult, None, None]:
         assert self._model_cache.model is not None
         try:
@@ -284,7 +286,22 @@ class MlxLmModel(BaseTextModel):
             # Prepare all generation components
             processed_prompt, generate_kwargs = self._prepare_generation(request)
 
-            generated_tokens = []
+            active_cache = getattr(self, "_active_cache", None)
+            suffix_committed = 0
+            if active_cache is not None:
+                prompt_suffix = processed_prompt
+
+                def prompt_progress_callback(processed: int, _total: int) -> None:
+                    nonlocal suffix_committed
+                    if processed <= suffix_committed:
+                        return
+                    active_cache.tokens.extend(prompt_suffix[suffix_committed:processed])
+                    suffix_committed = processed
+
+                generate_kwargs["prompt_progress_callback"] = prompt_progress_callback
+            if should_cancel is not None:
+                generate_kwargs["should_cancel"] = should_cancel
+
             response: GenerationResponse | None = None
             for response in stream_generate(
                 model=self._model_cache.model,
@@ -293,10 +310,10 @@ class MlxLmModel(BaseTextModel):
                 draft_model=self._model_cache.draft_model,
                 **generate_kwargs,
             ):
+                if active_cache is not None:
+                    active_cache.tokens.append(response.token)
                 if response.finish_reason is not None:
                     break
-
-                generated_tokens.append(response.token)
 
                 logprobs = None
                 if request.logprobs:
@@ -322,9 +339,8 @@ class MlxLmModel(BaseTextModel):
                 )
                 logger.debug(f"    finish reason: {response.finish_reason}")
 
-            if hasattr(self, "_active_cache") and self._active_cache is not None:
-                self._active_cache.extend_completion_cache(generated_tokens)
-
+        except GenerationCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise
@@ -332,6 +348,8 @@ class MlxLmModel(BaseTextModel):
     def generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> ChatCompletionResponse:
         try:
             completion = ""
@@ -340,7 +358,7 @@ class MlxLmModel(BaseTextModel):
             finish_reason = "stop"
             result = None
 
-            for result in self._stream_generate(request=request):
+            for result in self._stream_generate(request=request, should_cancel=should_cancel):
                 generated_tokens.append(result.token)
                 completion += result.text
 
@@ -409,6 +427,8 @@ class MlxLmModel(BaseTextModel):
                     prompt_tokens_details=prompt_tokens_details,
                 ),
             )
+        except GenerationCancelled:
+            raise
         except Exception as e:
             logger.error(f"Failed to generate completion: {str(e)}", exc_info=True)
             raise RuntimeError(f"Failed to generate completion: {str(e)}")
@@ -416,12 +436,14 @@ class MlxLmModel(BaseTextModel):
     def stream_generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> Generator[ChatCompletionChunk, None, None]:
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
 
             result: GenerateResult | None = None
-            for result in self._stream_generate(request=request):
+            for result in self._stream_generate(request=request, should_cancel=should_cancel):
                 if not result.text:
                     logger.warning(f"Generated result [{escape(str(result))}] with empty text")
                     continue
@@ -518,6 +540,8 @@ class MlxLmModel(BaseTextModel):
                     ),
                 )
 
+        except GenerationCancelled:
+            raise
         except Exception as e:
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise

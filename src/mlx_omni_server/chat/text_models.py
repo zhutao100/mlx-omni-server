@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, Optional, TypedDict
+from typing import Any, Callable, Dict, Generator, Optional, TypedDict
 
 from .schema import ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse
 
@@ -31,6 +31,8 @@ class BaseTextModel(ABC):
     def generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> ChatCompletionResponse:
         """Generate completion text with parameters from request"""
         pass
@@ -39,6 +41,8 @@ class BaseTextModel(ABC):
     def stream_generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> Generator[ChatCompletionChunk, None, None]:
         """Stream generate completion chunks with parameters from request"""
         pass

@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 class MockResponsesModel(BaseTextModel):
     """Mock model producing both text and tool call outputs."""
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         tool_call = {
             "id": "call_sync",
             "type": "function",
@@ -60,7 +65,12 @@ class MockResponsesModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):  # type: ignore[override]
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         # Emit tool call delta in multiple pieces followed by text
         chunk_tool_start = ChatCompletionChunk(
             id="resp-id",
@@ -128,7 +138,12 @@ class MockResponsesModel(BaseTextModel):
 
 
 class MockTextStreamModel(BaseTextModel):
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         return ChatCompletionResponse(
             id="resp-text",
             created=int(time.time()),
@@ -150,7 +165,12 @@ class MockTextStreamModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):  # type: ignore[override]
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         chunk = ChatCompletionChunk(
             id="resp-text",
             created=int(time.time()),
@@ -167,7 +187,12 @@ class MockTextStreamModel(BaseTextModel):
 
 
 class MockSequentialToolModel(BaseTextModel):
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         return ChatCompletionResponse(
             id="resp-seq",
             created=int(time.time()),
@@ -189,7 +214,12 @@ class MockSequentialToolModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):  # type: ignore[override]
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         # First text before first tool call
         yield ChatCompletionChunk(
             id="resp-seq",
@@ -260,7 +290,12 @@ class MockSequentialToolModel(BaseTextModel):
 class MockResponsesExtraBodyModel(BaseTextModel):
     """Mock model for testing extra body parameters."""
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         # Access extra parameters to verify they're passed through
         extra_params = request.get_extra_params()
         top_k = extra_params.get("top_k", 40)  # Default value from mlx_lm
@@ -286,7 +321,12 @@ class MockResponsesExtraBodyModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         extra_params = request.get_extra_params()
         top_k = extra_params.get("top_k", 40)
 

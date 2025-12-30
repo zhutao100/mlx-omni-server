@@ -21,7 +21,10 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     )
 
     if not request.stream:
-        result = await chat_generation_service.generate_non_stream(request)
+        result = await chat_generation_service.generate_non_stream(
+            request,
+            raw_request.is_disconnected,
+        )
         payload = result.payload
         if isinstance(payload, ChatCompletionResponse):
             body = payload.model_dump(exclude_none=True)

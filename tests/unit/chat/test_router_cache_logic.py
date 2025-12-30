@@ -1,6 +1,7 @@
 import asyncio
 import concurrent.futures
 import json
+import threading
 import time
 from unittest.mock import Mock, patch
 
@@ -33,7 +34,12 @@ class MockTextModel(BaseTextModel):
         self.call_count = 0
         self.stream_call_count = 0
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         """Mock generate method"""
         self.call_count += 1
         content = "Hello, world!"
@@ -59,7 +65,12 @@ class MockTextModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         """Mock stream_generate method"""
         self.stream_call_count += 1
         chunk = ChatCompletionChunk(
@@ -163,7 +174,7 @@ class TestCacheEntries:
         entry = StreamCacheEntry()
         assert entry.items == []
         assert isinstance(entry.condition, asyncio.Condition)
-        assert isinstance(entry.stop_event, asyncio.Event)
+        assert isinstance(entry.stop_event, threading.Event)
         assert isinstance(entry.created_at, float)
         assert entry.active_clients == 0
         assert entry.finished is False

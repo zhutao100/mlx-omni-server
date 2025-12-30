@@ -30,7 +30,12 @@ class MockVlmModel(BaseTextModel):
         self.call_count = 0
         self.stream_call_count = 0
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         """Mock generate method"""
         self.call_count += 1
         content = "This is a test image description."
@@ -60,7 +65,12 @@ class MockVlmModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         """Mock stream generate method"""
         self.stream_call_count += 1
         content = "This is a test image description."

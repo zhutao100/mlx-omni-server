@@ -25,7 +25,12 @@ class MockTextModel(BaseTextModel):
         self.call_count = 0
         self.stream_call_count = 0
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         self.call_count += 1
         return ChatCompletionResponse(
             id="resp-id",
@@ -45,7 +50,12 @@ class MockTextModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         self.stream_call_count += 1
         chunk1 = ChatCompletionChunk(
             id="resp-id",
@@ -77,7 +87,12 @@ class MockTextModel(BaseTextModel):
 
 
 class MockToolCallModel(BaseTextModel):
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
         return ChatCompletionResponse(
             id="resp-id",
             created=int(time.time()),
@@ -108,7 +123,12 @@ class MockToolCallModel(BaseTextModel):
             },
         )
 
-    def stream_generate(self, request: ChatCompletionRequest):
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
         chunk1 = ChatCompletionChunk(
             id="resp-id",
             created=int(time.time()),

@@ -2,7 +2,7 @@ import asyncio
 import gc
 import time
 import uuid
-from typing import Any, Generator, Tuple
+from typing import Any, Callable, Generator, Tuple
 
 from mlx_vlm import generate, stream_generate
 from mlx_vlm.prompt_utils import apply_chat_template
@@ -61,7 +61,12 @@ class MlxVlmModel(BaseTextModel):
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
 
-    def generate(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> ChatCompletionResponse:
         """Generate a complete response for multimodal requests"""
         try:
             logger.debug(f"Received generate request: {request}")
@@ -94,7 +99,12 @@ class MlxVlmModel(BaseTextModel):
             logger.error(f"Unexpected error in VLM generation: {e}")
             raise RuntimeError(f"Failed to generate response: {str(e)}")
 
-    def stream_generate(self, request: ChatCompletionRequest) -> Generator[ChatCompletionChunk, None, None]:
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> Generator[ChatCompletionChunk, None, None]:
         """Generate a streaming response for multimodal requests following the mlx_lm_model pattern"""
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
