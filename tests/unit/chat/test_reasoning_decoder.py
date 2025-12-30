@@ -64,7 +64,7 @@ class TestReasoningDecoder:
         result = decoder.decode(test_text)
 
         # Verify results
-        assert result["content"] == test_text
+        assert result["content"] == "Final answer"
         assert "reasoning" not in result
 
     def test_set_thinking_prefix(self, decoder):

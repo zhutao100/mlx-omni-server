@@ -38,7 +38,7 @@ class ReasoningDecoder(TokensDecoder):
     def _parse_stream_response(self, text: str) -> Dict[str, Any] | None:
         if not text:
             return {"delta_content": None, "delta_reasoning": None}
- 
+
         self.accumulated_text += text
 
         # Special case: text exactly equals the start tag
@@ -72,10 +72,10 @@ class ReasoningDecoder(TokensDecoder):
 
     def stream_decode(self, text: str) -> Dict[str, Any] | None:
         """Parse tool calls from model output."""
-        if not self.enable_thinking:
-            logging.warning("Thinking mode is not enabled. Returning text without parsing.")
-            return {"delta_content": text}
-        return self._parse_stream_response(text)
+        parsed = self._parse_stream_response(text)
+        if self.enable_thinking:
+            return parsed
+        return {"delta_content": parsed.get("delta_content"), "delta_reasoning": None}
 
     def _parse_response(self, response: str):
         # First check for complete thinking tag pattern
@@ -114,7 +114,7 @@ class ReasoningDecoder(TokensDecoder):
 
     def decode(self, text: str) -> Dict[str, Any] | None:
         """Parse thinking content from model output"""
-        if not self.enable_thinking:
-            logging.warning("Thinking mode is not enabled. Returning text without parsing.")
-            return {"content": text}
-        return self._parse_response(text)
+        parsed = self._parse_response(text)
+        if self.enable_thinking:
+            return parsed
+        return {"content": parsed.get("content")}

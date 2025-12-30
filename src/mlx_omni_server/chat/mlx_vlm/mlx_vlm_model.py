@@ -10,10 +10,18 @@ from rich.markup import escape
 
 from ...utils.logger import logger
 from ..models.models_service import MlxModelCache
-from ..schema import (ChatCompletionChoice, ChatCompletionChunk,
-                      ChatCompletionChunkChoice, ChatCompletionRequest,
-                      ChatCompletionResponse, ChatCompletionUsage, ChatMessage,
-                      MultimodalContentItem, PromptTokensDetails, Role)
+from ..schema import (
+    ChatCompletionChoice,
+    ChatCompletionChunk,
+    ChatCompletionChunkChoice,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionUsage,
+    ChatMessage,
+    MultimodalContentItem,
+    PromptTokensDetails,
+    Role,
+)
 from ..text_models import BaseTextModel, GenerateResult
 from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
@@ -103,15 +111,15 @@ class MlxVlmModel(BaseTextModel):
                 delta_content: str | None = result.text
                 delta_reasoning: str | None = None
 
-                if enable_thinking:
-                    reasoning_result = self._reasoning_decoder.stream_decode(
-                        result.text
+                reasoning_result = self._reasoning_decoder.stream_decode(result.text)
+                if not reasoning_result:
+                    logger.warning(
+                        f"Failed to decode reasoning from stream text: {escape(result.text)}"
                     )
-                    if not reasoning_result:
-                        logger.warning(f"Failed to decode reasoning from stream text: {escape(result.text)}")
-                        continue
-                    logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
-                    delta_content = reasoning_result.get("delta_content")
+                    continue
+                logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
+                delta_content = reasoning_result.get("delta_content")
+                if enable_thinking:
                     delta_reasoning = reasoning_result.get("delta_reasoning")
 
                 if delta_reasoning is not None:
@@ -367,11 +375,11 @@ class MlxVlmModel(BaseTextModel):
         # Handle reasoning/thinking
         reasoning: str | None = None
         enable_thinking = self._reasoning_decoder.enable_thinking
-        if enable_thinking:
-            reasoning_result = self._reasoning_decoder.decode(response_text)
-            if reasoning_result:
-                logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
-                response_text = reasoning_result.get("content") or ""
+        reasoning_result = self._reasoning_decoder.decode(response_text)
+        if reasoning_result:
+            logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
+            response_text = reasoning_result.get("content") or ""
+            if enable_thinking:
                 reasoning = reasoning_result.get("reasoning")
 
         # Handle tools (similar to LM model)

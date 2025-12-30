@@ -69,7 +69,7 @@ class TestReasoningResponse:
     def test_none_reasoning_response(self, openai_client):
         """Test functionality of the ReasoningResponse class"""
         try:
-            model = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+            model = "mlx-community/Qwen3-8B-abliterated-v2-mxfp4"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],

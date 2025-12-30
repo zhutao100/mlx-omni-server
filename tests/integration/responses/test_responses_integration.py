@@ -75,7 +75,7 @@ class TestResponsesIntegration:
 
     def test_responses_draft_model(self, openai_client):
         try:
-            model = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+            model = "mlx-community/Qwen3-8B-abliterated-v2-mxfp4"
             response = openai_client.responses.create(
                 model=model,
                 input=[{"role": "user", "content": "hello"}],

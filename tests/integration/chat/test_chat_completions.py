@@ -62,7 +62,7 @@ class TestChatCompletions:
 
     def test_chat_completions_draft_model(self, openai_client):
         try:
-            model = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+            model = "mlx-community/Qwen3-8B-abliterated-v2-mxfp4"
             response = openai_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "hello"}],

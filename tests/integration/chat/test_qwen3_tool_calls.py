@@ -6,7 +6,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler
 
-MODEL = "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit-DWQ-lr5e-8"
+MODEL = "mlx-community/Qwen3-8B-abliterated-v2-mxfp4"
 
 
 logging.basicConfig(level=logging.INFO)
