@@ -223,6 +223,7 @@ class TestResponsesIntegration:
         assert is_cancelled, "Test failed to cancel the first stream mid-generation."
 
         full_first_response = "\n".join(lines_received)
+        assert "[DONE]" not in full_first_response
         assert (
             'data: {"type":"response.completed"}' not in full_first_response
         ), "Canceled stream should not be complete"
@@ -242,6 +243,7 @@ class TestResponsesIntegration:
                     all_lines.append(line)
 
         full_response = "\n".join(all_lines)
+        assert "[DONE]" not in full_response
         logger.info(
             f"--- Full response from second request: ---\
 {full_response}"

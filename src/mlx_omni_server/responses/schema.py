@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..chat.schema import MultimodalContentItem, Role
 
@@ -10,6 +10,15 @@ class ResponseStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    QUEUED = "queued"
+    INCOMPLETE = "incomplete"
+
+
+class ResponseOutputItemStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    INCOMPLETE = "incomplete"
 
 
 class ResponseInputMessage(BaseModel):
@@ -49,26 +58,75 @@ class ResponseOutputMessage(BaseModel):
     id: str
     type: Literal["message"] = "message"
     role: Role = Role.ASSISTANT
-    status: ResponseStatus = ResponseStatus.COMPLETED
+    status: ResponseOutputItemStatus = ResponseOutputItemStatus.COMPLETED
     content: list[ResponseOutputContentItem]
     created_at: Optional[int] = None
 
 
+class ResponseOutputFunctionCall(BaseModel):
+    id: str
+    type: Literal["function_call"] = "function_call"
+    status: ResponseOutputItemStatus = ResponseOutputItemStatus.COMPLETED
+    name: str
+    arguments: str
+    call_id: str
+
+
+ResponseOutputItem = Annotated[
+    Union[ResponseOutputMessage, ResponseOutputFunctionCall],
+    Field(discriminator="type"),
+]
+
+
+class ResponseUsageInputTokensDetails(BaseModel):
+    cached_tokens: int = 0
+
+
+class ResponseUsageOutputTokensDetails(BaseModel):
+    reasoning_tokens: int = 0
+
+
 class ResponseUsage(BaseModel):
-    prompt_tokens: int
-    completion_tokens: int
+    input_tokens: int
+    input_tokens_details: ResponseUsageInputTokensDetails
+    output_tokens: int
+    output_tokens_details: ResponseUsageOutputTokensDetails
     total_tokens: int
 
 
 class ResponseResponse(BaseModel):
     id: str
     object: Literal["response"] = "response"
-    created: int
+    created_at: float
     model: str
-    output: list[ResponseOutputMessage]
+    output: list[ResponseOutputItem]
     status: ResponseStatus = ResponseStatus.COMPLETED
-    usage: ResponseUsage
+    usage: Optional[ResponseUsage] = None
     metadata: Optional[dict[str, Any]] = None
+    parallel_tool_calls: bool = False
+    tool_choice: Any = "auto"
+    tools: list[Any] = Field(default_factory=list)
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_output_tokens: Optional[int] = None
+    instructions: Optional[Any] = None
+    reasoning: Optional[Any] = None
+    service_tier: Optional[str] = None
+    previous_response_id: Optional[str] = None
+    prompt: Optional[Any] = None
+    text: Optional[Any] = None
+    background: Optional[bool] = None
+    max_tool_calls: Optional[int] = None
+    prompt_cache_key: Optional[str] = None
+    safety_identifier: Optional[str] = None
+
+
+class ResponseTextConfig(BaseModel):
+    format: Optional[dict[str, Any]] = None
+    verbosity: Optional[str] = None
+
+    class Config:
+        extra = "allow"
 
 
 class ResponseRequest(BaseModel):
@@ -77,6 +135,7 @@ class ResponseRequest(BaseModel):
     instructions: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     modalities: Optional[list[str]] = None
+    text: Optional[ResponseTextConfig] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_output_tokens: Optional[int] = None

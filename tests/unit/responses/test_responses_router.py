@@ -232,6 +232,7 @@ async def test_responses_streaming(mock_create_model, async_client, response_pay
 
     payload = {**response_payload, "stream": True}
     events = []
+    done_sentinel_lines: list[str] = []
 
     async with async_client.stream(
         "POST",
@@ -244,6 +245,8 @@ async def test_responses_streaming(mock_create_model, async_client, response_pay
         async for line in response.aiter_lines():
             if not line:
                 continue
+            if line.strip() == "data: [DONE]":
+                done_sentinel_lines.append(line)
             if line.startswith("event:"):
                 current_event = line.split(":", 1)[1].strip()
             elif line.startswith("data:") and current_event:
@@ -257,8 +260,10 @@ async def test_responses_streaming(mock_create_model, async_client, response_pay
     assert "response.content_part.added" in event_names
     assert "response.output_text.delta" in event_names
     assert "response.output_text.done" in event_names
+    assert "response.content_part.done" in event_names
     assert "response.output_item.done" in event_names
     assert "response.completed" in event_names
+    assert done_sentinel_lines == []
 
     deltas = [data["delta"] for event, data in events if event == "response.output_text.delta"]
     assert "".join(deltas) == "Hello there!"
@@ -281,6 +286,7 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     }
 
     events = []
+    done_sentinel_lines: list[str] = []
     async with async_client.stream(
         "POST",
         "/v1/responses",
@@ -292,6 +298,8 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
         async for line in response.aiter_lines():
             if not line:
                 continue
+            if line.strip() == "data: [DONE]":
+                done_sentinel_lines.append(line)
             if line.startswith("event:"):
                 current_event = line.split(":", 1)[1].strip()
             elif line.startswith("data:") and current_event:
@@ -305,6 +313,7 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     assert "response.function_call_arguments.done" in event_names
     assert "response.output_item.done" in event_names
     assert "response.completed" in event_names
+    assert done_sentinel_lines == []
 
     deltas = [
         data["delta"] for event, data in events if event == "response.function_call_arguments.delta"
@@ -316,6 +325,37 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     assert output_item["type"] == "function_call"
     assert output_item["arguments"] == '{"command":["ls"]}'
     assert output_item["name"] == "shell"
+
+
+def test_response_request_to_chat_request_text_format_json_schema():
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "greeting",
+                "schema": {
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"],
+                },
+                "strict": True,
+            }
+        },
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.response_format is not None
+    assert chat_request.response_format.type == "json_schema"
+    assert chat_request.response_format.json_schema is not None
+    assert chat_request.response_format.json_schema.name == "greeting"
+    assert chat_request.response_format.json_schema.schema_def == {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+    }
 
 
 def test_response_request_to_chat_request_text_only():

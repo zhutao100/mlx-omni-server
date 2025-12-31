@@ -6,10 +6,18 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Literal, Optional
 from uuid import uuid4
 
-from ..chat.schema import (ChatCompletionChunk, ChatCompletionRequest,
-                           ChatCompletionResponse, ChatCompletionUsage,
-                           ChatMessage, FunctionCall, MultimodalContentItem,
-                           Role, ToolCall, ToolType)
+from ..chat.schema import (
+    ChatCompletionChunk,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatCompletionUsage,
+    ChatMessage,
+    FunctionCall,
+    MultimodalContentItem,
+    Role,
+    ToolCall,
+    ToolType,
+)
 from .schema import ResponseRequest, ResponseStreamEvent
 
 
@@ -262,6 +270,7 @@ def response_request_to_chat_request(response_request: ResponseRequest) -> ChatC
 
     instructions = payload.pop("instructions", None)
     max_output_tokens = payload.pop("max_output_tokens", None)
+    text_config = payload.pop("text", None)
     payload.pop("input", None)
 
     chat_messages: list[ChatMessage] = []
@@ -273,6 +282,12 @@ def response_request_to_chat_request(response_request: ResponseRequest) -> ChatC
 
     payload["messages"] = chat_messages
 
+    if isinstance(text_config, dict):
+        text_format = text_config.get("format")
+        response_format = _convert_text_format_to_chat_response_format(text_format)
+        if response_format is not None:
+            payload["response_format"] = response_format
+
     if "tools" in payload:
         payload["tools"] = _normalize_tools(payload["tools"])
 
@@ -282,6 +297,29 @@ def response_request_to_chat_request(response_request: ResponseRequest) -> ChatC
         payload["max_completion_tokens"] = max_output_tokens
 
     return ChatCompletionRequest.model_validate(payload)
+
+
+def _convert_text_format_to_chat_response_format(text_format: Any) -> dict[str, Any] | None:
+    if not isinstance(text_format, dict):
+        return None
+
+    format_type = text_format.get("type")
+    if format_type == "json_schema":
+        # Responses API: {"type":"json_schema","name":...,"schema":{...},"strict":...}
+        # Chat Completions API: {"type":"json_schema","json_schema":{...}}
+        if "json_schema" in text_format and isinstance(text_format["json_schema"], dict):
+            return {"type": "json_schema", "json_schema": text_format["json_schema"]}
+
+        json_schema: dict[str, Any] = {}
+        for key in ("name", "description", "schema", "strict"):
+            if key in text_format:
+                json_schema[key] = text_format[key]
+        return {"type": "json_schema", "json_schema": json_schema}
+
+    if format_type in {"text", "json_object"}:
+        return {"type": format_type}
+
+    return None
 
 
 def _normalize_tools(tools: Any) -> Any:
@@ -701,6 +739,24 @@ class ResponseStreamAdapter:
                 },
             )
         ]
+
+        events.append(
+            ResponseStreamEvent(
+                event="response.content_part.done",
+                data={
+                    "type": "response.content_part.done",
+                    "sequence_number": self._next_sequence(),
+                    "output_index": state.index,
+                    "content_index": 0,
+                    "item_id": state.item_id,
+                    "part": {
+                        "type": "output_text",
+                        "text": state.text,
+                        "annotations": [],
+                    },
+                },
+            )
+        )
 
         events.append(
             ResponseStreamEvent(

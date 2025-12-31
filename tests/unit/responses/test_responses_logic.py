@@ -403,6 +403,7 @@ class TestResponsesUnit:
         assert "response.output_item.done" in event_types
         assert "response.output_text.delta" in event_types
         assert "response.output_text.done" in event_types
+        assert "response.content_part.done" in event_types
         assert event_types[-1] == "response.completed"
 
         deltas = [

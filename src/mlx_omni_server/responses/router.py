@@ -77,9 +77,6 @@ async def create_response(request: ResponseRequest, raw_request: Request):
             for event in events:
                 yield _format_sse_event(event)
 
-            if item.kind == "done":
-                yield "data: [DONE]\n\n"
-
     headers = {
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
