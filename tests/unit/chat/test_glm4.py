@@ -234,8 +234,8 @@ class TestGlm4ToolParser:
         assert args == {}
 
         text = """
-        <tool_call>
-        <tool_call>get_weather
+        Let's check the weather:
+        get_weather
         <arg_key>location</arg_key>
         <arg_value>Boston, MA</arg_value>
         <arg_key>unit</arg_key>
@@ -243,7 +243,7 @@ class TestGlm4ToolParser:
         </tool_call>
         """
         rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
-        assert rest_text.strip() == ""
+        assert rest_text.strip() == "Let's check the weather:"
         assert len(tool_calls) == 1
         tool_call = tool_calls[0]
         assert tool_call.function.name == "get_weather"

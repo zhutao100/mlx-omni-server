@@ -5,9 +5,11 @@ from typing import Dict
 
 import regex
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+from rich.markup import escape
 
 from mlx_omni_server.chat.tools.tool_parser import BaseToolParser
 
+from ...utils.logger import logger
 from ..schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
 
 
@@ -317,6 +319,8 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         # Update tool pattern if we have tools and the tool parser supports it
         self.tool_parser.update_tool_start_pattern(tools)
 
+        logger.debug(escape("Extracting tool calls from buffer: %s"), self.buffer)
+        logger.debug("Using tools: %s", [tool.function.name for tool in tools] if tools else "None")
         try:
             if not self.buffer.strip():
                 return None
