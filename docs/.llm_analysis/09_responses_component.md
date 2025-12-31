@@ -8,9 +8,9 @@ The `responses` component is an **adapter layer** on top of the existing `chat` 
     -   `POST /v1/responses` (create; stream or non-stream)
     -   `GET /v1/responses/{response_id}` (retrieve latest response object)
     -   `GET /v1/responses/{response_id}?stream=true` (SSE replay/progress from the in-memory event log)
-    -   `DELETE /v1/responses/{response_id}` (delete in-memory record)
+    -   `DELETE /v1/responses/{response_id}` (delete in-memory record; returns `{id, object:"response", deleted:true}`)
     -   `POST /v1/responses/{response_id}/cancel` (best-effort cancel; primarily for background responses)
-    -   `GET /v1/responses/{response_id}/input_items` (inspect resolved input items with basic pagination)
+    -   `GET /v1/responses/{response_id}/input_items` (inspect resolved input items via an OpenAI-style list envelope)
 -   **Schema:** Modeled after the OpenAI Responses API (`ResponseRequest`, `ResponseResponse`, `ResponseStreamEvent`). Streaming uses SSE event names like `response.created`, `response.output_text.delta`, and `response.completed` (no `[DONE]` sentinel).
 
 ## Core Logic (`router.py` and `adapter.py`)
@@ -22,7 +22,10 @@ The `responses` component is an **adapter layer** on top of the existing `chat` 
 -   **No Direct MLX Interaction:** This component does not have its own service class and does not interact with any MLX libraries directly. It is purely a data transformation layer.
 -   **Structured output compatibility:** Responses-style `text.format` is mapped to chat `response_format` so existing JSON-schema enforcement can be reused.
 -   **Chaining:** `previous_response_id` is supported by storing a compact “history messages” list per response and prepending it to the next request.
+-   **IDs:** Responses IDs use the `resp_...` namespace (the underlying chat `chatcmpl-...` IDs are not exposed).
 -   **Streaming lifecycle:** `ResponseStreamAdapter` emits a Responses-style SSE event stream including `response.in_progress`, and adds `response.content_part.done` so clients can close content parts cleanly.
+    -   The adapter normalizes error handling by emitting the SSE `error` event with a stable `code` and ending with a `response.completed` event with `status:"failed"`.
+    -   High-level unsupported request fields (e.g., `conversation`, `include`) are rejected with `400` instead of being silently accepted.
 
 ## State handling (`registry.py`)
 

@@ -205,6 +205,7 @@ def test_responses_non_stream(mock_create_model, client, response_payload):
 
     assert response.status_code == 200
     data = response.json()
+    assert data["id"].startswith("resp_")
     assert data["output"][0]["content"][0]["text"] == "Hello, world!"
     assert "x-idempotent-replay" not in response.headers
     assert mock_model.call_count == 1
@@ -221,7 +222,11 @@ def test_responses_non_stream_cache(mock_create_model, client, response_payload)
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.headers["x-idempotent-replay"] == "true"
-    assert first.json() == second.json()
+    assert first.json()["id"] != second.json()["id"]
+    assert (
+        first.json()["output"][0]["content"][0]["text"]
+        == second.json()["output"][0]["content"][0]["text"]
+    )
     assert mock_model.call_count == 1
 
 
@@ -249,7 +254,8 @@ def test_responses_delete_response(mock_create_model, client, response_payload):
     response_id = create.json()["id"]
 
     deleted = client.delete(f"/v1/responses/{response_id}")
-    assert deleted.status_code == 204
+    assert deleted.status_code == 200
+    assert deleted.json() == {"id": response_id, "object": "response", "deleted": True}
 
     missing = client.get(f"/v1/responses/{response_id}")
     assert missing.status_code == 404
@@ -276,8 +282,11 @@ def test_responses_input_items_pagination(mock_create_model, client):
     first_page = client.get(f"/v1/responses/{response_id}/input_items?order=asc&limit=2")
     assert first_page.status_code == 200
     first_data = first_page.json()
+    assert first_data["object"] == "list"
     assert first_data["has_more"] is True
     assert len(first_data["data"]) == 2
+    assert first_data["first_id"] == first_data["data"][0]["id"]
+    assert first_data["last_id"] == first_data["data"][-1]["id"]
     assert first_data["data"][0]["type"] == "message"
     assert first_data["data"][0]["role"] == "user"
 
@@ -287,8 +296,11 @@ def test_responses_input_items_pagination(mock_create_model, client):
     )
     assert second_page.status_code == 200
     second_data = second_page.json()
+    assert second_data["object"] == "list"
     assert second_data["has_more"] is False
     assert len(second_data["data"]) == 1
+    assert second_data["first_id"] == second_data["data"][0]["id"]
+    assert second_data["last_id"] == second_data["data"][-1]["id"]
 
 
 @pytest.mark.asyncio
@@ -331,6 +343,9 @@ async def test_responses_streaming(mock_create_model, async_client, response_pay
     assert "response.output_item.done" in event_names
     assert "response.completed" in event_names
     assert done_sentinel_lines == []
+
+    created_event = next(data for event, data in events if event == "response.created")
+    assert created_event["response"]["id"].startswith("resp_")
 
     deltas = [data["delta"] for event, data in events if event == "response.output_text.delta"]
     assert "".join(deltas) == "Hello there!"
@@ -392,6 +407,123 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     assert output_item["type"] == "function_call"
     assert output_item["arguments"] == '{"command":["ls"]}'
     assert output_item["name"] == "shell"
+
+
+def test_responses_reject_conversation(client):
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "test-model",
+            "input": "Hello",
+            "conversation": "conv_123",
+        },
+    )
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["type"] == "invalid_request_error"
+    assert payload["error"]["code"] == "invalid_request"
+
+
+def test_responses_reject_include(client):
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "test-model",
+            "input": "Hello",
+            "include": ["message.output_text.logprobs"],
+        },
+    )
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["type"] == "invalid_request_error"
+    assert payload["error"]["code"] == "invalid_request"
+
+
+class MockFailModel(BaseTextModel):
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        raise RuntimeError("boom")
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        yield from ()
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_non_stream_error_envelope(mock_create_model, client):
+    mock_create_model.return_value = MockFailModel()
+
+    response = client.post("/v1/responses", json={"model": "test-model", "input": "Hello"})
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["error"]["type"] == "server_error"
+    assert payload["error"]["code"] == "server_error"
+    assert "boom" in payload["error"]["message"]
+
+
+class MockStreamFailModel(BaseTextModel):
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        raise RuntimeError("boom")
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        raise RuntimeError("stream boom")
+
+
+@pytest.mark.asyncio
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+async def test_responses_streaming_error_event(mock_create_model, async_client):
+    mock_create_model.return_value = MockStreamFailModel()
+
+    payload = {"model": "test-model", "input": "Hello", "stream": True}
+    events: list[tuple[str, dict]] = []
+    async with async_client.stream(
+        "POST",
+        "/v1/responses",
+        content=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    ) as response:
+        assert response.status_code == 200
+        current_event = None
+        async for line in response.aiter_lines():
+            if not line:
+                continue
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and current_event:
+                data = json.loads(line.split(":", 1)[1].strip())
+                events.append((current_event, data))
+                current_event = None
+
+    event_names = [event for event, _ in events]
+    assert "response.created" in event_names
+    assert "response.in_progress" in event_names
+    assert "error" in event_names
+    assert "response.completed" in event_names
+
+    error_event = next(data for event, data in events if event == "error")
+    assert error_event["code"] == "server_error"
+
+    completed = next(data for event, data in events if event == "response.completed")
+    assert completed["response"]["status"] == "failed"
+    assert completed["response"]["error"]["code"] == "server_error"
 
 
 @pytest.mark.asyncio

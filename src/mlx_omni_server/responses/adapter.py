@@ -1029,8 +1029,23 @@ class ResponseStreamAdapter:
 
     def on_error(self, payload: dict[str, Any]) -> list[ResponseStreamEvent]:
         message = payload.get("message", "Generation failed")
-        code = payload.get("error") or "server_error"
-        self._error = {"code": code, "message": message}
+        raw_code = payload.get("error")
+        if raw_code in {None, "Generation failed"}:
+            code = "server_error"
+            error_type = "server_error"
+        elif raw_code == "Request cancelled":
+            code = "cancelled"
+            error_type = "cancelled"
+        else:
+            code = str(raw_code)
+            error_type = "server_error"
+
+        self._error = {
+            "message": message,
+            "type": error_type,
+            "code": code,
+            "param": None,
+        }
 
         events: list[ResponseStreamEvent] = []
         events.extend(self._ensure_lifecycle_started())

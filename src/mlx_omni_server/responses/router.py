@@ -5,10 +5,10 @@ import time
 from typing import Any, AsyncGenerator, Iterable
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ..chat.generation_service import chat_generation_service, make_request_hash
+from ..chat.generation_service import chat_generation_service
 from ..chat.schema import ChatCompletionResponse, Role
 from .adapter import (
     ResponseStreamAdapter,
@@ -28,6 +28,27 @@ def _format_sse_event(event: ResponseStreamEvent) -> str:
     return f"event: {event.event}\ndata: {json.dumps(event.data)}\n\n"
 
 
+def _openai_error_response(
+    status_code: int,
+    message: str,
+    *,
+    error_type: str,
+    code: str | None = None,
+    param: Any = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "message": message,
+                "type": error_type,
+                "param": param,
+                "code": code,
+            }
+        },
+    )
+
+
 @router.get("/responses/{response_id}", response_model=ResponseResponse)
 @router.get("/v1/responses/{response_id}", response_model=ResponseResponse)
 async def retrieve_response(response_id: str, raw_request: Request):
@@ -39,11 +60,21 @@ async def retrieve_response(response_id: str, raw_request: Request):
 
     record = await responses_registry.get(response_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Response not found")
+        return _openai_error_response(
+            404,
+            "Response not found",
+            error_type="invalid_request_error",
+            code="not_found",
+        )
 
     if not stream:
         if record.response is None:
-            raise HTTPException(status_code=404, detail="Response not available yet")
+            return _openai_error_response(
+                404,
+                "Response not available yet",
+                error_type="invalid_request_error",
+                code="not_found",
+            )
         return JSONResponse(content=record.response)
 
     async def event_stream() -> AsyncGenerator[str, None]:
@@ -66,8 +97,19 @@ async def retrieve_response(response_id: str, raw_request: Request):
 async def delete_response(response_id: str):
     deleted = await responses_registry.delete(response_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Response not found")
-    return Response(status_code=204)
+        return _openai_error_response(
+            404,
+            "Response not found",
+            error_type="invalid_request_error",
+            code="not_found",
+        )
+    return JSONResponse(
+        content={
+            "id": response_id,
+            "object": "response",
+            "deleted": True,
+        }
+    )
 
 
 @router.post("/responses/{response_id}/cancel", response_model=ResponseResponse)
@@ -75,7 +117,12 @@ async def delete_response(response_id: str):
 async def cancel_response(response_id: str):
     record = await responses_registry.get(response_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Response not found")
+        return _openai_error_response(
+            404,
+            "Response not found",
+            error_type="invalid_request_error",
+            code="not_found",
+        )
 
     if isinstance(record.response, dict):
         status = record.response.get("status")
@@ -83,9 +130,12 @@ async def cancel_response(response_id: str):
             return JSONResponse(content=record.response)
 
     if record.cancel_event is None:
-        if record.response is not None:
-            return JSONResponse(content=record.response)
-        raise HTTPException(status_code=409, detail="Response cannot be cancelled")
+        return _openai_error_response(
+            400,
+            "Only background responses can be cancelled",
+            error_type="invalid_request_error",
+            code="invalid_request",
+        )
 
     record.cancel_event.set()
 
@@ -121,13 +171,23 @@ async def cancel_response(response_id: str):
 async def list_input_items(response_id: str, raw_request: Request):
     record = await responses_registry.get(response_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Response not found")
+        return _openai_error_response(
+            404,
+            "Response not found",
+            error_type="invalid_request_error",
+            code="not_found",
+        )
 
     items = chat_messages_to_response_items(record.input_messages, response_id=response_id)
 
     order = raw_request.query_params.get("order") or "desc"
     if order not in {"asc", "desc"}:
-        raise HTTPException(status_code=400, detail="Invalid order")
+        return _openai_error_response(
+            400,
+            "Invalid order",
+            error_type="invalid_request_error",
+            code="invalid_request",
+        )
 
     if order == "desc":
         items = list(reversed(items))
@@ -153,7 +213,15 @@ async def list_input_items(response_id: str, raw_request: Request):
     has_more = len(items) > limit
     page = items[:limit]
 
-    return {"data": page, "has_more": has_more}
+    first_id = page[0]["id"] if page else None
+    last_id = page[-1]["id"] if page else None
+    return {
+        "object": "list",
+        "data": page,
+        "first_id": first_id,
+        "last_id": last_id,
+        "has_more": has_more,
+    }
 
 
 @router.post("/responses", response_model=ResponseResponse)
@@ -163,12 +231,33 @@ async def create_response(request: ResponseRequest, raw_request: Request):
     request_dump = request.model_dump(exclude_none=True)
     logging.debug("Received responses request: %s", request_dump)
 
+    if request_dump.get("conversation") is not None:
+        return _openai_error_response(
+            400,
+            "conversation is not supported",
+            error_type="invalid_request_error",
+            code="invalid_request",
+        )
+
+    if request_dump.get("include"):
+        return _openai_error_response(
+            400,
+            "include is not supported",
+            error_type="invalid_request_error",
+            code="invalid_request",
+        )
+
     chat_request = response_request_to_chat_request(request)
 
     if request.previous_response_id:
         prev_record = await responses_registry.get(request.previous_response_id)
         if prev_record is None or not prev_record.history_messages:
-            raise HTTPException(status_code=404, detail="Previous response not found")
+            return _openai_error_response(
+                404,
+                "Previous response not found",
+                error_type="invalid_request_error",
+                code="not_found",
+            )
 
         messages = list(chat_request.messages)
         head: list[Any] = []
@@ -187,8 +276,11 @@ async def create_response(request: ResponseRequest, raw_request: Request):
 
     if request.background:
         if chat_request.stream:
-            raise HTTPException(
-                status_code=400, detail="background is not supported with stream=true"
+            return _openai_error_response(
+                400,
+                "background is not supported with stream=true",
+                error_type="invalid_request_error",
+                code="invalid_request",
             )
 
         response_id = f"resp_{uuid4().hex}"
@@ -317,7 +409,12 @@ async def create_response(request: ResponseRequest, raw_request: Request):
                     output=[],
                     usage=None,
                     request_echo=request_echo,
-                    error={"code": "server_error", "message": str(payload)},
+                    error={
+                        "message": str(payload),
+                        "type": "server_error",
+                        "code": "server_error",
+                        "param": None,
+                    },
                 )
 
             await responses_registry.set_response(response_id, response=final_response)
@@ -341,6 +438,7 @@ async def create_response(request: ResponseRequest, raw_request: Request):
         return JSONResponse(content=initial_response)
 
     if not chat_request.stream:
+        response_id = f"resp_{uuid4().hex}"
         result = await chat_generation_service.generate_non_stream(
             chat_request,
             raw_request.is_disconnected,
@@ -351,7 +449,11 @@ async def create_response(request: ResponseRequest, raw_request: Request):
         status_code = 500 if result.is_error else 200
 
         if isinstance(payload, ChatCompletionResponse):
-            response_dict = chat_response_to_response(payload, request_echo=request_dump)
+            response_dict = chat_response_to_response(
+                payload,
+                request_echo=request_dump,
+                response_id_override=response_id,
+            )
             await responses_registry.create(
                 response_dict["id"],
                 request=request_dump,
@@ -414,16 +516,26 @@ async def create_response(request: ResponseRequest, raw_request: Request):
                 status_code=status_code,
             )
 
-        return JSONResponse(content=payload, headers=headers, status_code=status_code)
+        if isinstance(payload, dict):
+            message = payload.get("message") or payload.get("error") or "Generation failed"
+        else:
+            message = str(payload)
+
+        return _openai_error_response(
+            status_code,
+            message,
+            error_type="server_error",
+            code="server_error",
+        )
 
     stream, is_replay = await chat_generation_service.stream_chat_completion(
         chat_request,
         raw_request.is_disconnected,
     )
 
-    provisional_id = make_request_hash(chat_request)
+    response_id = f"resp_{uuid4().hex}"
     await responses_registry.create(
-        provisional_id,
+        response_id,
         request=request_dump,
         input_messages=[m.model_copy(deep=True) for m in chat_request.messages],
         instructions=request.instructions,
@@ -432,23 +544,16 @@ async def create_response(request: ResponseRequest, raw_request: Request):
     )
 
     adapter = ResponseStreamAdapter(
-        response_id=provisional_id,
+        response_id=response_id,
         model=chat_request.model,
         request_echo=request_dump,
     )
 
     async def event_stream() -> AsyncGenerator[str, None]:
-        response_id = provisional_id
         async for item in stream:
             events: Iterable[ResponseStreamEvent]
             if item.kind == "chunk":
                 chunk = item.data
-                if chunk.id:
-                    adapter.set_response_id(chunk.id)
-                    if chunk.id != response_id:
-                        renamed = await responses_registry.rename(response_id, chunk.id)
-                        if renamed is not None:
-                            response_id = chunk.id
                 events = adapter.on_chunk(chunk)
             elif item.kind == "error":
                 events = adapter.on_error(item.data)

@@ -370,7 +370,7 @@ class TestResponsesUnit:
                 input="Hello",
             )
 
-        assert response.id == "resp-id"
+        assert response.id.startswith("resp_")
         assert response.status == "completed"
         assert response.output[0].type == "function_call"
         assert response.output[0].arguments == '{"command":["ls"]}'

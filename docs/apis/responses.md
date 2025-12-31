@@ -2,6 +2,8 @@
 
 This API is a shim over the existing Chat Completions implementation, exposing an OpenAI-compatible `/v1/responses` surface.
 
+Response IDs use the Responses namespace (`resp_...`) and do not expose the underlying Chat Completions `chatcmpl-...` IDs.
+
 ## Create (non-stream)
 
 ```python
@@ -66,9 +68,16 @@ If `background=true` (and `stream=false`), the server returns a queued Response 
 ## Additional endpoints
 
 - `GET /v1/responses/{response_id}` (retrieve)
-- `DELETE /v1/responses/{response_id}` (delete)
+- `DELETE /v1/responses/{response_id}` (delete; returns `{id, object:"response", deleted:true}`)
 - `POST /v1/responses/{response_id}/cancel` (cancel; primarily for background responses)
-- `GET /v1/responses/{response_id}/input_items` (inspect the resolved input items; supports `order`, `limit`, `after`, `before`)
+- `GET /v1/responses/{response_id}/input_items` (inspect resolved input items; returns an OpenAI-style list envelope with `object`, `first_id`, `last_id`, `has_more`)
+
+## Unsupported fields
+
+High-level Responses features that are not implemented are rejected with a `400` error (not silently accepted), including:
+
+- `conversation`
+- `include`
 
 ## Storage model
 
