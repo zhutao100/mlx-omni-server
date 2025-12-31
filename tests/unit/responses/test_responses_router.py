@@ -3,6 +3,7 @@ import time
 from unittest.mock import patch
 
 import pytest
+from httpx import AsyncClient
 
 from mlx_omni_server.chat.schema import (
     ChatCompletionChunk,
@@ -224,6 +225,72 @@ def test_responses_non_stream_cache(mock_create_model, client, response_payload)
     assert mock_model.call_count == 1
 
 
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_retrieve_non_stream(mock_create_model, client, response_payload):
+    mock_model = MockTextModel()
+    mock_create_model.return_value = mock_model
+
+    create = client.post("/v1/responses", json=response_payload)
+    assert create.status_code == 200
+    created = create.json()
+
+    retrieve = client.get(f"/v1/responses/{created['id']}")
+    assert retrieve.status_code == 200
+    assert retrieve.json() == created
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_delete_response(mock_create_model, client, response_payload):
+    mock_model = MockTextModel()
+    mock_create_model.return_value = mock_model
+
+    create = client.post("/v1/responses", json=response_payload)
+    assert create.status_code == 200
+    response_id = create.json()["id"]
+
+    deleted = client.delete(f"/v1/responses/{response_id}")
+    assert deleted.status_code == 204
+
+    missing = client.get(f"/v1/responses/{response_id}")
+    assert missing.status_code == 404
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_input_items_pagination(mock_create_model, client):
+    mock_model = MockTextModel()
+    mock_create_model.return_value = mock_model
+
+    payload = {
+        "model": "test-model",
+        "input": [
+            {"role": "user", "content": "one"},
+            {"role": "user", "content": "two"},
+            {"role": "user", "content": "three"},
+        ],
+    }
+
+    create = client.post("/v1/responses", json=payload)
+    assert create.status_code == 200
+    response_id = create.json()["id"]
+
+    first_page = client.get(f"/v1/responses/{response_id}/input_items?order=asc&limit=2")
+    assert first_page.status_code == 200
+    first_data = first_page.json()
+    assert first_data["has_more"] is True
+    assert len(first_data["data"]) == 2
+    assert first_data["data"][0]["type"] == "message"
+    assert first_data["data"][0]["role"] == "user"
+
+    after = first_data["data"][1]["id"]
+    second_page = client.get(
+        f"/v1/responses/{response_id}/input_items?order=asc&limit=2&after={after}"
+    )
+    assert second_page.status_code == 200
+    second_data = second_page.json()
+    assert second_data["has_more"] is False
+    assert len(second_data["data"]) == 1
+
+
 @pytest.mark.asyncio
 @patch("mlx_omni_server.chat.generation_service._create_text_model")
 async def test_responses_streaming(mock_create_model, async_client, response_payload):
@@ -325,6 +392,165 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     assert output_item["type"] == "function_call"
     assert output_item["arguments"] == '{"command":["ls"]}'
     assert output_item["name"] == "shell"
+
+
+@pytest.mark.asyncio
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+async def test_responses_retrieve_stream_replay(mock_create_model, async_client, response_payload):
+    mock_model = MockTextModel()
+    mock_create_model.return_value = mock_model
+
+    create = await async_client.post("/v1/responses", json=response_payload)
+    assert create.status_code == 200
+    response_id = create.json()["id"]
+
+    events: list[tuple[str, dict]] = []
+    done_sentinel_lines: list[str] = []
+    async with async_client.stream(
+        "GET",
+        f"/v1/responses/{response_id}?stream=true",
+    ) as response:
+        assert response.status_code == 200
+        current_event = None
+        async for line in response.aiter_lines():
+            if not line:
+                continue
+            if line.strip() == "data: [DONE]":
+                done_sentinel_lines.append(line)
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and current_event:
+                data = json.loads(line.split(":", 1)[1].strip())
+                events.append((current_event, data))
+                current_event = None
+
+    assert done_sentinel_lines == []
+    event_names = [event for event, _ in events]
+    assert event_names[0] == "response.created"
+    assert "response.completed" in event_names
+
+
+class MockHistoryModel(BaseTextModel):
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        self.call_count += 1
+        if self.call_count == 2:
+            assert any(
+                message.role == Role.ASSISTANT and message.content == "first"
+                for message in request.messages
+            )
+
+        content = "first" if self.call_count == 1 else "second"
+        response_id = "resp-first" if self.call_count == 1 else "resp-second"
+        return ChatCompletionResponse(
+            id=response_id,
+            created=int(time.time()),
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            usage={
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8,
+            },
+        )
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        yield from ()
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_previous_response_id_prepends_history(mock_create_model, client):
+    mock_model = MockHistoryModel()
+    mock_create_model.return_value = mock_model
+
+    first = client.post("/v1/responses", json={"model": "test-model", "input": "hello"})
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    second = client.post(
+        "/v1/responses",
+        json={"model": "test-model", "input": "follow-up", "previous_response_id": first_id},
+    )
+    assert second.status_code == 200
+
+
+class MockCancellableModel(BaseTextModel):
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        from mlx_lm.generate import GenerationCancelled
+
+        deadline = time.time() + 2
+        while should_cancel is not None and not should_cancel() and time.time() < deadline:
+            time.sleep(0.01)
+
+        if should_cancel is not None and should_cancel():
+            raise GenerationCancelled()
+
+        return ChatCompletionResponse(
+            id="resp-cancellable",
+            created=int(time.time()),
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "done"},
+                    "finish_reason": "stop",
+                }
+            ],
+            usage={
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8,
+            },
+        )
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        yield from ()
+
+
+@pytest.mark.asyncio
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+async def test_responses_background_cancel(mock_create_model, async_client: AsyncClient):
+    mock_create_model.return_value = MockCancellableModel()
+
+    create = await async_client.post(
+        "/v1/responses",
+        json={"model": "test-model", "input": "hello", "background": True},
+    )
+    assert create.status_code == 200
+    created = create.json()
+    assert created["status"] == "queued"
+
+    cancelled = await async_client.post(f"/v1/responses/{created['id']}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
 
 
 def test_response_request_to_chat_request_text_format_json_schema():

@@ -370,6 +370,159 @@ def _message_content_to_output_items(message: ChatMessage | None) -> list[dict[s
     return output_items
 
 
+def chat_messages_to_response_items(
+    messages: list[ChatMessage],
+    *,
+    response_id: str,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    item_index = 0
+
+    for message in messages:
+        if message.role == Role.TOOL:
+            output = message.content
+            if not isinstance(output, str):
+                output = json.dumps(output, separators=(",", ":"))
+            items.append(
+                {
+                    "id": f"{response_id}-input-{item_index}",
+                    "type": "function_call_output",
+                    "status": "completed",
+                    "call_id": message.tool_call_id,
+                    "output": output,
+                }
+            )
+            item_index += 1
+            continue
+
+        if message.role == Role.ASSISTANT and message.tool_calls:
+            for tool_call in message.tool_calls:
+                items.append(
+                    {
+                        "id": f"{response_id}-input-{item_index}",
+                        "type": "function_call",
+                        "status": "completed",
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                        "call_id": tool_call.id,
+                    }
+                )
+                item_index += 1
+
+        if message.role in {Role.USER, Role.SYSTEM}:
+            content_list: list[dict[str, Any]] = []
+            if isinstance(message.content, str):
+                content_list.append({"type": "input_text", "text": message.content})
+            elif isinstance(message.content, list):
+                for content_item in _ensure_multimodal_items(message.content):
+                    if content_item.type == "text" and content_item.text is not None:
+                        content_list.append({"type": "input_text", "text": content_item.text})
+                    elif content_item.type == "image_url" and content_item.image_url is not None:
+                        content_list.append(
+                            {
+                                "type": "input_image",
+                                "image_url": content_item.image_url.url,
+                                "detail": "auto",
+                            }
+                        )
+                    else:
+                        content_list.append(
+                            {"type": "input_text", "text": f"[{content_item.type}]"}
+                        )
+            else:
+                content_list.append({"type": "input_text", "text": ""})
+
+            items.append(
+                {
+                    "id": f"{response_id}-input-{item_index}",
+                    "type": "message",
+                    "status": "completed",
+                    "role": message.role.value,
+                    "content": content_list,
+                }
+            )
+            item_index += 1
+            continue
+
+        if message.role == Role.ASSISTANT:
+            items.append(
+                {
+                    "id": f"{response_id}-input-{item_index}",
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": _message_content_to_output_items(message),
+                }
+            )
+            item_index += 1
+
+    return items
+
+
+def response_output_items_to_chat_messages(
+    output_items: Iterable[dict[str, Any]],
+) -> list[ChatMessage]:
+    messages: list[ChatMessage] = []
+    for item in output_items:
+        item_type = item.get("type")
+        if item_type == "function_call":
+            call_id = item.get("call_id") or item.get("id") or str(uuid4())
+            name = item.get("name") or "tool"
+            arguments = item.get("arguments") or ""
+            messages.append(
+                ChatMessage(
+                    role=Role.ASSISTANT,
+                    tool_calls=[
+                        ToolCall(
+                            id=call_id,
+                            type=ToolType.FUNCTION,
+                            function=FunctionCall(name=name, arguments=arguments),
+                        )
+                    ],
+                )
+            )
+            continue
+
+        if item_type == "message":
+            content = item.get("content") or []
+            text_segments: list[str] = []
+            if isinstance(content, list):
+                for part in content:
+                    if (
+                        isinstance(part, dict)
+                        and part.get("type") == "output_text"
+                        and part.get("text")
+                    ):
+                        text_segments.append(str(part["text"]))
+            messages.append(
+                ChatMessage(
+                    role=Role.ASSISTANT,
+                    content="".join(text_segments),
+                )
+            )
+
+    return messages
+
+
+def build_history_messages_for_next_request(
+    *,
+    input_messages: list[ChatMessage],
+    instructions: str | None,
+    output_items: list[dict[str, Any]],
+) -> list[ChatMessage]:
+    messages = list(input_messages)
+    if (
+        instructions
+        and messages
+        and messages[0].role == Role.SYSTEM
+        and messages[0].content == instructions
+    ):
+        messages = messages[1:]
+
+    messages.extend(response_output_items_to_chat_messages(output_items))
+    return messages
+
+
 def _build_usage_dict(usage: ChatCompletionUsage | None) -> dict[str, Any]:
     if usage is None:
         return {
@@ -391,9 +544,66 @@ def _build_usage_dict(usage: ChatCompletionUsage | None) -> dict[str, Any]:
     }
 
 
-def chat_response_to_response(chat_response: ChatCompletionResponse) -> dict[str, Any]:
-    response_id = chat_response.id
-    created_at = float(chat_response.created)
+def build_response_dict(
+    *,
+    response_id: str,
+    created_at: int,
+    model: str,
+    status: str,
+    output: list[dict[str, Any]],
+    usage: dict[str, Any] | None,
+    request_echo: dict[str, Any] | None = None,
+    error: dict[str, Any] | None = None,
+    incomplete_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    request_echo = request_echo or {}
+
+    tools = request_echo.get("tools") or []
+    if not isinstance(tools, list):
+        tools = [tools]
+
+    return {
+        "id": response_id,
+        "object": "response",
+        "created_at": created_at,
+        "error": error,
+        "incomplete_details": incomplete_details,
+        "model": model,
+        "status": status,
+        "output": output,
+        "usage": usage,
+        "parallel_tool_calls": bool(request_echo.get("parallel_tool_calls", True)),
+        "tool_choice": request_echo.get("tool_choice", "auto"),
+        "tools": tools,
+        "temperature": request_echo.get("temperature"),
+        "top_p": request_echo.get("top_p"),
+        "truncation": request_echo.get("truncation"),
+        "store": request_echo.get("store"),
+        "max_output_tokens": request_echo.get("max_output_tokens"),
+        "metadata": request_echo.get("metadata"),
+        "instructions": request_echo.get("instructions"),
+        "reasoning": request_echo.get("reasoning"),
+        "service_tier": request_echo.get("service_tier"),
+        "previous_response_id": request_echo.get("previous_response_id"),
+        "prompt": request_echo.get("prompt"),
+        "text": request_echo.get("text"),
+        "background": request_echo.get("background"),
+        "max_tool_calls": request_echo.get("max_tool_calls"),
+        "prompt_cache_key": request_echo.get("prompt_cache_key"),
+        "safety_identifier": request_echo.get("safety_identifier"),
+        "top_logprobs": request_echo.get("top_logprobs"),
+        "user": request_echo.get("user"),
+    }
+
+
+def chat_response_to_response(
+    chat_response: ChatCompletionResponse,
+    *,
+    request_echo: dict[str, Any] | None = None,
+    response_id_override: str | None = None,
+) -> dict[str, Any]:
+    response_id = response_id_override or chat_response.id
+    created_at = int(chat_response.created)
 
     output_items: list[dict[str, Any]] = []
     for choice in chat_response.choices:
@@ -428,32 +638,15 @@ def chat_response_to_response(chat_response: ChatCompletionResponse) -> dict[str
                 }
             )
 
-    return {
-        "id": response_id,
-        "object": "response",
-        "created_at": created_at,
-        "model": chat_response.model,
-        "status": "completed",
-        "output": output_items,
-        "usage": _build_usage_dict(chat_response.usage),
-        "parallel_tool_calls": False,
-        "tool_choice": "auto",
-        "tools": [],
-        "temperature": None,
-        "top_p": None,
-        "max_output_tokens": None,
-        "metadata": None,
-        "instructions": None,
-        "reasoning": None,
-        "service_tier": None,
-        "previous_response_id": None,
-        "prompt": None,
-        "text": None,
-        "background": None,
-        "max_tool_calls": None,
-        "prompt_cache_key": None,
-        "safety_identifier": None,
-    }
+    return build_response_dict(
+        response_id=response_id,
+        created_at=created_at,
+        model=chat_response.model,
+        status="completed",
+        output=output_items,
+        usage=_build_usage_dict(chat_response.usage),
+        request_echo=request_echo,
+    )
 
 
 def _extract_text_from_delta(delta: ChatMessage | None) -> str:
@@ -474,13 +667,18 @@ def _extract_text_from_delta(delta: ChatMessage | None) -> str:
 class ResponseStreamAdapter:
     """Builds Responses API compliant streaming events from chat completion chunks."""
 
-    def __init__(self, response_id: str, model: str) -> None:
+    def __init__(
+        self, response_id: str, model: str, *, request_echo: dict[str, Any] | None = None
+    ) -> None:
         self.response_id = response_id
         self.model = model
+        self._request_echo = request_echo or {}
         self._created_event_emitted = False
-        self._created_at: float | None = None
+        self._in_progress_event_emitted = False
+        self._created_at: int | None = None
         self._sequence = 0
         self._usage: ChatCompletionUsage | None = None
+        self._error: dict[str, Any] | None = None
         self._items: dict[str, OutputItemState] = {}
         self._key_to_index: dict[str, int] = {}
         self._index_to_key: dict[int, str] = {}
@@ -509,7 +707,7 @@ class ResponseStreamAdapter:
         if self._created_event_emitted:
             return []
 
-        created = self._created_at or time.time()
+        created = self._created_at or int(time.time())
         self._created_at = created
 
         event = ResponseStreamEvent(
@@ -522,6 +720,29 @@ class ResponseStreamAdapter:
         )
         self._created_event_emitted = True
         return [event]
+
+    def _ensure_in_progress_event(self) -> list[ResponseStreamEvent]:
+        if self._in_progress_event_emitted:
+            return []
+        if not self._created_event_emitted:
+            return []
+
+        event = ResponseStreamEvent(
+            event="response.in_progress",
+            data={
+                "type": "response.in_progress",
+                "sequence_number": self._next_sequence(),
+                "response": self._build_response_dict(status="in_progress", include_usage=False),
+            },
+        )
+        self._in_progress_event_emitted = True
+        return [event]
+
+    def _ensure_lifecycle_started(self) -> list[ResponseStreamEvent]:
+        events: list[ResponseStreamEvent] = []
+        events.extend(self._ensure_created_event())
+        events.extend(self._ensure_in_progress_event())
+        return events
 
     def _message_key(self, choice_index: int) -> str:
         context_key = self._message_context.get(choice_index)
@@ -637,9 +858,9 @@ class ResponseStreamAdapter:
     def on_chunk(self, chunk: ChatCompletionChunk) -> list[ResponseStreamEvent]:
         events: list[ResponseStreamEvent] = []
         if chunk.created:
-            self._created_at = float(chunk.created)
+            self._created_at = int(chunk.created)
 
-        events.extend(self._ensure_created_event())
+        events.extend(self._ensure_lifecycle_started())
 
         if chunk.usage:
             self._usage = chunk.usage
@@ -806,29 +1027,32 @@ class ResponseStreamAdapter:
 
         return events
 
-    def on_error(self, payload: dict[str, Any]) -> ResponseStreamEvent:
+    def on_error(self, payload: dict[str, Any]) -> list[ResponseStreamEvent]:
         message = payload.get("message", "Generation failed")
-        code = payload.get("error")
-        return ResponseStreamEvent(
-            event="error",
-            data={
-                "type": "error",
-                "sequence_number": self._next_sequence(),
-                "message": message,
-                "code": code,
-                "param": None,
-            },
+        code = payload.get("error") or "server_error"
+        self._error = {"code": code, "message": message}
+
+        events: list[ResponseStreamEvent] = []
+        events.extend(self._ensure_lifecycle_started())
+        events.append(
+            ResponseStreamEvent(
+                event="error",
+                data={
+                    "type": "error",
+                    "sequence_number": self._next_sequence(),
+                    "message": message,
+                    "code": code,
+                    "param": None,
+                },
+            )
         )
+        return events
 
     def on_done(self) -> list[ResponseStreamEvent]:
         events: list[ResponseStreamEvent] = []
-        events.extend(self._ensure_created_event())
+        events.extend(self._ensure_lifecycle_started())
 
-        if not self._items:
-            new_events, state = self._ensure_message_item(0)
-            events.extend(new_events)
-            events.extend(self._emit_message_done(state))
-        else:
+        if self._items:
             for index in sorted(self._index_to_key.keys()):
                 key = self._index_to_key[index]
                 state = self._items[key]
@@ -836,8 +1060,13 @@ class ResponseStreamAdapter:
                     events.extend(self._emit_function_call_done(state))
                 else:
                     events.extend(self._emit_message_done(state))
+        elif self._error is None:
+            new_events, state = self._ensure_message_item(0)
+            events.extend(new_events)
+            events.extend(self._emit_message_done(state))
 
-        response = self._build_response_dict(status="completed", include_usage=True)
+        status = "failed" if self._error else "completed"
+        response = self._build_response_dict(status=status, include_usage=True, error=self._error)
         events.append(
             ResponseStreamEvent(
                 event="response.completed",
@@ -850,37 +1079,29 @@ class ResponseStreamAdapter:
         )
         return events
 
-    def _build_response_dict(self, status: str, include_usage: bool) -> dict[str, Any]:
-        created = self._created_at or time.time()
+    def _build_response_dict(
+        self,
+        status: str,
+        include_usage: bool,
+        *,
+        error: dict[str, Any] | None = None,
+        incomplete_details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        created = self._created_at or int(time.time())
         output_items: list[dict[str, Any]] = []
         for index in sorted(self._index_to_key.keys()):
             key = self._index_to_key[index]
             state = self._items[key]
             output_items.append(state.to_output_dict())
 
-        return {
-            "id": self.response_id,
-            "object": "response",
-            "created_at": created,
-            "model": self.model,
-            "status": status,
-            "output": output_items,
-            "usage": _build_usage_dict(self._usage) if include_usage else None,
-            "parallel_tool_calls": False,
-            "tool_choice": "auto",
-            "tools": [],
-            "temperature": None,
-            "top_p": None,
-            "max_output_tokens": None,
-            "metadata": None,
-            "instructions": None,
-            "reasoning": None,
-            "service_tier": None,
-            "previous_response_id": None,
-            "prompt": None,
-            "text": None,
-            "background": None,
-            "max_tool_calls": None,
-            "prompt_cache_key": None,
-            "safety_identifier": None,
-        }
+        return build_response_dict(
+            response_id=self.response_id,
+            created_at=created,
+            model=self.model,
+            status=status,
+            output=output_items,
+            usage=_build_usage_dict(self._usage) if include_usage else None,
+            request_echo=self._request_echo,
+            error=error,
+            incomplete_details=incomplete_details,
+        )

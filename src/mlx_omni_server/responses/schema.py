@@ -97,17 +97,21 @@ class ResponseUsage(BaseModel):
 class ResponseResponse(BaseModel):
     id: str
     object: Literal["response"] = "response"
-    created_at: float
+    created_at: int
+    error: Optional[dict[str, Any]] = None
+    incomplete_details: Optional[dict[str, Any]] = None
     model: str
     output: list[ResponseOutputItem]
     status: ResponseStatus = ResponseStatus.COMPLETED
     usage: Optional[ResponseUsage] = None
     metadata: Optional[dict[str, Any]] = None
-    parallel_tool_calls: bool = False
+    parallel_tool_calls: bool = True
     tool_choice: Any = "auto"
     tools: list[Any] = Field(default_factory=list)
     temperature: Optional[float] = None
     top_p: Optional[float] = None
+    truncation: Optional[str] = None
+    store: Optional[bool] = None
     max_output_tokens: Optional[int] = None
     instructions: Optional[Any] = None
     reasoning: Optional[Any] = None
@@ -135,6 +139,13 @@ class ResponseRequest(BaseModel):
     instructions: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     modalities: Optional[list[str]] = None
+    previous_response_id: Optional[str] = None
+    background: Optional[bool] = None
+    store: Optional[bool] = None
+    parallel_tool_calls: Optional[bool] = None
+    tools: Optional[list[Any]] = None
+    tool_choice: Optional[Any] = None
+    truncation: Optional[str] = None
     text: Optional[ResponseTextConfig] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
