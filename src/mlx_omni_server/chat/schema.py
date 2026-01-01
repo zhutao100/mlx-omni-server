@@ -95,6 +95,14 @@ class MultimodalContentItem(BaseModel):
     image_url: Optional[ImageUrl] = None
     input_audio: Optional[AudioInput] = None
 
+    @field_validator("image_url", mode="before")
+    def coerce_image_url(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            return {"url": value}
+        return value
+
 
 class ChatMessage(BaseModel):
     role: Role

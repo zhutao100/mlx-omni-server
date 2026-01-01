@@ -11,6 +11,7 @@ from mlx_omni_server.chat.schema import (
     ChatCompletionResponse,
     ChatMessage,
     FunctionCall,
+    MultimodalContentItem,
     Role,
     ToolCall,
 )
@@ -742,6 +743,35 @@ def test_response_request_to_chat_request_text_only():
     assert chat_request.messages[0].content == "You are helpful"
     assert chat_request.messages[1].role == Role.USER
     assert chat_request.messages[1].content == "Hello\n\nSecond message"
+
+
+def test_response_request_to_chat_request_accepts_input_image_url_string():
+    request = ResponseRequest(
+        model="test-model",
+        input=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": "Describe this image"},
+                    {"type": "input_image", "image_url": "data:image/jpeg;base64,AAA"},
+                ],
+            }
+        ],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.messages[0].role == Role.USER
+    content = chat_request.messages[0].content
+    assert isinstance(content, list)
+    assert any(
+        isinstance(item, MultimodalContentItem)
+        and item.type == "image_url"
+        and item.image_url is not None
+        and item.image_url.url == "data:image/jpeg;base64,AAA"
+        for item in content
+    )
 
 
 def test_response_request_to_chat_request_tool_normalization():
