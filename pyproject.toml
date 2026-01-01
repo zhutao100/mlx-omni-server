@@ -30,7 +30,7 @@ dependencies = [
     "rich>=13.9.4",
     # chat (+ models, responses)
     "mlx-lm @ git+https://github.com/zhutao100/mlx-lm.git@main",
-    "mlx-vlm>=0.3.4",
+    "mlx-vlm @ git+https://github.com/zhutao100/mlx-vlm.git@main",
     "Pillow>=10.0.0",
     "sse-starlette>=2.1.3",
     "lm-format-enforcer",

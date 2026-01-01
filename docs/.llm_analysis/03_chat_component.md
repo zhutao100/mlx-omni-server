@@ -33,7 +33,7 @@ The `ChatGenerationService` orchestrates the entire process.
 ## Supporting Modules
 
 -   **`router.py`:** A clean FastAPI router that handles HTTP requests and delegates all logic to the `chat_generation_service`.
--   **`mlx_lm/` & `mlx_vlm/`:** These contain the abstraction layers that wrap the `mlx-lm` and `mlx-vlm` libraries, providing a consistent interface for text and multimodal models. They likely contain the implementation for prompt caching and logits processing (for JSON mode).
+-   **`mlx_lm/` & `mlx_vlm/`:** These contain the abstraction layers that wrap the `mlx-lm` and `mlx-vlm` libraries, providing a consistent interface for text and multimodal models. `mlx_vlm/` now wires in `mlx-vlm`’s `PromptCacheBundle` (KV + optional multimodal decode context + model-state like `_rope_deltas`) and enforces append-only reuse when continuing without re-sending media. Prompt-cache reuse is token-exact: clients must resend assistant outputs exactly as tokenized (including model markup like `<think>…</think>` or tool-call XML), or enable `include_thinking_in_content` to embed thinking markup in `assistant.content`.
 -   **`tools/`:** Contains model-specific logic for handling tool calls. This is where the generic OpenAI tool format is translated into the specific format required by models like Llama 3, Mistral, etc.
 -   **`templates/`:** Jinja templates are used to apply the correct chat template for different models, ensuring the prompt is formatted correctly.
 

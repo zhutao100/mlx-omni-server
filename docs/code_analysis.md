@@ -38,6 +38,7 @@ This is the most advanced and well-architected component.
 -   **Features:** Supports multimodal inputs (text, image, audio), tool use (function calling), streaming, and enforced structured output (JSON Schema).
 -   **Design:** Uses a single, shared `ChatGenerationService` instance. It features a sophisticated request caching and stream multiplexing system, allowing multiple clients to connect to a single ongoing generation.
 -   **Concurrency:** All blocking work (including model loading and generation) is executed in a thread pool and is serialized through a shared MLX gate (via `mlx_omni_server.inference.runtime.get_mlx_gate`) to avoid unified-memory contention.
+-   **Prompt caching:** `mlx_lm` uses token-prefix KV reuse; `mlx_vlm` now reuses `mlx-vlm`’s `PromptCacheBundle` (KV + optional multimodal decode context + model-specific LM state such as `_rope_deltas`) and requires append-only continuation when not re-sending media. Reuse is token-exact: clients must resend assistant outputs exactly as tokenized (including any model markup such as `<think>…</think>` blocks or tool-call XML). For clients that don’t round-trip `reasoning`, enable `include_thinking_in_content` to embed `<think>…</think>` inline in `assistant.content`.
 
 ### 4.2. Embeddings (`/v1/embeddings`)
 

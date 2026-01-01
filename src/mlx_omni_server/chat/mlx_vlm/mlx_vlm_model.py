@@ -1,11 +1,13 @@
 import asyncio
 import gc
+import threading
 import time
 import uuid
 from typing import Any, Callable, Generator, Tuple
 
-from mlx_vlm import generate, stream_generate
-from mlx_vlm.prompt_utils import apply_chat_template
+import mlx.core as mx
+from mlx_vlm import stream_generate
+from mlx_vlm.prompt_utils import apply_chat_template, get_chat_template
 from rich.markup import escape
 
 from ...utils.logger import logger
@@ -60,6 +62,7 @@ class MlxVlmModel(BaseTextModel):
         )
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
+        self._generation_lock = threading.Lock()
 
     def generate(
         self,
@@ -68,36 +71,47 @@ class MlxVlmModel(BaseTextModel):
         should_cancel: Callable[[], bool] | None = None,
     ) -> ChatCompletionResponse:
         """Generate a complete response for multimodal requests"""
-        try:
-            logger.debug(f"Received generate request: {request}")
+        with self._generation_lock:
+            try:
+                logger.debug(f"Received generate request: {request}")
 
-            # Prepare all generation components
-            model, _, generate_kwargs, formatted_prompt = self._prepare_generation(request)
-            tokenizer = self._model_cache.tokenizer
+                text = ""
+                last_token = 0
+                prompt_tokens_processed = 0
+                generation_tokens = 0
 
-            # Call the VLM model
-            result = generate(
-                model,
-                tokenizer,  # type: ignore
-                formatted_prompt,
-                **generate_kwargs
-            )
+                for chunk in self._stream_generate(request=request):
+                    if chunk.text:
+                        text += chunk.text
+                    if chunk.finish_reason is None:
+                        last_token = chunk.token
+                    prompt_tokens_processed = chunk.prompt_tokens
+                    generation_tokens = chunk.generation_tokens
 
-            # Force garbage collection
-            gc.collect()
+                # Force garbage collection
+                gc.collect()
 
-            # Convert to ChatCompletionResponse format
-            return self._format_response(result, request.model, request)
+                result = GenerateResult(
+                    text=text,
+                    token=last_token,
+                    finish_reason="stop",
+                    prompt_tokens=prompt_tokens_processed,
+                    generation_tokens=generation_tokens,
+                    logprobs=None,
+                )
 
-        except ValueError as e:
-            logger.error(f"Validation error in VLM generation: {e}")
-            raise
-        except RuntimeError as e:
-            logger.error(f"Runtime error in VLM generation: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in VLM generation: {e}")
-            raise RuntimeError(f"Failed to generate response: {str(e)}")
+                # Convert to ChatCompletionResponse format
+                return self._format_response(result, request.model, request)
+
+            except ValueError as e:
+                logger.error(f"Validation error in VLM generation: {e}")
+                raise
+            except RuntimeError as e:
+                logger.error(f"Runtime error in VLM generation: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error in VLM generation: {e}")
+                raise RuntimeError(f"Failed to generate response: {str(e)}")
 
     def stream_generate(
         self,
@@ -106,109 +120,118 @@ class MlxVlmModel(BaseTextModel):
         should_cancel: Callable[[], bool] | None = None,
     ) -> Generator[ChatCompletionChunk, None, None]:
         """Generate a streaming response for multimodal requests following the mlx_lm_model pattern"""
-        try:
-            chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
-            result: GenerateResult | None = None
-
-            for result in self._stream_generate(request=request):
-                if not result.text:
-                    logger.warning(f"Generated result [{escape(str(result))}] with empty text")
-                    continue
-
-                created = int(time.time())
-                message = None
-                enable_thinking = self._reasoning_decoder.enable_thinking
-                delta_content: str | None = result.text
-                delta_reasoning: str | None = None
-
-                reasoning_result = self._reasoning_decoder.stream_decode(result.text)
-                if not reasoning_result:
-                    logger.warning(
-                        f"Failed to decode reasoning from stream text: {escape(result.text)}"
-                    )
-                    continue
-                logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
-                delta_content = reasoning_result.get("delta_content")
-                if enable_thinking:
-                    delta_reasoning = reasoning_result.get("delta_reasoning")
-
-                if delta_reasoning is not None:
-                    # If we have a delta reasoning, we need to send it as a message
-                    message = ChatMessage(
-                        role=Role.ASSISTANT,
-                        content=delta_content,
-                        reasoning=delta_reasoning,
-                    )
-                elif delta_content is not None:
-                    message = self._chat_tokenizer.decode_stream(delta_content, request.tools)
-
-                if message:
-                    choices = [
-                        ChatCompletionChunkChoice(
-                            index=0,
-                            delta=message,
-                            finish_reason=result.finish_reason,
-                            logprobs=result.logprobs,
-                        )
-                    ]
-                    # Only yield if we have a message to send (avoid sending empty chunks when filtering XML)
-                    yield ChatCompletionChunk(
-                        id=chat_id,
-                        created=created,
-                        model=request.model,
-                        choices=choices,
-                    )
-
-            final_message = self._chat_tokenizer.parse_buffer(
-                request.tools) or ChatMessage(role=Role.ASSISTANT, content="")
-            finish_reason = "tool_calls" if final_message.tool_calls else "stop"
-            # Send final chunk with finish reason
-            choices = [
-                ChatCompletionChunkChoice(
-                    index=0,
-                    delta=final_message,
-                    finish_reason=finish_reason,
-                    logprobs=None,
+        with self._generation_lock:
+            try:
+                include_thinking_in_content = bool(
+                    getattr(request, "include_thinking_in_content", False)
                 )
-            ]
-            yield ChatCompletionChunk(
-                id=chat_id,
-                created=int(time.time()),
-                model=request.model,
-                choices=choices,
-            )
+                chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
+                result: GenerateResult | None = None
 
-            if result and request.stream_options and request.stream_options.include_usage:
-                cached_tokens = self._prompt_cache_tokens_count
-                logger.debug(f"Stream response with {cached_tokens} cached tokens")
-                prompt_tokens_details = None
-                if cached_tokens > 0:
-                    prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
+                for result in self._stream_generate(request=request):
+                    if not result.text:
+                        continue
 
+                    created = int(time.time())
+                    message = None
+                    if include_thinking_in_content:
+                        message = self._chat_tokenizer.decode_stream(result.text, request.tools)
+                    else:
+                        enable_thinking = self._reasoning_decoder.enable_thinking
+                        delta_content: str | None = result.text
+                        delta_reasoning: str | None = None
+
+                        reasoning_result = self._reasoning_decoder.stream_decode(result.text)
+                        if not reasoning_result:
+                            logger.warning(
+                                f"Failed to decode reasoning from stream text: {escape(result.text)}"
+                            )
+                            continue
+                        logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
+                        delta_content = reasoning_result.get("delta_content")
+                        if enable_thinking:
+                            delta_reasoning = reasoning_result.get("delta_reasoning")
+
+                        if delta_reasoning is not None:
+                            # If we have a delta reasoning, we need to send it as a message
+                            message = ChatMessage(
+                                role=Role.ASSISTANT,
+                                content=delta_content,
+                                reasoning=delta_reasoning,
+                            )
+                        elif delta_content is not None:
+                            message = self._chat_tokenizer.decode_stream(
+                                delta_content, request.tools
+                            )
+
+                    if message:
+                        choices = [
+                            ChatCompletionChunkChoice(
+                                index=0,
+                                delta=message,
+                                finish_reason=result.finish_reason,
+                                logprobs=result.logprobs,
+                            )
+                        ]
+                        # Only yield if we have a message to send (avoid sending empty chunks when filtering XML)
+                        yield ChatCompletionChunk(
+                            id=chat_id,
+                            created=created,
+                            model=request.model,
+                            choices=choices,
+                        )
+
+                final_message = self._chat_tokenizer.parse_buffer(request.tools) or ChatMessage(
+                    role=Role.ASSISTANT, content=""
+                )
+                finish_reason = "tool_calls" if final_message.tool_calls else "stop"
+                # Send final chunk with finish reason
+                choices = [
+                    ChatCompletionChunkChoice(
+                        index=0,
+                        delta=final_message,
+                        finish_reason=finish_reason,
+                        logprobs=None,
+                    )
+                ]
                 yield ChatCompletionChunk(
                     id=chat_id,
                     created=int(time.time()),
                     model=request.model,
-                    choices=[
-                        ChatCompletionChunkChoice(
-                            index=0,
-                            delta=ChatMessage(role=Role.ASSISTANT),
-                            finish_reason=None,
-                            logprobs=None,
-                        )
-                    ],
-                    usage=ChatCompletionUsage(
-                        prompt_tokens=result.prompt_tokens + cached_tokens,
-                        completion_tokens=result.generation_tokens,
-                        total_tokens=result.prompt_tokens
-                        + result.generation_tokens
-                        + cached_tokens,
-                        prompt_tokens_details=prompt_tokens_details,
-                    ),
+                    choices=choices,
                 )
-        except Exception as e:
-            logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
-            raise
+
+                if result and request.stream_options and request.stream_options.include_usage:
+                    cached_tokens = self._prompt_cache_tokens_count
+                    logger.debug(f"Stream response with {cached_tokens} cached tokens")
+                    prompt_tokens_details = None
+                    if cached_tokens > 0:
+                        prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
+
+                    yield ChatCompletionChunk(
+                        id=chat_id,
+                        created=int(time.time()),
+                        model=request.model,
+                        choices=[
+                            ChatCompletionChunkChoice(
+                                index=0,
+                                delta=ChatMessage(role=Role.ASSISTANT),
+                                finish_reason=None,
+                                logprobs=None,
+                            )
+                        ],
+                        usage=ChatCompletionUsage(
+                            prompt_tokens=result.prompt_tokens + cached_tokens,
+                            completion_tokens=result.generation_tokens,
+                            total_tokens=result.prompt_tokens
+                            + result.generation_tokens
+                            + cached_tokens,
+                            prompt_tokens_details=prompt_tokens_details,
+                        ),
+                    )
+            except Exception as e:
+                logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
+                raise
 
     def _prepare_multimodal_request(self, request: ChatCompletionRequest) -> Tuple[list[dict[str, Any]], list[str], list[str]]:
         """Prepare multimodal request by processing messages with text, images, and audio
@@ -232,7 +255,10 @@ class MlxVlmModel(BaseTextModel):
                 if message.role in ["system", "assistant"]:
                     # Handle simple string content for system and assistant messages
                     if isinstance(message.content, str):
-                        chat_messages.append({"role": message.role, "content": message.content})
+                        msg: dict[str, Any] = {"role": message.role, "content": message.content}
+                        if message.role == Role.ASSISTANT and message.reasoning is not None:
+                            msg["reasoning_content"] = message.reasoning
+                        chat_messages.append(msg)
                     # Handle list of content items (though this is unusual for system/assistant)
                     elif isinstance(message.content, list):
                         texts = []
@@ -246,7 +272,10 @@ class MlxVlmModel(BaseTextModel):
                                 if text:
                                     texts.append(text)
                         if texts:
-                            chat_messages.append({"role": message.role, "content": " ".join(texts)})
+                            msg = {"role": message.role, "content": " ".join(texts)}
+                            if message.role == Role.ASSISTANT and message.reasoning is not None:
+                                msg["reasoning_content"] = message.reasoning
+                            chat_messages.append(msg)
                     continue
 
                 if message.role == "user":
@@ -375,7 +404,8 @@ class MlxVlmModel(BaseTextModel):
     def _format_response(self, result: Any, model: str, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """Format VLM response to match mlx-omni-server response format"""
         # Extract text from result
-        response_text = result.text if hasattr(result, 'text') else str(result)
+        response_text = result.text if hasattr(result, "text") else str(result)
+        include_thinking_in_content = bool(getattr(request, "include_thinking_in_content", False))
 
         # Extract usage statistics if available
         prompt_tokens = getattr(result, 'prompt_tokens', 0)
@@ -385,12 +415,19 @@ class MlxVlmModel(BaseTextModel):
         # Handle reasoning/thinking
         reasoning: str | None = None
         enable_thinking = self._reasoning_decoder.enable_thinking
-        reasoning_result = self._reasoning_decoder.decode(response_text)
-        if reasoning_result:
-            logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
-            response_text = reasoning_result.get("content") or ""
+        if include_thinking_in_content:
             if enable_thinking:
-                reasoning = reasoning_result.get("reasoning")
+                reasoning_result = self._reasoning_decoder.decode(response_text)
+                if reasoning_result:
+                    logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
+                    reasoning = reasoning_result.get("reasoning")
+        else:
+            reasoning_result = self._reasoning_decoder.decode(response_text)
+            if reasoning_result:
+                logger.debug(f"Reasoning result:\n{escape(str(reasoning_result))}")
+                response_text = reasoning_result.get("content") or ""
+                if enable_thinking:
+                    reasoning = reasoning_result.get("reasoning")
 
         # Handle tools (similar to LM model)
         if request.tools:
@@ -453,10 +490,46 @@ class MlxVlmModel(BaseTextModel):
             model, prompt_tokens, generate_kwargs, formatted_prompt = self._prepare_generation(request)
 
             # Initialize variables to track tokens
-            token_counter = 0
-            # Use safe_encode_prompt to get prompt tokens count
             prompt_tokens_len = len(prompt_tokens)
             tokenizer = self._model_cache.tokenizer
+            active_cache = getattr(self, "_active_cache", None)
+            prompt_committed = False
+            last_committed_generation_tokens = 0
+            prompt_tokens_processed = prompt_tokens_len
+            detokenizer = getattr(tokenizer, "detokenizer", None)
+            last_detokenized_text = ""
+
+            def detokenized_text() -> str:
+                if detokenizer is None:
+                    return ""
+                base_text = getattr(detokenizer, "text", "")
+                if not isinstance(base_text, str):
+                    try:
+                        base_text = str(base_text)
+                    except Exception:
+                        base_text = ""
+
+                unflushed = getattr(detokenizer, "_unflushed", None)
+                if not isinstance(unflushed, str) or not unflushed:
+                    return base_text
+
+                trim_space = bool(getattr(detokenizer, "trim_space", False))
+                byte_decoder = getattr(detokenizer, "_byte_decoder", None)
+                if isinstance(byte_decoder, dict):
+                    try:
+                        current_text = bytearray(byte_decoder[c] for c in unflushed).decode(
+                            "utf-8", errors="ignore"
+                        )
+                    except Exception:
+                        current_text = ""
+                else:
+                    current_text = unflushed.replace("\u2581", " ")
+
+                if base_text or not trim_space:
+                    return f"{base_text}{current_text}"
+                if current_text.startswith(" "):
+                    current_text = current_text[1:]
+                return f"{base_text}{current_text}"
 
             # Call the VLM model with streaming
             for response in stream_generate(
@@ -465,46 +538,64 @@ class MlxVlmModel(BaseTextModel):
                 formatted_prompt,
                 **generate_kwargs
             ):
-                token_counter += 1
-                # For VLM, the response is a GenerationResult object or a plain string;
-                # safely extract text if available, otherwise use the string representation.
-                text = getattr(response, "text", str(response))
+                token_id = getattr(response, "token", 0) or 0
+                generation_tokens = int(getattr(response, "generation_tokens", 0) or 0)
+                response_prompt_tokens = getattr(response, "prompt_tokens", None)
+                if isinstance(response_prompt_tokens, int):
+                    prompt_tokens_processed = response_prompt_tokens
 
-                # Determine if this is the last token (we can't know for sure in streaming)
-                # So we'll set finish_reason to None for all tokens
-                finish_reason = None
+                if active_cache is not None:
+                    if not prompt_committed and generation_tokens > 0:
+                        active_cache.tokens.extend(prompt_tokens)
+                        if getattr(active_cache, "bundle", None) is not None:
+                            active_cache.bundle.tokens_processed = len(active_cache.tokens)
+                        prompt_committed = True
 
-                # For VLM, we don't have individual token information in streaming, so we approximate
+                    if generation_tokens > last_committed_generation_tokens:
+                        try:
+                            active_cache.tokens.append(int(token_id))
+                            if getattr(active_cache, "bundle", None) is not None:
+                                active_cache.bundle.tokens_processed = len(active_cache.tokens)
+                        except (TypeError, ValueError):
+                            pass
+                        last_committed_generation_tokens = generation_tokens
+
+                delta_text = ""
+                full_text = detokenized_text()
+                if full_text and full_text.startswith(last_detokenized_text):
+                    delta_text = full_text[len(last_detokenized_text) :]
+                    last_detokenized_text = full_text
+                else:
+                    fallback_text = getattr(response, "text", "")
+                    if isinstance(fallback_text, str):
+                        delta_text = fallback_text
+
                 yield GenerateResult(
-                    text=text,
-                    token=getattr(response, 'token', 0) or 0,  # token ID if available
-                    finish_reason=finish_reason,
-                    prompt_tokens=prompt_tokens_len,
-                    generation_tokens=token_counter,
+                    text=delta_text,
+                    token=int(token_id) if isinstance(token_id, int) else 0,
+                    finish_reason=None,
+                    prompt_tokens=prompt_tokens_processed,
+                    generation_tokens=max(last_committed_generation_tokens, generation_tokens),
                     logprobs=None,  # TODO: Implement logprobs processing if needed
                 )
 
                 # Force garbage collection periodically
-                if token_counter % 10 == 0:
+                if generation_tokens > 0 and generation_tokens % 10 == 0:
                     gc.collect()
 
             # Send final result with stop finish reason
-            if token_counter > 0:
+            if last_committed_generation_tokens > 0:
                 yield GenerateResult(
                     text="",  # Empty text for final result
                     token=0,
                     finish_reason="stop",
-                    prompt_tokens=prompt_tokens_len,
-                    generation_tokens=token_counter,
+                    prompt_tokens=prompt_tokens_processed,
+                    generation_tokens=last_committed_generation_tokens,
                     logprobs=None,
                 )
 
-            logger.debug(
-                f"    prompt tokens: {prompt_tokens_len}"
-            )
-            logger.debug(
-                f"generation tokens: {token_counter}"
-            )
+            logger.debug(f"    prompt tokens: {prompt_tokens_processed}")
+            logger.debug(f"generation tokens: {last_committed_generation_tokens}")
 
         except Exception as e:
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
@@ -534,17 +625,44 @@ class MlxVlmModel(BaseTextModel):
         # Process multimodal request
         chat_messages, image_paths, audio_paths = self._prepare_multimodal_request(request)
 
+        enable_thinking = getattr(request, "enable_thinking", True)
+        self._reasoning_decoder.enable_thinking = enable_thinking
+
         # Prepare the prompt using the chat template
-        formatted_prompt = convert_prompt_to_str(apply_chat_template(
+        template_messages: list[dict[str, Any]] = apply_chat_template(
             tokenizer,
             model.config,
             chat_messages,
             add_generation_prompt=True,
+            return_messages=True,
             num_images=len(image_paths) if image_paths else 0,
-            num_audios=len(audio_paths) if audio_paths else 0
-        ))
+            num_audios=len(audio_paths) if audio_paths else 0,
+            enable_thinking=enable_thinking,
+        )
+        for src, dst in zip(chat_messages, template_messages):
+            reasoning_content = src.get("reasoning_content")
+            if reasoning_content is not None and dst.get("role") == Role.ASSISTANT:
+                dst["reasoning_content"] = reasoning_content
 
-        prompt_tokens = safe_encode_prompt(tokenizer, formatted_prompt, add_special_tokens=True)
+        model_type = str(getattr(model.config, "model_type", "") or "").lower()
+        if model_type in {"paligemma", "molmo", "florence2"}:
+            formatted_prompt = convert_prompt_to_str(template_messages[-1])
+        else:
+            formatted_prompt = convert_prompt_to_str(
+                get_chat_template(
+                    tokenizer,
+                    template_messages,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    enable_thinking=enable_thinking,
+                )
+            )
+
+        full_prompt_tokens = safe_encode_prompt(
+            tokenizer,
+            formatted_prompt,
+            add_special_tokens=True,
+        )
 
         # Generate media hashes for cache key
         media_hashes = []
@@ -555,33 +673,54 @@ class MlxVlmModel(BaseTextModel):
             for path in audio_paths:
                 media_hashes.append(self.media_processor.generate_media_hash(path))
 
-        # TODO: re-enable prompt cache for VLM models
-        # # Get or create cache using our cache manager
-        # model_key = f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}"
-        # prompt_cache, _, cached_count = self._prompt_cache_manager.get_or_create_cache(
-        #     model, model_key, input_ids, media_hashes
-        # )
-        # self._prompt_cache_tokens_count = cached_count
-        prompt_cache = PromptCache(max_position_embeddings=self.context_length)
-        prompt_cache.reset_prompt_cache(
-            model, model_key=f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}",
-            prompt_tokens=prompt_tokens, media_hashes=media_hashes)
-        self._prompt_cache_tokens_count = 0
+        model_key = f"{model_path}_{getattr(model.config, 'model_type', 'unknown')}"
+        prompt_cache, prompt_tokens, cached_count = self._prompt_cache_manager.get_or_create_cache(
+            model,
+            model_key,
+            full_prompt_tokens,
+            media_hashes or None,
+        )
+        self._active_cache = prompt_cache
+        self._prompt_cache_tokens_count = cached_count
+
+        bundle = getattr(prompt_cache, "bundle", None)
+        if bundle is None:
+            prompt_cache.reset_prompt_cache(
+                model,
+                model_key=model_key,
+                prompt_tokens=full_prompt_tokens,
+                media_hashes=media_hashes or None,
+            )
+            bundle = prompt_cache.bundle
 
         # Prepare generation kwargs
         generate_kwargs = {
-            "image": image_paths or None,
-            "audio": audio_paths or None,
-            "prompt_cache": prompt_cache.cache if hasattr(prompt_cache, 'cache') else prompt_cache,
+            "prompt_cache_bundle": bundle,
             "max_tokens": request.max_completion_tokens or request.max_tokens or self._default_max_tokens,
             "temperature": request.temperature if request.temperature is not None else 0.6,
             "top_p": request.top_p if request.top_p is not None else 1.0,
             "frequency_penalty": request.frequency_penalty if request.frequency_penalty is not None else 0.0,
             "presence_penalty": request.presence_penalty if request.presence_penalty is not None else 0.0,
         }
+        if cached_count > 0:
+            input_ids = mx.array([prompt_tokens], dtype=mx.int32)
+            generate_kwargs.update(
+                {
+                    "image": None,
+                    "audio": None,
+                    "input_ids": input_ids,
+                    "pixel_values": None,
+                    "mask": mx.ones_like(input_ids),
+                }
+            )
+        else:
+            generate_kwargs.update(
+                {
+                    "image": image_paths or None,
+                    "audio": audio_paths or None,
+                }
+            )
 
-        enable_thinking = getattr(request, "enable_thinking", True)
-        self._reasoning_decoder.enable_thinking = enable_thinking
         if enable_thinking:
             if formatted_prompt.endswith(f"{self._reasoning_decoder.thinking_start_tag}"):
                 self._reasoning_decoder.set_thinking_prefix(True)
@@ -589,7 +728,9 @@ class MlxVlmModel(BaseTextModel):
                 self._reasoning_decoder.set_thinking_prefix(False)
 
         logger.debug(f"Formatted prompt: {escape(formatted_prompt)}")
-        logger.debug(f"Using {self._prompt_cache_tokens_count} cached tokens out of {len(prompt_tokens)} total tokens")
+        logger.debug(
+            f"Using {self._prompt_cache_tokens_count} cached tokens out of {len(full_prompt_tokens)} total tokens"
+        )
         logger.debug(f"Generation kwargs: {generate_kwargs}")
 
         return model, prompt_tokens, generate_kwargs, formatted_prompt

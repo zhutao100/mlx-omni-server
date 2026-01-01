@@ -8,6 +8,7 @@ from typing import Any, List, Optional, Tuple
 
 from cv2 import log
 from mlx_vlm.models.cache import make_prompt_cache
+from mlx_vlm.prompt_cache import PromptCacheBundle
 
 from ...utils.logger import logger
 
@@ -36,7 +37,8 @@ def tokens_key(tokens: list[int], media_hashes: list[str] | None = None) -> str:
 
     # For multimodal content, include media file hashes
     if media_hashes:
-        media_hash_str = "|".join(sorted(media_hashes))
+        # Order matters (media placeholders are positional).
+        media_hash_str = "|".join(media_hashes)
         combined = f"{base_hash}:{media_hash_str}"
         return sha256(combined.encode()).hexdigest()
 
@@ -47,7 +49,7 @@ def tokens_key(tokens: list[int], media_hashes: list[str] | None = None) -> str:
 class PromptCache:
     max_position_embeddings: int
     tokens: list[int] = field(default_factory=list)
-    cache: list[Any] | None = field(default_factory=list)
+    bundle: PromptCacheBundle | None = None
     model_key: str = ""
     media_hashes: list[str] = field(default_factory=list)  # New field for media files
     is_multimodal: bool = False  # Track if cache contains multimodal content
@@ -55,7 +57,13 @@ class PromptCache:
     def extend_completion_cache(self, completion_tokens: list[int]):
         self.tokens.extend(completion_tokens)
 
-    def reset_prompt_cache(self, model, model_key: str, prompt_tokens: list[int], media_hashes: list[str] | None = None):
+    def reset_prompt_cache(
+        self,
+        model,
+        model_key: str,
+        prompt_tokens: list[int],
+        media_hashes: list[str] | None = None,
+    ):
         """
         Build a fresh prompt cache for `prompt_tokens` using the model.
         """
@@ -65,13 +73,24 @@ class PromptCache:
         # store media hashes for multimodal content
         self.media_hashes = media_hashes or []
         self.is_multimodal = bool(media_hashes)
-        # build base cache(s)
-        self.cache = make_prompt_cache(model, max_kv_size=self.max_position_embeddings)
+        # build base cache(s) for the language model
+        language_model = getattr(model, "language_model", model)
+        kv_cache = make_prompt_cache(
+            language_model,
+            max_kv_size=self.max_position_embeddings,
+        )
+        self.bundle = PromptCacheBundle(kv_cache=kv_cache)
+        # Tokens represent committed KV state; new cache starts empty and is
+        # advanced as generation succeeds.
+        self.tokens = []
 
-        # store tokens
-        self.tokens = list(prompt_tokens)
-
-    def get_prompt_cache(self, model, model_key: str, prompt: list[int]) -> Tuple[list[int], int]:
+    def get_prompt_cache(
+        self,
+        model,
+        model_key: str,
+        prompt: list[int],
+        media_hashes: list[str] | None = None,
+    ) -> Tuple[list[int], int]:
         """
         Determine suffix of prompt that needs processing, attempting to reuse/trim
         this cache in-place if it is safe (this is used in 'extend' flows).
@@ -87,15 +106,13 @@ class PromptCache:
 
         # Reset if model changed or no common prefix
         if self.model_key != model_key or com_prefix == 0:
-            self.reset_prompt_cache(model, model_key, prompt)
+            self.reset_prompt_cache(model, model_key, prompt, media_hashes)
             return prompt, 0
 
         # Case: cache is prefix of prompt -> process suffix
         if com_prefix == cache_len:
             logger.debug(f"Cache is prefix (cache_len={cache_len}); processing suffix.")
             suffix = prompt[com_prefix:]
-            # update tokens to include appended suffix
-            self.tokens.extend(suffix)
             prompt_cached_tokens = com_prefix
             return suffix, prompt_cached_tokens
 
@@ -105,7 +122,7 @@ class PromptCache:
             logger.debug(f"Common prefix ({com_prefix}) shorter than cache ({cache_len}).")
             # For VLM models, we don't attempt to trim as it's complex with multimodal content
             logger.debug("Resetting cache for VLM model due to divergence.")
-            self.reset_prompt_cache(model, model_key, prompt)
+            self.reset_prompt_cache(model, model_key, prompt, media_hashes)
             return prompt, 0
 
         # Fallback: return whole prompt
@@ -158,19 +175,37 @@ class PromptCacheManager:
             logger.debug("Evicting prompt cache: %s", evicted_key)
 
             # Explicitly clear MLX tensors inside the evicted cache
-            if hasattr(evicted_cache, "cache") and evicted_cache.cache:
-                for c in evicted_cache.cache:
-                    # KVCache, RotatingKVCache, etc.
-                    if hasattr(c, "keys"):
-                        c.keys = None
-                    if hasattr(c, "values"):
-                        c.values = None
-                    if hasattr(c, "offset"):
-                        c.offset = 0
-                    if hasattr(c, "_idx"):
-                        c._idx = 0
-                    if hasattr(c, "cache"):
-                        c.cache = None
+            bundle = getattr(evicted_cache, "bundle", None)
+            if bundle is not None:
+                kv_cache = getattr(bundle, "kv_cache", None)
+                if kv_cache:
+                    stack: list[Any] = list(kv_cache)
+                    while stack:
+                        c = stack.pop()
+                        if c is None:
+                            continue
+                        if isinstance(c, (list, tuple)):
+                            stack.extend(c)
+                            continue
+                        nested = getattr(c, "caches", None)
+                        if nested:
+                            stack.extend(list(nested))
+
+                        if hasattr(c, "keys"):
+                            c.keys = None
+                        if hasattr(c, "values"):
+                            c.values = None
+                        if hasattr(c, "offset"):
+                            c.offset = 0
+                        if hasattr(c, "_idx"):
+                            c._idx = 0
+                        if hasattr(c, "cache"):
+                            c.cache = None
+                # Cached multimodal context tensors can be large too.
+                try:
+                    bundle.context = None
+                except Exception:
+                    pass
 
             # Drop the reference entirely
             del evicted_cache
@@ -199,9 +234,13 @@ class PromptCacheManager:
         # Find longest prefix match among existing caches
         for key, cache in self.caches.items():
             # For multimodal content, require exact media hash match
-            if media_hashes and cache.is_multimodal:
-                if set(cache.media_hashes) != set(media_hashes):
-                    continue  # Skip caches with different media content
+            if media_hashes:
+                if not cache.is_multimodal:
+                    continue
+                if cache.media_hashes != media_hashes:
+                    continue  # Skip caches with different media content (order matters)
+            elif cache.is_multimodal:
+                continue
 
             prefix_len = common_prefix_len(cache.tokens, prompt)
             if prefix_len > best_prefix_len:
@@ -216,7 +255,12 @@ class PromptCacheManager:
             # Case A: common prefix is at least 95% of the cache.
             if best_prefix_len == len(best_cache.tokens):
                 logger.debug(f"Re-using existing cache {best_key}.")
-                suffix, cached_tokens = best_cache.get_prompt_cache(model, model_key, prompt)
+                suffix, cached_tokens = best_cache.get_prompt_cache(
+                    model,
+                    model_key,
+                    prompt,
+                    media_hashes,
+                )
                 # mark as recently used
                 assert best_key is not None
                 self.caches.move_to_end(best_key, last=True)
