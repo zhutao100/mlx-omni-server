@@ -277,6 +277,43 @@ class TestQwen3ToolParser:
         args = json.loads(tool_calls[0].function.arguments)
         assert args["data"] == {"a": 1, "b": "hello"}
 
+    def test_tool_call_with_json_array_in_args(self, qwen3_parser):
+        tools = [
+            Tool(
+                type=ToolType.FUNCTION,
+                function=Function(
+                    name="generate_recipe",
+                    description="Generate a recipe",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "ingredients": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            }
+                        },
+                        "required": ["ingredients"],
+                    },
+                ),
+            )
+        ]
+        text = textwrap.dedent(
+            """
+        <tool_call>
+        <function=generate_recipe>
+        <parameter=ingredients>
+        ["flour", "milk"]
+        </parameter>
+        </function>
+        </tool_call>
+        """
+        )
+        rest_text, tool_calls = qwen3_parser.extract_tool_calls(text, tools=tools)
+        assert rest_text.strip() == ""
+        assert len(tool_calls) == 1
+        args = json.loads(tool_calls[0].function.arguments)
+        assert args["ingredients"] == ["flour", "milk"]
+
     def test_missing_tool_call_tag(self, qwen3_parser, sample_tools):
         text = textwrap.dedent(
             """

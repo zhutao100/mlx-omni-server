@@ -1,13 +1,11 @@
-import ast
-import logging
 import json
 import re
-from rich.markup import escape
-from typing import Tuple
 import uuid
+from typing import Tuple
 
-from mlx_lm.tokenizer_utils import TokenizerWrapper
 import regex
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+from rich.markup import escape
 
 from ...utils.logger import logger
 from ..schema import (
@@ -17,8 +15,8 @@ from ..schema import (
     ToolType,
 )
 from .chat_tokenizer import ToolParsingChatTokenizer
-from .tool_parser import GenericToolParser
 from .qwen3 import Qwen3ToolParser
+from .tool_parser import GenericToolParser
 
 
 class Glm4ToolParser(GenericToolParser):
@@ -106,6 +104,11 @@ class Glm4ToolParser(GenericToolParser):
         # Centralized check for tool name validity
         if tools and func_name not in {t.function.name for t in tools}:
             logger.warning(f"Tool '{func_name}' is not defined in the tools list.")
+            return None
+
+        # Prevent false positives: if we only matched a bare tool name but see no tool-call structure,
+        # treat it as normal text rather than a tool call.
+        if self.tool_call_start_token not in text and self.arg_start_token not in text:
             return None
 
         args = {}

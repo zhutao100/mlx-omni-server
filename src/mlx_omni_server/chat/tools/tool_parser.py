@@ -1,8 +1,9 @@
-from abc import ABC, abstractmethod
+import ast
 import json
 import re
-from typing import Any, Dict, Tuple
 import uuid
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Tuple
 
 import regex
 
@@ -110,7 +111,7 @@ class GenericToolParser(BaseToolParser):
             try:
                 int_param_value = int(param_value)
                 return int_param_value
-            except:
+            except (TypeError, ValueError):
                 logger.warning(
                     f"Parsed value '{param_value}' of parameter '{param_name}' is not an integer in tool "
                     f"'{func_name}', degenerating to string."
@@ -119,39 +120,80 @@ class GenericToolParser(BaseToolParser):
         elif param_type.startswith("num") or param_type.startswith("float"):
             try:
                 numeric_param_value = float(param_value)
-                numeric_param_value = numeric_param_value if numeric_param_value - \
-                    int(numeric_param_value) != 0 else int(numeric_param_value)
-                return numeric_param_value
-            except:
+            except (TypeError, ValueError):
                 logger.warning(
                     f"Parsed value '{param_value}' of parameter '{param_name}' is not a float in tool "
                     f"'{func_name}', degenerating to string."
                 )
                 return param_value
+            if numeric_param_value.is_integer():
+                return int(numeric_param_value)
+            return numeric_param_value
         elif param_type in ["boolean", "bool", "binary"]:
-            param_value = param_value.lower()
-            if param_value not in ["true", "false"]:
+            normalized = param_value.strip().lower()
+            if normalized not in ["true", "false"]:
                 logger.warning(
                     f"Parsed value '{param_value}' of parameter '{param_name}' is not a boolean (`true` of `false`) in tool '{func_name}', degenerating to false."
                 )
-            return param_value == "true"
-        else:
-            if param_type == "object" or param_type.startswith("dict"):
-                try:
-                    param_value = json.loads(param_value)
-                    return param_value
-                except:
-                    logger.warning(
-                        f"Parsed value '{param_value}' of parameter '{param_name}' is not a valid JSON object in tool "
-                        f"'{func_name}', will try other methods to parse it."
-                    )
+            return normalized == "true"
+        elif param_type == "object" or param_type.startswith("dict"):
             try:
-                param_value = eval(param_value)
-            except:
+                return json.loads(param_value)
+            except (json.JSONDecodeError, TypeError):
                 logger.warning(
-                    f"Parsed value '{param_value}' of parameter '{param_name}' cannot be converted via Python `eval()` in tool '{func_name}', degenerating to string."
+                    f"Parsed value '{param_value}' of parameter '{param_name}' is not a valid JSON value in tool "
+                    f"'{func_name}', will try to parse it as a Python literal."
                 )
-            return param_value
+            try:
+                parsed = ast.literal_eval(param_value)
+            except (SyntaxError, ValueError):
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' cannot be parsed as a JSON value or Python literal in tool '{func_name}', degenerating to string."
+                )
+                return param_value
+            try:
+                json.dumps(parsed)
+            except TypeError:
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' produced a non-JSON-serializable Python literal in tool '{func_name}', degenerating to string."
+                )
+                return param_value
+            return parsed
+        elif param_type == "array" or param_type.startswith("list"):
+            try:
+                return json.loads(param_value)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' is not a valid JSON array in tool "
+                    f"'{func_name}', will try to parse it as a Python literal."
+                )
+            try:
+                parsed = ast.literal_eval(param_value)
+            except (SyntaxError, ValueError):
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' cannot be parsed as a JSON array or Python literal in tool '{func_name}', degenerating to string."
+                )
+                return param_value
+            if not isinstance(parsed, (list, tuple, set)):
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' is not a list-like Python literal in tool '{func_name}', degenerating to string."
+                )
+                return param_value
+            parsed_list = list(parsed)
+            try:
+                json.dumps(parsed_list)
+            except TypeError:
+                logger.warning(
+                    f"Parsed value '{param_value}' of parameter '{param_name}' produced a non-JSON-serializable array literal in tool '{func_name}', degenerating to string."
+                )
+                return param_value
+            return parsed_list
+        else:
+            # Unknown parameter type: accept JSON literals (safe) but do not execute/interpret arbitrary code.
+            try:
+                return json.loads(param_value)
+            except (json.JSONDecodeError, TypeError):
+                return param_value
 
     def _get_arguments_config(self, func_name: str, tools: list[Tool] | None) -> dict[str, Any]:
         """Get parameter configuration for a function from tools list."""
@@ -191,7 +233,7 @@ class GenericToolParser(BaseToolParser):
 
     def update_tool_start_pattern(self, tools: list[Tool] | None):
         """Update the potential tool start pattern based on available tools and model specific patterns.
-        
+
         Subclasses can override this with model specific patterns.
         """
         tool_start_pattern = regex.compile(self.tool_call_start_token)

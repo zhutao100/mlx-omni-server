@@ -223,6 +223,12 @@ class TestGlm4ToolParser:
         assert rest_text == text
         assert not tool_calls
 
+    def test_tool_name_mention_in_text_is_not_tool_call(self, glm4_parser, sample_tools):
+        text = "We can call get_weather later to check."
+        rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
+        assert rest_text == text
+        assert not tool_calls
+
     def test_malformed_tool_call_no_strict(self, glm4_parser, sample_tools):
         text = "<tool_call>get_weather<arg_key>location</arg_key>"
         rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=sample_tools)
@@ -314,6 +320,38 @@ class TestGlm4ToolParser:
         assert len(tool_calls) == 1
         args = json.loads(tool_calls[0].function.arguments)
         assert args["data"] == {"a": 1, "b": "hello"}
+
+    def test_tool_call_with_json_array_in_args(self, glm4_parser):
+        tools = [
+            Tool(
+                type=ToolType.FUNCTION,
+                function=Function(
+                    name="generate_recipe",
+                    description="Generate a recipe",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "ingredients": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            }
+                        },
+                        "required": ["ingredients"],
+                    },
+                ),
+            )
+        ]
+        text = """
+        <tool_call>generate_recipe
+        <arg_key>ingredients</arg_key>
+        <arg_value>["flour", "milk"]</arg_value>
+        </tool_call>
+        """
+        rest_text, tool_calls = glm4_parser.extract_tool_calls(text, tools=tools)
+        assert rest_text.strip() == ""
+        assert len(tool_calls) == 1
+        args = json.loads(tool_calls[0].function.arguments)
+        assert args["ingredients"] == ["flour", "milk"]
 
     def test_alternate_function_tag_format(self, glm4_parser, sample_tools):
         text = """
