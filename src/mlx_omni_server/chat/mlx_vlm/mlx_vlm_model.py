@@ -1,5 +1,6 @@
 import asyncio
 import gc
+import math
 import threading
 import time
 import uuid
@@ -8,6 +9,7 @@ from typing import Any, Callable, Generator, Tuple
 import mlx.core as mx
 from mlx_vlm import stream_generate
 from mlx_vlm.prompt_utils import apply_chat_template, get_chat_template
+from PIL import Image
 from rich.markup import escape
 
 from ...utils.logger import logger
@@ -63,6 +65,96 @@ class MlxVlmModel(BaseTextModel):
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
         self._generation_lock = threading.Lock()
+
+    def _encode_prompt_tokens(
+        self,
+        processor: Any,
+        model: Any,
+        formatted_prompt: str,
+        image_paths: list[str],
+        audio_paths: list[str],
+    ) -> list[int]:
+        tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
+
+        add_special_tokens = (
+            not hasattr(processor, "chat_template")
+            if getattr(model.config, "model_type", None) in {"gemma3", "gemma3n"}
+            else True
+        )
+        tokens = safe_encode_prompt(
+            tokenizer,
+            formatted_prompt,
+            add_special_tokens=add_special_tokens,
+        )
+        tokens = [int(token_id) for token_id in tokens]
+
+        if not image_paths:
+            return tokens
+
+        model_type = str(getattr(model.config, "model_type", "") or "").lower()
+        if not model_type.startswith("glm4v"):
+            return tokens
+
+        image_token_id = getattr(model.config, "image_token_id", None)
+        if not isinstance(image_token_id, int):
+            return tokens
+
+        placeholder_count = tokens.count(image_token_id)
+        if placeholder_count < len(image_paths):
+            return tokens
+
+        vision_config = getattr(model.config, "vision_config", None)
+        if isinstance(vision_config, dict):
+            patch_size = vision_config.get("patch_size")
+            spatial_merge_size = vision_config.get("spatial_merge_size") or vision_config.get(
+                "merge_size"
+            )
+        else:
+            patch_size = getattr(vision_config, "patch_size", None)
+            spatial_merge_size = getattr(vision_config, "spatial_merge_size", None) or getattr(
+                vision_config, "merge_size", None
+            )
+
+        if not isinstance(patch_size, int) or patch_size <= 0:
+            return tokens
+        if not isinstance(spatial_merge_size, int) or spatial_merge_size <= 0:
+            return tokens
+
+        image_token_counts: list[int] = []
+        for path in image_paths:
+            try:
+                with Image.open(path) as image:
+                    width, height = image.size
+            except Exception:
+                logger.debug(
+                    "Failed to read image size for token expansion: %s", path, exc_info=True
+                )
+                return tokens
+
+            patches_w = math.ceil(width / patch_size)
+            patches_h = math.ceil(height / patch_size)
+            merged_w = max(1, patches_w // spatial_merge_size)
+            merged_h = max(1, patches_h // spatial_merge_size)
+            image_token_counts.append(merged_w * merged_h)
+
+        expanded_tokens: list[int] = []
+        image_index = 0
+        for token_id in tokens:
+            if token_id == image_token_id and image_index < len(image_token_counts):
+                expanded_tokens.extend([image_token_id] * image_token_counts[image_index])
+                image_index += 1
+            else:
+                expanded_tokens.append(token_id)
+
+        if image_index != len(image_token_counts):
+            logger.debug(
+                "Image token expansion mismatch: expanded %d/%d placeholders",
+                image_index,
+                len(image_token_counts),
+            )
+            return tokens
+
+        return expanded_tokens
 
     def generate(
         self,
@@ -492,7 +584,7 @@ class MlxVlmModel(BaseTextModel):
             # Initialize variables to track tokens
             prompt_tokens_len = len(prompt_tokens)
             tokenizer = self._model_cache.tokenizer
-            active_cache = getattr(self, "_active_cache", None)
+            active_cache: PromptCache | None = getattr(self, "_active_cache", None)
             prompt_committed = False
             last_committed_generation_tokens = 0
             prompt_tokens_processed = prompt_tokens_len
@@ -547,15 +639,17 @@ class MlxVlmModel(BaseTextModel):
                 if active_cache is not None:
                     if not prompt_committed and generation_tokens > 0:
                         active_cache.tokens.extend(prompt_tokens)
-                        if getattr(active_cache, "bundle", None) is not None:
-                            active_cache.bundle.tokens_processed = len(active_cache.tokens)
+                        bundle = getattr(active_cache, "bundle", None)
+                        if bundle is not None:
+                            bundle.tokens_processed = len(active_cache.tokens)
                         prompt_committed = True
 
                     if generation_tokens > last_committed_generation_tokens:
                         try:
                             active_cache.tokens.append(int(token_id))
-                            if getattr(active_cache, "bundle", None) is not None:
-                                active_cache.bundle.tokens_processed = len(active_cache.tokens)
+                            bundle = getattr(active_cache, "bundle", None)
+                            if bundle is not None:
+                                bundle.tokens_processed = len(active_cache.tokens)
                         except (TypeError, ValueError):
                             pass
                         last_committed_generation_tokens = generation_tokens
@@ -629,7 +723,7 @@ class MlxVlmModel(BaseTextModel):
         self._reasoning_decoder.enable_thinking = enable_thinking
 
         # Prepare the prompt using the chat template
-        template_messages: list[dict[str, Any]] = apply_chat_template(
+        template_messages = apply_chat_template(
             tokenizer,
             model.config,
             chat_messages,
@@ -639,6 +733,11 @@ class MlxVlmModel(BaseTextModel):
             num_audios=len(audio_paths) if audio_paths else 0,
             enable_thinking=enable_thinking,
         )
+        # Normalize return type: ensure template_messages is a list[dict]
+        if isinstance(template_messages, str):
+            template_messages = [{"role": Role.ASSISTANT, "content": template_messages}]
+        elif template_messages is None:
+            template_messages = []
         for src, dst in zip(chat_messages, template_messages):
             reasoning_content = src.get("reasoning_content")
             if reasoning_content is not None and dst.get("role") == Role.ASSISTANT:
@@ -658,10 +757,12 @@ class MlxVlmModel(BaseTextModel):
                 )
             )
 
-        full_prompt_tokens = safe_encode_prompt(
+        full_prompt_tokens = self._encode_prompt_tokens(
             tokenizer,
+            model,
             formatted_prompt,
-            add_special_tokens=True,
+            image_paths,
+            audio_paths,
         )
 
         # Generate media hashes for cache key

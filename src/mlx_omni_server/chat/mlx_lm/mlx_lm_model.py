@@ -32,7 +32,7 @@ from ..utils import (
     safe_encode_prompt,
 )
 from .json_logits_processor import JsonLogitsProcessor
-from .prompt_cache import PromptCacheManager
+from .prompt_cache import PromptCache, PromptCacheManager
 
 
 class MlxLmModel(BaseTextModel):
@@ -286,7 +286,7 @@ class MlxLmModel(BaseTextModel):
             # Prepare all generation components
             processed_prompt, generate_kwargs = self._prepare_generation(request)
 
-            active_cache = getattr(self, "_active_cache", None)
+            active_cache: PromptCache | None = getattr(self, "_active_cache", None)
             suffix_committed = 0
             if active_cache is not None:
                 prompt_suffix = processed_prompt

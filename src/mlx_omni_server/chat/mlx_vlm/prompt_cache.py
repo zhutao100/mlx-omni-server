@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, List, Optional, Tuple
 
-from cv2 import log
+from mlx_lm.models.cache import can_trim_prompt_cache, trim_prompt_cache
 from mlx_vlm.models.cache import make_prompt_cache
 from mlx_vlm.prompt_cache import PromptCacheBundle
 
@@ -119,9 +119,25 @@ class PromptCache:
         # Case: prompt shorter than cached tokens (should be handled by manager for branching),
         # or attempt to trim (here we support in-place trim)
         if com_prefix < cache_len:
-            logger.debug(f"Common prefix ({com_prefix}) shorter than cache ({cache_len}).")
-            # For VLM models, we don't attempt to trim as it's complex with multimodal content
-            logger.debug("Resetting cache for VLM model due to divergence.")
+            logger.debug(
+                "Common prefix (%d) shorter than cache (%d). Attempting trim.",
+                com_prefix,
+                cache_len,
+            )
+            bundle = getattr(self, "bundle", None)
+            kv_cache = getattr(bundle, "kv_cache", None) if bundle is not None else None
+            if kv_cache and can_trim_prompt_cache(kv_cache):
+                num_to_trim = cache_len - com_prefix
+                logger.debug("Trimming %d tokens from VLM KV cache (in-place).", num_to_trim)
+                trim_prompt_cache(kv_cache, num_to_trim)
+                self.tokens = self.tokens[:com_prefix]
+                if bundle is not None:
+                    bundle.tokens_processed = len(self.tokens)
+                suffix = prompt[com_prefix:]
+                prompt_cached_tokens = com_prefix
+                return suffix, prompt_cached_tokens
+
+            logger.debug("VLM cache cannot be trimmed in-place. Resetting cache.")
             self.reset_prompt_cache(model, model_key, prompt, media_hashes)
             return prompt, 0
 
@@ -252,19 +268,19 @@ class PromptCacheManager:
         logger.debug(f"Best cache key: {best_key}")
         logger.debug(f"Best cache tokens length: {len(best_cache.tokens) if best_cache else 'N/A'}")
         if best_cache is not None and best_prefix_len >= min_prefix_len:
-            # Case A: common prefix is at least 95% of the cache.
-            if best_prefix_len == len(best_cache.tokens):
-                logger.debug(f"Re-using existing cache {best_key}.")
-                suffix, cached_tokens = best_cache.get_prompt_cache(
-                    model,
-                    model_key,
-                    prompt,
-                    media_hashes,
-                )
-                # mark as recently used
-                assert best_key is not None
-                self.caches.move_to_end(best_key, last=True)
-                return best_cache, suffix, cached_tokens
+            logger.debug(
+                "Re-using existing cache %s (common prefix=%d).", best_key, best_prefix_len
+            )
+            suffix, cached_tokens = best_cache.get_prompt_cache(
+                model,
+                model_key,
+                prompt,
+                media_hashes,
+            )
+            # mark as recently used
+            assert best_key is not None
+            self.caches.move_to_end(best_key, last=True)
+            return best_cache, suffix, cached_tokens
 
         # No cache to reuse -> create brand-new cache
         logger.debug("No matching cache found; creating new.")
