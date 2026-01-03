@@ -3,12 +3,62 @@ import json
 import re
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 import regex
 
 from ...utils.logger import logger
 from ..schema import FunctionCall, Tool, ToolCall, ToolType
+
+
+def _scan_and_parse_tool_calls(
+    model_output: str,
+    *,
+    tools: list[Tool] | None,
+    strict: bool,
+    find_start: Callable[[str, int], tuple[int, int] | None],
+    find_end: Callable[[str, int, int], int],
+    parse_block: Callable[[str, list[Tool] | None], ToolCall | None],
+) -> tuple[str, list[ToolCall]]:
+    """
+    Shared scan loop for model-specific tool parsers.
+
+    This helper only slices the input and delegates all model-specific logic via callbacks,
+    so parsers can share the same extraction control flow without changing semantics.
+    """
+    results: list[ToolCall] = []
+    rest_parts: list[str] = []
+
+    pos = 0
+    n = len(model_output)
+
+    while pos < n:
+        start = find_start(model_output, pos)
+        if start is None:
+            rest_parts.append(model_output[pos:])
+            break
+
+        start_idx, match_end_idx = start
+        rest_parts.append(model_output[pos:start_idx])
+
+        block_end = find_end(model_output, start_idx, match_end_idx)
+        block = model_output[start_idx:block_end]
+
+        try:
+            parsed = parse_block(block, tools)
+        except ValueError:
+            if strict:
+                raise
+            parsed = None
+
+        if parsed:
+            results.append(parsed)
+        else:
+            rest_parts.append(block)
+
+        pos = block_end
+
+    return "".join(rest_parts), results
 
 
 class BaseToolParser(ABC):

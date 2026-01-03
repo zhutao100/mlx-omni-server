@@ -16,7 +16,7 @@ from ..schema import (
 )
 from .chat_tokenizer import ToolParsingChatTokenizer
 from .qwen3 import Qwen3ToolParser
-from .tool_parser import GenericToolParser
+from .tool_parser import GenericToolParser, _scan_and_parse_tool_calls
 
 
 class Glm4ToolParser(GenericToolParser):
@@ -176,85 +176,68 @@ class Glm4ToolParser(GenericToolParser):
         as well as tool calls starting directly with a known tool name.
         """
 
-        results = []
-        rest_parts = []
-        pos = 0
-        n = len(model_output)
-
         tool_name_pattern = None
         if tools:
             tool_names = [tool.function.name for tool in tools]
             # Create a regex pattern to match any of the tool names
             tool_name_pattern = r"\s*(" + "|".join(re.escape(name) for name in tool_names) + r")"
 
-        while pos < n:
-            # Find next <tool_call>
-            m = re.search(rf"{self.tool_call_start_token}", model_output[pos:])
+        def find_start(text: str, pos: int) -> tuple[int, int] | None:
+            m = re.search(rf"{self.tool_call_start_token}", text[pos:])
             if not m and tool_name_pattern:
-                m = re.search(tool_name_pattern, model_output[pos:], re.DOTALL)
+                m = re.search(tool_name_pattern, text[pos:], re.DOTALL)
             if not m:
-                rest_parts.append(model_output[pos:])
-                break
+                return None
 
             start_idx = pos + m.start()
-            rest_parts.append(model_output[pos:start_idx])  # text before block
+            match_end_idx = pos + m.end()
+            return start_idx, match_end_idx
 
+        def find_end(text: str, start_idx: int, match_end_idx: int) -> int:
             # Find end </tool_call>
-            end_idx = model_output.find(self.tool_call_end_token, start_idx)
+            end_idx = text.find(self.tool_call_end_token, start_idx)
 
             # Heuristic for Qwen3-style calls ending with </function>
             func_end_idx = -1
             if end_idx == -1:  # Only apply heuristic if standard end token is missing
-                _func_end_idx = model_output.find("</function>", start_idx)
+                _func_end_idx = text.find("</function>", start_idx)
                 if _func_end_idx != -1:
-                    preview = model_output[start_idx:_func_end_idx]
+                    preview = text[start_idx:_func_end_idx]
                     if "<function=" in preview and "<parameter=" in preview:
                         func_end_idx = _func_end_idx
 
             if end_idx != -1:
-                block_end = end_idx + len(self.tool_call_end_token)
-            elif func_end_idx != -1:
-                block_end = func_end_idx + len("</function>")
-            else:
-                # If missing, recover until next tool_call or EOF
-                next_start_idx = pos + m.end() + 1
-                next_block = re.search(rf"{self.tool_call_start_token}", model_output[next_start_idx:])
-                next_tool_call = None
-                if tool_name_pattern:
-                    # Also look for the next tool call by name
-                    next_tool_call = re.search(tool_name_pattern, model_output[next_start_idx:], re.DOTALL)
+                return end_idx + len(self.tool_call_end_token)
+            if func_end_idx != -1:
+                return func_end_idx + len("</function>")
 
-                # Choose the closest match
-                candidates = []
-                if next_block:
-                    candidates.append(next_start_idx + next_block.start())
-                if next_tool_call:
-                    candidates.append(next_start_idx + next_tool_call.start())
+            # If missing, recover until next tool_call or EOF
+            next_start_idx = match_end_idx + 1
+            next_block = re.search(rf"{self.tool_call_start_token}", text[next_start_idx:])
+            next_tool_call = None
+            if tool_name_pattern:
+                # Also look for the next tool call by name
+                next_tool_call = re.search(tool_name_pattern, text[next_start_idx:], re.DOTALL)
 
-                if candidates:
-                    block_end = min(candidates)
-                else:
-                    block_end = n
+            # Choose the closest match
+            candidates: list[int] = []
+            if next_block:
+                candidates.append(next_start_idx + next_block.start())
+            if next_tool_call:
+                candidates.append(next_start_idx + next_tool_call.start())
 
-            block = model_output[start_idx:block_end]
+            return min(candidates) if candidates else len(text)
 
-            try:
-                parsed = self.parse_tool_call_block(block, tools=tools)
-            except ValueError:
-                if self.strict:
-                    raise
-                parsed = None
-
-            if parsed:
-                results.append(parsed)
-            else:
-                rest_parts.append(block)
-
-            pos = block_end
-
-        rest_text = "".join(rest_parts)
+        rest_text, results = _scan_and_parse_tool_calls(
+            model_output,
+            tools=tools,
+            strict=self.strict,
+            find_start=find_start,
+            find_end=find_end,
+            parse_block=self.parse_tool_call_block,
+        )
         logger.debug(escape("Extracted tool calls %s"), results)
-        logger.debug(escape("Remaining text: %s"), "".join(rest_parts))
+        logger.debug(escape("Remaining text: %s"), rest_text)
         return rest_text, results
 
 
