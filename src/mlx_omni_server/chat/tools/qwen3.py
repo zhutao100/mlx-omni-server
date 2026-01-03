@@ -1,11 +1,11 @@
 import json
 import re
-from rich.markup import escape
 import uuid
-from typing import Tuple, Pattern
+from typing import Pattern, Tuple
 
-from mlx_lm.tokenizer_utils import TokenizerWrapper
 import regex
+from mlx_lm.tokenizer_utils import TokenizerWrapper
+from rich.markup import escape
 
 from ...utils.logger import logger
 from ..schema import (
@@ -45,8 +45,12 @@ class Qwen3ToolParser(GenericToolParser):
         This method creates a regex pattern that can match either the standard tool call start token
         or the function prefix, allowing for more flexible tool call detection in Qwen3 models.
         """
-        # Use (?<=^|\n) to match at the beginning of string or after a newline, instead of \s* which matches any whitespace
-        pattern = rf"(?<=^|\n)({self.tool_call_start_token}|{self.function_prefix})"
+        self.tool_start_max_prefix_len = max(
+            len(self.tool_call_start_token),
+            len(self.function_prefix),
+        )
+        # Match at the beginning of string or after a newline, allowing indentation (spaces/tabs).
+        pattern = rf"(?:(?<=^)|(?<=\n))[ \t]*({re.escape(self.tool_call_start_token)}|{re.escape(self.function_prefix)})"
         self.tool_start_pattern = regex.compile(pattern, re.DOTALL)
 
     def _find_param_end(self, text: str, start_pos: int, param_name: str) -> int:

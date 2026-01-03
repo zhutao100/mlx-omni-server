@@ -236,7 +236,14 @@ class GenericToolParser(BaseToolParser):
 
         Subclasses can override this with model specific patterns.
         """
-        tool_start_pattern = regex.compile(self.tool_call_start_token)
+        if not self.tool_call_start_token:
+            self.tool_start_pattern = None
+            self.tool_start_max_prefix_len = 0
+            return
+
+        # Default: literal start token search. Subclasses may override this with model-specific patterns.
+        self.tool_start_pattern = regex.compile(rf"({re.escape(self.tool_call_start_token)})")
+        self.tool_start_max_prefix_len = len(self.tool_call_start_token)
 
     def extract_tool_calls(
         self, model_output: str, tools: list[Tool] | None = None

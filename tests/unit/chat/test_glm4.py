@@ -610,6 +610,41 @@ class TestStreaming:
             "location": "New York, NY"
         }
 
+    def test_glm4_streaming_with_indentation(self, glm4_chat_tokenizer, sample_tools):
+        glm4_chat_tokenizer.buffer = ""
+        glm4_chat_tokenizer.potential_tool_start_pos = -1
+
+        prefix = "Here is the weather forecast:\n"
+        first = glm4_chat_tokenizer.decode_stream(prefix, sample_tools)
+        assert first is not None
+        assert first.role == Role.ASSISTANT
+        assert first.content == prefix
+        assert first.tool_calls is None
+
+        tool_call_text = (
+            "  get_weather\n"
+            "  <arg_key>location</arg_key>\n"
+            "  <arg_value>New York, NY</arg_value>\n"
+        )
+
+        emitted_content = []
+        for ch in tool_call_text:
+            msg = glm4_chat_tokenizer.decode_stream(ch, sample_tools)
+            if msg is not None and msg.content:
+                emitted_content.append(str(msg.content))
+
+        final = glm4_chat_tokenizer.parse_buffer(sample_tools)
+        assert final is not None
+        assert final.role == Role.ASSISTANT
+        assert final.tool_calls is not None
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].function.name == "get_weather"
+        assert json.loads(final.tool_calls[0].function.arguments) == {"location": "New York, NY"}
+
+        # Streaming should not leak tool markup as assistant content.
+        assert "<arg_key>" not in "".join(emitted_content)
+        assert "<arg_value>" not in "".join(emitted_content)
+
     def test_glm4_streaming_mixed_content_and_tool_calls(self, glm4_chat_tokenizer, sample_tools):
         glm4_chat_tokenizer.buffer = ""
         glm4_chat_tokenizer.potential_tool_start_pos = -1
@@ -676,9 +711,55 @@ class TestStreaming:
         assert streaming_result.tool_calls is not None
         assert len(non_streaming_result.tool_calls) == len(streaming_result.tool_calls)
 
-        non_stream_tool = non_streaming_result.tool_calls[0]
-        stream_tool = streaming_result.tool_calls[0]
+    def test_glm4_streaming_long_tool_name_split_across_chunks(self, glm4_chat_tokenizer):
+        long_tool_name = "tool_" + ("a" * 40)
+        tools = [
+            Tool(
+                type=ToolType.FUNCTION,
+                function=Function(
+                    name=long_tool_name,
+                    description="A tool with a long name",
+                    parameters={
+                        "type": "object",
+                        "properties": {"location": {"type": "string"}},
+                        "required": ["location"],
+                    },
+                ),
+            )
+        ]
 
+        full_text = (
+            long_tool_name + "\n<arg_key>location</arg_key>\n<arg_value>Boston, MA</arg_value>\n"
+        )
+        non_streaming_result = glm4_chat_tokenizer.decode(full_text, tools)
+        assert non_streaming_result.tool_calls is not None
+        assert len(non_streaming_result.tool_calls) == 1
+
+        glm4_chat_tokenizer.buffer = ""
+        glm4_chat_tokenizer.potential_tool_start_pos = -1
+
+        # First chunk is longer than the previous fixed partial-buffer length (30),
+        # and should be buffered rather than leaked as content.
+        first_chunk = long_tool_name[:35]
+        msg = glm4_chat_tokenizer.decode_stream(first_chunk, tools)
+        assert msg is None
+
+        rest = (
+            long_tool_name[35:]
+            + "\n<arg_key>location</arg_key>\n<arg_value>Boston, MA</arg_value>\n"
+        )
+        for ch in rest:
+            glm4_chat_tokenizer.decode_stream(ch, tools)
+
+        final = glm4_chat_tokenizer.parse_buffer(tools)
+        assert final is not None
+        assert final.tool_calls is not None
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].function.name == long_tool_name
+        assert json.loads(final.tool_calls[0].function.arguments) == {"location": "Boston, MA"}
+
+        non_stream_tool = non_streaming_result.tool_calls[0]
+        stream_tool = final.tool_calls[0]
         assert non_stream_tool.function.name == stream_tool.function.name
         assert non_stream_tool.function.arguments == stream_tool.function.arguments
 

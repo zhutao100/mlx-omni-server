@@ -36,13 +36,18 @@ class Glm4ToolParser(GenericToolParser):
         """Update the potential tool start pattern based on available tools."""
         if tools:
             tool_names = [tool.function.name for tool in tools]
+            self.tool_start_max_prefix_len = max(
+                len(self.tool_call_start_token),
+                max((len(n) for n in tool_names), default=0),
+            )
             # Create a regex pattern to match any of the tool names at the start of a line or after a newline
-            # Use (?<=^|\n) to match at the beginning of string or after a newline, instead of \s* which matches any whitespace
+            # Match at the beginning of string or after a newline, allowing indentation (spaces/tabs).
             tool_names_group = "|".join(re.escape(name) for name in tool_names)
-            pattern = rf"(?<=^|\n)({self.tool_call_start_token}|(?:{tool_names_group})(?=[<\n]))"
+            pattern = rf"(?:(?<=^)|(?<=\n))[ \t]*({re.escape(self.tool_call_start_token)}|(?:{tool_names_group})(?=[<\n]))"
             self.tool_start_pattern = regex.compile(pattern, re.DOTALL)
         else:
             self.tool_start_pattern = None
+            self.tool_start_max_prefix_len = len(self.tool_call_start_token)
 
     def parse_tool_call_block(self, text: str, tools: list[Tool] | None) -> ToolCall | None:
         """

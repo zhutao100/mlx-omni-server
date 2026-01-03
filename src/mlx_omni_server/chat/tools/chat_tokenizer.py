@@ -153,9 +153,9 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         # First check if we have a custom pattern from the tool parser
         if (hasattr(self.tool_parser, 'tool_start_pattern') and
                 self.tool_parser.tool_start_pattern):
-            # Check if text at start_pos matches the pattern
-            match = self.tool_parser.tool_start_pattern.search(text, start_pos)
-            return match is not None
+            # Check if text at start_pos matches the pattern.
+            # NOTE: search() can match later and yield false positives; this must be anchored.
+            return self.tool_parser.tool_start_pattern.match(text, start_pos) is not None
 
         # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
@@ -178,7 +178,15 @@ class ToolParsingChatTokenizer(ChatTokenizer):
                 self.tool_parser.tool_start_pattern):
             # Search for the pattern in the text
             match = self.tool_parser.tool_start_pattern.search(text, search_start)
-            return match.start() if match else -1
+            if not match:
+                return -1
+            # If the pattern has a capturing group for the actual start token/name,
+            # prefer its span to avoid buffering indentation or other prefixes.
+            try:
+                group_start = match.start(1)
+                return group_start if group_start >= 0 else match.start()
+            except IndexError:
+                return match.start()
 
         # Fallback to the original token-based approach
         if not hasattr(self.tool_parser, 'tool_call_start_token') or not self.tool_parser.tool_call_start_token:
@@ -209,15 +217,17 @@ class ToolParsingChatTokenizer(ChatTokenizer):
         # First check if we have a custom pattern from the tool parser
         if (hasattr(self.tool_parser, 'tool_start_pattern') and
                 self.tool_parser.tool_start_pattern):
-            # For pattern-based matching, we'll use a simpler approach
-            # Buffer up to a reasonable length to catch potential matches
-
-            # TODO: implement exact number
-            max_partial_length = 30
-
             if not text:
                 return "", ""
-            for i in range(1, min(len(text), max_partial_length) + 1):
+
+            max_len = getattr(self.tool_parser, "tool_start_max_prefix_len", None)
+            if not isinstance(max_len, int) or max_len <= 0:
+                max_len = 30
+
+            # Buffer up to the maximum plausible prefix length of a tool-start sequence.
+            # Include a small margin for indentation/lookahead and cap for predictable cost.
+            max_partial_length = min(len(text), min(max_len + 16, 256))
+            for i in range(1, max_partial_length + 1):
                 suffix = text[-i:]
                 if self.tool_parser.tool_start_pattern.match(suffix, partial=True):
                     return text[:-i], suffix

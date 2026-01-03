@@ -444,3 +444,79 @@ class TestQwen3ChatTokenizer:
 
             # Verify the parent encode was called
             assert result == "test prompt"
+
+
+class TestStreaming:
+    def test_qwen3_streaming_with_indentation(self, qwen3_chat_tokenizer, sample_tools):
+        qwen3_chat_tokenizer.buffer = ""
+        qwen3_chat_tokenizer.potential_tool_start_pos = -1
+
+        prefix = "Here is the weather:\n"
+        first = qwen3_chat_tokenizer.decode_stream(prefix, sample_tools)
+        assert first is not None
+        assert first.role == Role.ASSISTANT
+        assert first.content == prefix
+        assert first.tool_calls is None
+
+        tool_call_text = (
+            "  <tool_call>\n"
+            "  <function=get_weather>\n"
+            "  <parameter=location>\n"
+            "  New York, NY\n"
+            "  </parameter>\n"
+            "  </function>\n"
+            "  </tool_call>\n"
+        )
+
+        emitted_content = []
+        for ch in tool_call_text:
+            msg = qwen3_chat_tokenizer.decode_stream(ch, sample_tools)
+            if msg is not None and msg.content:
+                emitted_content.append(str(msg.content))
+
+        final = qwen3_chat_tokenizer.parse_buffer(sample_tools)
+        assert final is not None
+        assert final.role == Role.ASSISTANT
+        assert final.tool_calls is not None
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].function.name == "get_weather"
+        assert json.loads(final.tool_calls[0].function.arguments) == {"location": "New York, NY"}
+
+        # Streaming should not leak tool markup as assistant content.
+        assert "<tool_call>" not in "".join(emitted_content)
+        assert "<function=" not in "".join(emitted_content)
+
+    def test_qwen3_streaming_tool_start_split_across_chunks(
+        self, qwen3_chat_tokenizer, sample_tools
+    ):
+        qwen3_chat_tokenizer.buffer = ""
+        qwen3_chat_tokenizer.potential_tool_start_pos = -1
+
+        part1 = "Hello\n<tool_c"
+        msg1 = qwen3_chat_tokenizer.decode_stream(part1, sample_tools)
+        assert msg1 is not None
+        assert msg1.role == Role.ASSISTANT
+        assert msg1.content == "Hello\n"
+        assert "<tool_c" not in str(msg1.content)
+
+        part2 = textwrap.dedent(
+            """
+            all>
+            <function=get_weather>
+            <parameter=location>
+            Boston, MA
+            </parameter>
+            </function>
+            </tool_call>
+            """
+        )
+        # Feed the remainder in one chunk; the tokenizer should keep buffering tool markup.
+        msg2 = qwen3_chat_tokenizer.decode_stream(part2, sample_tools)
+        assert msg2 is None or (msg2.content and "<tool_call>" not in str(msg2.content))
+
+        final = qwen3_chat_tokenizer.parse_buffer(sample_tools)
+        assert final is not None
+        assert final.tool_calls is not None
+        assert len(final.tool_calls) == 1
+        assert final.tool_calls[0].function.name == "get_weather"
+        assert json.loads(final.tool_calls[0].function.arguments) == {"location": "Boston, MA"}
