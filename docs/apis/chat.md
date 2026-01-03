@@ -39,7 +39,7 @@ curl http://localhost:10240/v1/chat/completions \
 
 ## Function Calling
 
-Supported by Qwen3 and GLM model families:
+Supported by Qwen3, GLM, and Minimax M2 model families:
 
 ```python
 import json

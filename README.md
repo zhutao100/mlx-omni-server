@@ -18,7 +18,7 @@ This repository is a fork of the [original MLX Omni Server](https://github.com/m
 
 - **Vision/Multimodal Support**: Added comprehensive Vision-Language Model (VLM) support through mlx_vlm integration for image processing capabilities.
 - **Responses API Endpoint**: Added support for OpenAI's Responses API (`/v1/responses`) as an alternative to chat completions with enhanced structured output capabilities, improved tool calling workflows, and better streaming event handling.
-- **Advanced Tool Parsing**: Enhanced tool calling support for Qwen3 and GLM4 model families with sophisticated parsing logic including heuristic detection and malformed recovery mechanisms.
+- **Advanced Tool Parsing**: Enhanced tool calling support for Qwen3, GLM4, and Minimax M2 model families with sophisticated parsing logic including heuristic detection and malformed recovery mechanisms.
 - **Intelligent Caching**: Reworked prompt cache and chat completion cache systems with improved caching efficiency and memory management.
 - **Performance Improvements**: Enhanced streaming generation with better buffering and client disconnection handling.
 

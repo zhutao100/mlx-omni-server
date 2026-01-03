@@ -9,7 +9,7 @@ Key project context that affects model support:
   - `pip install ".[images]"` for image generation (via `mflux`)
   - `pip install ".[stt]"` for speech-to-text
   - `pip install ".[tts]"` for text-to-speech
-- This fork includes **advanced tool parsing** and recovery specifically for **Qwen3** and **GLM4** families, so tool calling works reliably when using `/v1/responses` or `/v1/chat/completions`.
+- This fork includes **advanced tool parsing** and recovery specifically for **Qwen3**, **GLM4**, and **Minimax M2** families, so tool calling works reliably when using `/v1/responses` or `/v1/chat/completions`.
 
 > Tip: Prefer quantized MLX models (`4bit`, `8bit`, `mxfp4`) for Apple Silicon. Always benchmark on your workload—tool calling, OCR, and VLM reasoning can be more sensitive to prompt/template and quantization choices.
 
@@ -85,7 +85,7 @@ This project’s image generation stack is built around **`mflux`**, and the mod
 ### 1) Prefer `/v1/responses` for tool calling and structured outputs
 This fork’s Responses support is designed for:
 - better streaming event handling,
-- more robust tool-call parsing (especially Qwen3 + GLM4),
+- more robust tool-call parsing (especially Qwen3 + GLM4 + Minimax M2),
 - structured outputs and logprobs workflows.
 
 ### 2) Quantization selection

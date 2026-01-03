@@ -11,7 +11,7 @@ The `mlx-omni-server` project possesses a mature, well-structured, and comprehen
 ## 3. Component Coverage Analysis
 
 ### Chat Component (High Coverage)
-*   **Tokenizers:** This is a standout area. The custom tokenizers for different model families (Llama3, Qwen3, Mistral, GLM4) are rigorously tested for edge cases, strict/loose modes, and streaming partial inputs.
+*   **Tokenizers:** This is a standout area. The custom tokenizers for different model families (Llama3, Qwen3, Mistral, GLM4, Minimax M2) are rigorously tested for edge cases, strict/loose modes, and streaming partial inputs.
 *   **Tool Use:** Both the parsing logic (Unit) and the end-to-end execution (Integration) are well-covered. The tests verify that the server correctly translates model outputs into valid tool calls.
 *   **Streaming:** Extensive testing of streaming mechanics, including `finish_reason` handling, usage reporting, and cancellation/retries.
 *   **Advanced Features:** Dedicated tests for "Reasoning" models (thinking tags), Structured Output (JSON Schema), and VLM (Image inputs).

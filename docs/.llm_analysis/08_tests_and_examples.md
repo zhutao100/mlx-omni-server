@@ -25,7 +25,7 @@ This is the most thoroughly tested component.
 
 ### 2. Tool Calling (Function Calling)
 The test suite demonstrates deep support for multiple model architectures.
--   **Model-Specific Parsers**: Unit tests exist for **Qwen3**, **GLM-4**, **Llama 3**, and **Mistral** formats.
+-   **Model-Specific Parsers**: Unit tests exist for **Qwen3**, **GLM-4**, **Llama 3**, **Mistral**, and **Minimax M2** formats.
 -   **Streaming Parsers**: A complex state machine (`ToolParsingChatTokenizer`) is tested to ensure that partial tool tokens (e.g., `<tool_c...`) are buffered and hidden from the user until validated. This is a standout feature for UX.
 -   **End-to-End**: Integration tests verify that the server correctly parses model output into standard OpenAI `tool_calls` JSON objects.
 
