@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class ToolType(str, Enum):
     FUNCTION = "function"
+    CUSTOM = "custom"
 
 
 class FunctionParameters(BaseModel):
@@ -25,6 +26,9 @@ class Function(BaseModel):
 class Tool(BaseModel):
     type: ToolType = ToolType.FUNCTION
     function: Function
+
+    class Config:
+        extra = "allow"
 
 
 class ToolChoice(str, Enum):

@@ -332,7 +332,12 @@ def _normalize_tools(tools: Any) -> Any:
             normalized.append(tool)
             continue
 
-        if "function" in tool or tool.get("type") != "function":
+        if "function" in tool:
+            normalized.append(tool)
+            continue
+
+        tool_type = tool.get("type") or "function"
+        if tool_type not in {"function", "custom"}:
             normalized.append(tool)
             continue
 
@@ -344,7 +349,10 @@ def _normalize_tools(tools: Any) -> Any:
         if "parameters" in tool:
             function_payload["parameters"] = tool["parameters"]
 
-        normalized.append({"type": "function", "function": function_payload})
+        wrapped = {k: v for k, v in tool.items() if k not in {"name", "description", "parameters"}}
+        wrapped["type"] = tool_type
+        wrapped["function"] = function_payload
+        normalized.append(wrapped)
 
     return normalized
 

@@ -797,6 +797,35 @@ def test_response_request_to_chat_request_tool_normalization():
     assert first_tool.function.description == "run command"
 
 
+def test_response_request_to_chat_request_custom_tool_normalization_preserves_format():
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        tools=[
+            {
+                "type": "custom",
+                "name": "apply_patch",
+                "description": "Apply a patch to workspace files.",
+                "format": {
+                    "type": "grammar",
+                    "syntax": "lark",
+                    "definition": "start: begin_patch end_patch",
+                },
+            }
+        ],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.tools is not None
+    tool = chat_request.tools[0]
+    assert tool.type.value == "custom"
+    assert tool.function.name == "apply_patch"
+    dumped = tool.model_dump(exclude_none=True)
+    assert dumped["format"]["syntax"] == "lark"
+    assert "definition" in dumped["format"]
+
+
 def test_response_request_to_chat_request_with_history():
     request = ResponseRequest(
         model="test-model",
