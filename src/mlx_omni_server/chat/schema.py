@@ -3,7 +3,7 @@ import re
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 class ToolType(str, Enum):
@@ -116,6 +116,23 @@ class ChatMessage(BaseModel):
     name: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = None
     tool_call_id: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_reasoning_content(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+
+        if data.get("reasoning") is None and isinstance(data.get("reasoning_content"), str):
+            data = dict(data)
+            data["reasoning"] = data["reasoning_content"]
+
+        return data
+
+    @computed_field(return_type=Optional[str])
+    @property
+    def reasoning_content(self) -> Optional[str]:
+        return self.reasoning
 
     class Config:
         json_encoders = {bytes: lambda v: v.decode()}

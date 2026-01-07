@@ -23,6 +23,7 @@ from ..schema import (
     Role,
 )
 from ..text_models import BaseTextModel, GenerateResult, GenerationParams
+from ..tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import (
@@ -383,6 +384,7 @@ class MlxLmModel(BaseTextModel):
 
             if request.tools:
                 message = self._chat_tokenizer.decode(completion, request.tools)
+                message.reasoning = reasoning
             else:
                 message = ChatMessage(
                     role=Role.ASSISTANT,
@@ -400,7 +402,11 @@ class MlxLmModel(BaseTextModel):
                 prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
             assert message is not None
-            return ChatCompletionResponse(
+            if message.tool_calls and message.reasoning:
+                for tool_call in message.tool_calls:
+                    tool_loop_reasoning_cache.set(tool_call.id, message.reasoning)
+
+            chat_completion_response = ChatCompletionResponse(
                 id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
                 created=int(time.time()),
                 model=request.model,
@@ -427,6 +433,8 @@ class MlxLmModel(BaseTextModel):
                     prompt_tokens_details=prompt_tokens_details,
                 ),
             )
+            logger.debug(f"ChatCompletionResponse: [{chat_completion_response}]")
+            return chat_completion_response
         except GenerationCancelled:
             raise
         except Exception as e:
@@ -460,10 +468,12 @@ class MlxLmModel(BaseTextModel):
                     next_tool_call_index += 1
 
             result: GenerateResult | None = None
+            raw_completion = ""
             for result in self._stream_generate(request=request, should_cancel=should_cancel):
                 if not result.text:
                     logger.warning(f"Generated result [{escape(str(result))}] with empty text")
                     continue
+                raw_completion += result.text
 
                 created = int(time.time())
                 message = None
@@ -512,6 +522,13 @@ class MlxLmModel(BaseTextModel):
 
             final_message = self._chat_tokenizer.parse_buffer(
                 request.tools) or ChatMessage(role=Role.ASSISTANT, content="")
+            if final_message.tool_calls and self._reasoning_decoder.enable_thinking:
+                reasoning_result = self._reasoning_decoder.decode(raw_completion)
+                final_reasoning = reasoning_result.get("reasoning") if reasoning_result else None
+                if final_reasoning:
+                    final_message.reasoning = final_reasoning
+                    for tool_call in final_message.tool_calls:
+                        tool_loop_reasoning_cache.set(tool_call.id, final_reasoning)
             ensure_tool_call_indexes(final_message)
             finish_reason = "tool_calls" if final_message.tool_calls else "stop"
             # Send final chunk with finish reason
@@ -523,12 +540,14 @@ class MlxLmModel(BaseTextModel):
                     logprobs=None,
                 )
             ]
-            yield ChatCompletionChunk(
+            final_chat_completion_chunk = ChatCompletionChunk(
                 id=chat_id,
                 created=int(time.time()),
                 model=request.model,
                 choices=choices,
             )
+            logger.debug(f"Final ChatCompletionChunk: [{final_chat_completion_chunk}]")
+            yield final_chat_completion_chunk
 
             if result and request.stream_options and request.stream_options.include_usage:
                 cached_tokens = self._prompt_cache_tokens_count
@@ -537,7 +556,7 @@ class MlxLmModel(BaseTextModel):
                 if cached_tokens > 0:
                     prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
-                yield ChatCompletionChunk(
+                usage_chat_completion_chunk = ChatCompletionChunk(
                     id=chat_id,
                     created=int(time.time()),
                     model=request.model,
@@ -558,6 +577,8 @@ class MlxLmModel(BaseTextModel):
                         prompt_tokens_details=prompt_tokens_details,
                     ),
                 )
+                logger.debug(f"Usage ChatCompletionChunk: [{usage_chat_completion_chunk}]")
+                yield usage_chat_completion_chunk
 
         except GenerationCancelled:
             raise

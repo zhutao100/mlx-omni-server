@@ -27,6 +27,7 @@ from ..schema import (
     Role,
 )
 from ..text_models import BaseTextModel, GenerateResult
+from ..tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import convert_prompt_to_str, safe_encode_prompt
@@ -236,10 +237,12 @@ class MlxVlmModel(BaseTextModel):
                         tool_call.index = next_tool_call_index
                         next_tool_call_index += 1
                 result: GenerateResult | None = None
+                raw_completion = ""
 
                 for result in self._stream_generate(request=request):
                     if not result.text:
                         continue
+                    raw_completion += result.text
 
                     created = int(time.time())
                     message = None
@@ -294,6 +297,15 @@ class MlxVlmModel(BaseTextModel):
                 final_message = self._chat_tokenizer.parse_buffer(request.tools) or ChatMessage(
                     role=Role.ASSISTANT, content=""
                 )
+                if final_message.tool_calls and self._reasoning_decoder.enable_thinking:
+                    reasoning_result = self._reasoning_decoder.decode(raw_completion)
+                    final_reasoning = (
+                        reasoning_result.get("reasoning") if reasoning_result else None
+                    )
+                    if final_reasoning:
+                        final_message.reasoning = final_reasoning
+                        for tool_call in final_message.tool_calls:
+                            tool_loop_reasoning_cache.set(tool_call.id, final_reasoning)
                 ensure_tool_call_indexes(final_message)
                 finish_reason = "tool_calls" if final_message.tool_calls else "stop"
                 # Send final chunk with finish reason
@@ -543,12 +555,16 @@ class MlxVlmModel(BaseTextModel):
         # Handle tools (similar to LM model)
         if request.tools:
             message = self._chat_tokenizer.decode(response_text, request.tools)
+            message.reasoning = reasoning
         else:
             message = ChatMessage(
                 role=Role.ASSISTANT,
                 content=response_text,
                 reasoning=reasoning,
             )
+        if message.tool_calls and message.reasoning:
+            for tool_call in message.tool_calls:
+                tool_loop_reasoning_cache.set(tool_call.id, message.reasoning)
 
         # Handle cached tokens
         cached_tokens = self._prompt_cache_tokens_count

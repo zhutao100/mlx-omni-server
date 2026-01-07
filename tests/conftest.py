@@ -16,6 +16,7 @@ from openai import OpenAI
 
 from mlx_omni_server.chat.generation_service import response_cache
 from mlx_omni_server.chat.models.models import model_cache_manager
+from mlx_omni_server.chat.tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from mlx_omni_server.main import app
 
 
@@ -26,10 +27,12 @@ def cleanup_caches():
     # Clear caches before each test
     response_cache.clear()
     model_cache_manager.clear()
+    tool_loop_reasoning_cache.clear()
     yield
     # Clear caches after each test
     response_cache.clear()
     model_cache_manager.clear()
+    tool_loop_reasoning_cache.clear()
 
 
 @pytest.fixture

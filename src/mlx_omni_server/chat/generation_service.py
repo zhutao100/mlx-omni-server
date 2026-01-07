@@ -13,8 +13,9 @@ from mlx_lm.generate import GenerationCancelled
 from ..inference.runtime import run_mlx
 from .models.models import load_model
 from .models.models_service import ModelId
-from .schema import ChatCompletionRequest, ChatCompletionResponse
+from .schema import ChatCompletionRequest, ChatCompletionResponse, Role
 from .text_models import BaseTextModel
+from .tool_loop_reasoning_cache import tool_loop_reasoning_cache
 
 
 @dataclass
@@ -59,6 +60,40 @@ def make_request_hash(req: ChatCompletionRequest) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _restore_tool_loop_reasoning(request: ChatCompletionRequest) -> None:
+    """Best-effort: restore missing assistant reasoning for tool-loop continuation.
+
+    Some OpenAI-compatible clients drop unknown fields (e.g. `reasoning` /
+    `reasoning_content`). For DeepSeek/GLM interleaved thinking, the assistant tool-call
+    step must still carry reasoning so the model can continue after tool outputs.
+    """
+
+    if not request.messages:
+        return
+
+    tool_call_to_assistant: dict[str, Any] = {}
+    referenced_tool_call_ids: set[str] = set()
+
+    for message in request.messages:
+        if message.role == Role.ASSISTANT and message.tool_calls:
+            for tool_call in message.tool_calls:
+                tool_call_to_assistant[tool_call.id] = message
+        elif message.role == Role.TOOL and message.tool_call_id:
+            referenced_tool_call_ids.add(message.tool_call_id)
+
+    for tool_call_id in referenced_tool_call_ids:
+        assistant_message = tool_call_to_assistant.get(tool_call_id)
+        if assistant_message is None:
+            continue
+        if assistant_message.reasoning is not None:
+            continue
+
+        cached_reasoning = tool_loop_reasoning_cache.get(tool_call_id)
+        if cached_reasoning is None:
+            continue
+        assistant_message.reasoning = cached_reasoning
+
+
 def _create_text_model(
     model_id: str,
     adapter_path: str | None = None,
@@ -78,6 +113,7 @@ class ChatGenerationService:
         request: ChatCompletionRequest,
         is_disconnected: Callable[[], Awaitable[bool]] | None = None,
     ) -> NonStreamResult:
+        _restore_tool_loop_reasoning(request)
         req_hash = make_request_hash(request)
 
         async with self._cache_lock:
@@ -152,6 +188,7 @@ class ChatGenerationService:
         request: ChatCompletionRequest,
         is_disconnected: Callable[[], Awaitable[bool]],
     ) -> tuple[AsyncGenerator[StreamItem, None], bool]:
+        _restore_tool_loop_reasoning(request)
         req_hash = make_request_hash(request)
 
         async with self._cache_lock:
