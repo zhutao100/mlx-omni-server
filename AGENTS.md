@@ -12,7 +12,7 @@
   - The clients are trustable localhost or LAN applications that interact with the program via REST API calls.
   - The clients are trusted not to have malicious intent, so security measures against such threats are not a priority.
   - However, the clients may be unreliable and could send malformed or unexpected requests, so robust error handling is necessary.
-- The expected cocurreny count is low (typically 1-5 simultaneous requests, 1 is the most common case), so the program is optimized for low-latency single requests rather than high-throughput batch processing.
+- The expected concurrency count is low (typically 1-5 simultaneous requests, 1 is the most common case), so the program is optimized for low-latency single requests rather than high-throughput batch processing.
 
 ## Repository expectations
 
@@ -26,4 +26,4 @@
   - [transformers](https://github.com/huggingface/transformers): ~/workspace/custom-builds/transformers
   - [mflux](https://github.com/filipstrand/mflux): ~/workspace/custom-builds/mflux
 - When need to inspect model files, they are typically managed by huggingface CLI and stored in `~/.cache/huggingface/hub`.
-- When running python commands, use the virutual env `venv313` by pretending `PYENV_VERSION=venv313 pyenv exec ` to the commands.
+- When running python commands, use the virtual env `venv313` by pretending `PYENV_VERSION=venv313 pyenv exec ` to the commands.
