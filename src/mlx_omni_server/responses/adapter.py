@@ -18,6 +18,7 @@ from ..chat.schema import (
     ToolCall,
     ToolType,
 )
+from .reasoning_envelope import ReasoningEnvelope, seal
 from .schema import ResponseRequest, ResponseStreamEvent
 
 
@@ -268,6 +269,7 @@ def _convert_response_content_to_chat_content(
 def response_request_to_chat_request(response_request: ResponseRequest) -> ChatCompletionRequest:
     payload = response_request.model_dump(exclude_none=True)
 
+    payload.pop("include", None)
     instructions = payload.pop("instructions", None)
     max_output_tokens = payload.pop("max_output_tokens", None)
     text_config = payload.pop("text", None)
@@ -612,11 +614,37 @@ def chat_response_to_response(
 ) -> dict[str, Any]:
     response_id = response_id_override or chat_response.id
     created_at = int(chat_response.created)
+    include = (request_echo or {}).get("include") or []
+    include_reasoning_encrypted = (
+        isinstance(include, list) and "reasoning.encrypted_content" in include
+    )
 
     output_items: list[dict[str, Any]] = []
     for choice in chat_response.choices:
         message = choice.message
         role = message.role.value if message else Role.ASSISTANT.value
+
+        if message and message.reasoning:
+            item: dict[str, Any] = {
+                "id": f"{response_id}-reasoning-{choice.index}",
+                "type": "reasoning",
+                "status": "completed",
+            }
+            if include_reasoning_encrypted:
+                tool_call_ids = [
+                    tool_call.id
+                    for tool_call in (message.tool_calls or [])
+                    if tool_call.id is not None
+                ]
+                item["encrypted_content"] = seal(
+                    ReasoningEnvelope(
+                        model=chat_response.model,
+                        created_at=created_at,
+                        tool_call_ids=tool_call_ids,
+                        reasoning=message.reasoning,
+                    )
+                )
+            output_items.append(item)
 
         if message and message.tool_calls:
             for idx, tool_call in enumerate(message.tool_calls):

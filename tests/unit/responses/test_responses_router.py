@@ -17,6 +17,7 @@ from mlx_omni_server.chat.schema import (
 )
 from mlx_omni_server.chat.text_models import BaseTextModel
 from mlx_omni_server.responses.adapter import response_request_to_chat_request
+from mlx_omni_server.responses.reasoning_envelope import unseal
 from mlx_omni_server.responses.schema import ResponseRequest
 
 
@@ -180,6 +181,53 @@ class MockToolCallModel(BaseTextModel):
             ],
         )
         yield chunk2
+
+
+class MockReasoningToolCallModel(BaseTextModel):
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        return ChatCompletionResponse(
+            id="resp-id",
+            created=123,
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "reasoning": "secret-thought",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "shell",
+                                    "arguments": '{"command":["ls"]}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 2,
+                "total_tokens": 12,
+            },
+        )
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        yield from ()
 
 
 @pytest.fixture
@@ -438,6 +486,42 @@ def test_responses_reject_include(client):
     payload = response.json()
     assert payload["error"]["type"] == "invalid_request_error"
     assert payload["error"]["code"] == "invalid_request"
+
+
+def test_response_request_to_chat_request_drops_include():
+    response_request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        include=["reasoning.encrypted_content"],
+    )
+    chat_request = response_request_to_chat_request(response_request)
+    assert "include" not in chat_request.get_extra_params()
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_non_stream_reasoning_item_with_encrypted_content(mock_create_model, client):
+    mock_create_model.return_value = MockReasoningToolCallModel()
+
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "test-model",
+            "input": "Hello",
+            "include": ["reasoning.encrypted_content"],
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    reasoning_item = next(item for item in payload["output"] if item["type"] == "reasoning")
+    assert "encrypted_content" in reasoning_item
+
+    envelope = unseal(reasoning_item["encrypted_content"])
+    assert envelope.v == 1
+    assert envelope.model == "test-model"
+    assert envelope.created_at == 123
+    assert envelope.reasoning == "secret-thought"
+    assert envelope.tool_call_ids == ["call_1"]
 
 
 class MockFailModel(BaseTextModel):

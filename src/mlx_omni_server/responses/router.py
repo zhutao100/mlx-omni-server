@@ -231,18 +231,23 @@ async def create_response(request: ResponseRequest, raw_request: Request):
     request_dump = request.model_dump(exclude_none=True)
     logging.debug("Received responses request: %s", request_dump)
 
-    if request_dump.get("conversation") is not None:
+    supported_include = {"reasoning.encrypted_content"}
+    include = request.include or []
+    unsupported_include = [item for item in include if item not in supported_include]
+    if unsupported_include:
+        supported_list = ", ".join(sorted(supported_include))
+        rejected_list = ", ".join(unsupported_include)
         return _openai_error_response(
             400,
-            "conversation is not supported",
+            f"Unsupported include value(s): {rejected_list}. Supported: {supported_list}",
             error_type="invalid_request_error",
             code="invalid_request",
         )
 
-    if request_dump.get("include"):
+    if request_dump.get("conversation") is not None:
         return _openai_error_response(
             400,
-            "include is not supported",
+            "conversation is not supported",
             error_type="invalid_request_error",
             code="invalid_request",
         )

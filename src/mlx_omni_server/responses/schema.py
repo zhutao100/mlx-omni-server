@@ -72,8 +72,15 @@ class ResponseOutputFunctionCall(BaseModel):
     call_id: str
 
 
+class ResponseOutputReasoning(BaseModel):
+    id: str
+    type: Literal["reasoning"] = "reasoning"
+    status: ResponseOutputItemStatus = ResponseOutputItemStatus.COMPLETED
+    encrypted_content: Optional[str] = None
+
+
 ResponseOutputItem = Annotated[
-    Union[ResponseOutputMessage, ResponseOutputFunctionCall],
+    Union[ResponseOutputMessage, ResponseOutputFunctionCall, ResponseOutputReasoning],
     Field(discriminator="type"),
 ]
 
@@ -136,6 +143,7 @@ class ResponseTextConfig(BaseModel):
 class ResponseRequest(BaseModel):
     model: str
     input: Any
+    include: Optional[list[str]] = None
     instructions: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     modalities: Optional[list[str]] = None
