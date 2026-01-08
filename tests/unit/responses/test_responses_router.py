@@ -16,8 +16,9 @@ from mlx_omni_server.chat.schema import (
     ToolCall,
 )
 from mlx_omni_server.chat.text_models import BaseTextModel
+from mlx_omni_server.chat.tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from mlx_omni_server.responses.adapter import response_request_to_chat_request
-from mlx_omni_server.responses.reasoning_envelope import unseal
+from mlx_omni_server.responses.reasoning_envelope import ReasoningEnvelope, seal, unseal
 from mlx_omni_server.responses.schema import ResponseRequest
 
 
@@ -656,6 +657,39 @@ def test_response_request_to_chat_request_drops_include():
     assert "include" not in chat_request.get_extra_params()
 
 
+def test_response_request_to_chat_request_parses_reasoning_input_item():
+    token = seal(
+        ReasoningEnvelope(
+            model="test-model",
+            created_at=123,
+            tool_call_ids=["call_1"],
+            reasoning="secret-thought",
+        )
+    )
+    response_request = ResponseRequest(
+        model="test-model",
+        input=[
+            {"type": "reasoning", "encrypted_content": token},
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "shell",
+                "arguments": '{"command":["ls"]}',
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "ok"},
+        ],
+    )
+    chat_request = response_request_to_chat_request(response_request)
+
+    assistant = next(
+        message
+        for message in chat_request.messages
+        if message.role == Role.ASSISTANT and message.tool_calls
+    )
+    assert assistant.reasoning == "secret-thought"
+    assert tool_loop_reasoning_cache.get("call_1") == "secret-thought"
+
+
 @patch("mlx_omni_server.chat.generation_service._create_text_model")
 def test_responses_non_stream_reasoning_item_with_encrypted_content(mock_create_model, client):
     mock_create_model.return_value = MockReasoningToolCallModel()
@@ -863,6 +897,112 @@ def test_responses_previous_response_id_prepends_history(mock_create_model, clie
     second = client.post(
         "/v1/responses",
         json={"model": "test-model", "input": "follow-up", "previous_response_id": first_id},
+    )
+    assert second.status_code == 200
+
+
+class MockHistoryToolReasoningModel(BaseTextModel):
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        self.call_count += 1
+        if self.call_count == 2:
+            assert any(
+                message.role == Role.ASSISTANT
+                and message.tool_calls
+                and message.reasoning == "secret-thought"
+                and any(tool_call.id == "call_1" for tool_call in message.tool_calls)
+                for message in request.messages
+            )
+
+        if self.call_count == 1:
+            return ChatCompletionResponse(
+                id="resp-first",
+                created=int(time.time()),
+                model=request.model,
+                choices=[
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "reasoning": "secret-thought",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "shell",
+                                        "arguments": '{"command":["ls"]}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                usage={
+                    "prompt_tokens": 5,
+                    "completion_tokens": 3,
+                    "total_tokens": 8,
+                },
+            )
+
+        return ChatCompletionResponse(
+            id="resp-second",
+            created=int(time.time()),
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            usage={
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8,
+            },
+        )
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        yield from ()
+
+
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+def test_responses_previous_response_id_preserves_tool_call_reasoning(mock_create_model, client):
+    mock_model = MockHistoryToolReasoningModel()
+    mock_create_model.return_value = mock_model
+
+    first = client.post(
+        "/v1/responses",
+        json={
+            "model": "test-model",
+            "input": "hello",
+            "include": ["reasoning.encrypted_content"],
+        },
+    )
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+
+    second = client.post(
+        "/v1/responses",
+        json={
+            "model": "test-model",
+            "input": "follow-up",
+            "previous_response_id": first_id,
+        },
     )
     assert second.status_code == 200
 

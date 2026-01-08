@@ -18,7 +18,8 @@ from ..chat.schema import (
     ToolCall,
     ToolType,
 )
-from .reasoning_envelope import ReasoningEnvelope, seal
+from ..chat.tool_loop_reasoning_cache import tool_loop_reasoning_cache
+from .reasoning_envelope import ReasoningEnvelope, seal, unseal
 from .schema import ResponseRequest, ResponseStreamEvent
 
 
@@ -150,6 +151,30 @@ def _coerce_tool_call(tool_call: dict[str, Any], fallback_index: int) -> ToolCal
     )
 
 
+def _parse_reasoning_envelope(item: Any) -> ReasoningEnvelope | None:
+    candidate = item
+    if hasattr(candidate, "model_dump"):
+        try:
+            candidate = candidate.model_dump()
+        except Exception:  # pragma: no cover
+            candidate = item
+
+    if not isinstance(candidate, dict):
+        return None
+
+    if candidate.get("type") != "reasoning":
+        return None
+
+    encrypted_content = candidate.get("encrypted_content")
+    if not isinstance(encrypted_content, str) or not encrypted_content:
+        return None
+
+    try:
+        return unseal(encrypted_content)
+    except ValueError:
+        return None
+
+
 def _convert_input_item_to_chat_messages(
     item: Any, choice_index: int
 ) -> list[ChatMessage]:
@@ -227,11 +252,44 @@ def _convert_input_to_chat_messages(input_value: Any) -> list[ChatMessage]:
         return messages
 
     if isinstance(input_value, (list, tuple)):
+        tool_call_id_to_message: dict[str, ChatMessage] = {}
+        pending_reasoning: list[ReasoningEnvelope] = []
+
         for idx, item in enumerate(input_value):
-            messages.extend(_convert_input_item_to_chat_messages(item, idx))
+            envelope = _parse_reasoning_envelope(item)
+            if envelope is not None:
+                pending_reasoning.append(envelope)
+                for tool_call_id in envelope.tool_call_ids:
+                    tool_loop_reasoning_cache.set(tool_call_id, envelope.reasoning)
+                    seen_message = tool_call_id_to_message.get(tool_call_id)
+                    if seen_message is not None and seen_message.reasoning is None:
+                        seen_message.reasoning = envelope.reasoning
+                continue
+
+            new_messages = _convert_input_item_to_chat_messages(item, idx)
+            for message in new_messages:
+                if message.role == Role.ASSISTANT and message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        tool_call_id_to_message[tool_call.id] = message
+                    if message.reasoning is None:
+                        for pending in pending_reasoning:
+                            if any(
+                                tool_call.id in pending.tool_call_ids
+                                for tool_call in message.tool_calls
+                            ):
+                                message.reasoning = pending.reasoning
+                                break
+
+            messages.extend(new_messages)
         return messages
 
     if isinstance(input_value, (ChatMessage, str, dict)):
+        envelope = _parse_reasoning_envelope(input_value)
+        if envelope is not None:
+            for tool_call_id in envelope.tool_call_ids:
+                tool_loop_reasoning_cache.set(tool_call_id, envelope.reasoning)
+            return messages
+
         messages.extend(_convert_input_item_to_chat_messages(input_value, 0))
         return messages
 
@@ -488,24 +546,42 @@ def response_output_items_to_chat_messages(
     output_items: Iterable[dict[str, Any]],
 ) -> list[ChatMessage]:
     messages: list[ChatMessage] = []
+    tool_call_id_to_message: dict[str, ChatMessage] = {}
+    pending_reasoning: list[ReasoningEnvelope] = []
     for item in output_items:
         item_type = item.get("type")
+        if item_type == "reasoning":
+            envelope = _parse_reasoning_envelope(item)
+            if envelope is not None:
+                pending_reasoning.append(envelope)
+                for tool_call_id in envelope.tool_call_ids:
+                    tool_loop_reasoning_cache.set(tool_call_id, envelope.reasoning)
+                    seen_message = tool_call_id_to_message.get(tool_call_id)
+                    if seen_message is not None and seen_message.reasoning is None:
+                        seen_message.reasoning = envelope.reasoning
+            continue
+
         if item_type == "function_call":
             call_id = item.get("call_id") or item.get("id") or str(uuid4())
             name = item.get("name") or "tool"
             arguments = item.get("arguments") or ""
-            messages.append(
-                ChatMessage(
-                    role=Role.ASSISTANT,
-                    tool_calls=[
-                        ToolCall(
-                            id=call_id,
-                            type=ToolType.FUNCTION,
-                            function=FunctionCall(name=name, arguments=arguments),
-                        )
-                    ],
-                )
+            message = ChatMessage(
+                role=Role.ASSISTANT,
+                tool_calls=[
+                    ToolCall(
+                        id=call_id,
+                        type=ToolType.FUNCTION,
+                        function=FunctionCall(name=name, arguments=arguments),
+                    )
+                ],
             )
+            tool_call_id_to_message[call_id] = message
+            if message.reasoning is None:
+                for pending in pending_reasoning:
+                    if call_id in pending.tool_call_ids:
+                        message.reasoning = pending.reasoning
+                        break
+            messages.append(message)
             continue
 
         if item_type == "message":
