@@ -815,6 +815,7 @@ class MlxVlmModel(BaseTextModel):
             model_key,
             full_prompt_tokens,
             media_hashes or None,
+            session_key=request.prompt_cache_key,
         )
         self._active_cache = prompt_cache
         self._prompt_cache_tokens_count = cached_count

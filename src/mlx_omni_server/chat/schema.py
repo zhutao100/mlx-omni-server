@@ -252,6 +252,7 @@ class ResponseFormat(BaseModel):
 class ChatCompletionRequest(BaseModel):
     # Standard OpenAI API fields
     model: str = Field(..., description="ID of the model to use")
+    prompt_cache_key: Optional[str] = None
     messages: List[ChatMessage]
     temperature: Optional[float] = Field(1.0, ge=0, le=2)
     top_p: Optional[float] = Field(1.0, ge=0, le=1)
@@ -295,6 +296,7 @@ class ChatCompletionRequest(BaseModel):
         """Get all extra parameters that aren't part of the standard OpenAI API."""
         standard_fields: Set[str] = {
             "model",
+            "prompt_cache_key",
             "messages",
             "temperature",
             "top_p",

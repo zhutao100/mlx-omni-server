@@ -158,6 +158,7 @@ class ResponseRequest(BaseModel):
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_output_tokens: Optional[int] = None
+    prompt_cache_key: Optional[str] = None
     presence_penalty: Optional[float] = None
     frequency_penalty: Optional[float] = None
     stop: Optional[Union[str, list[str]]] = None

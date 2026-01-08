@@ -162,12 +162,12 @@ Your roadmap should treat this as Phase 0 because both `/chat/completions` and `
 
 1. **Plumb `prompt_cache_key` end-to-end**
 
-   * Today the model layer drops `prompt_cache_key` as “unsupported” (along with `include`) . Stop dropping `prompt_cache_key` and use it to select/cache prompt KV state.
+   * Implement `prompt_cache_key` end-to-end and use it to select/cache prompt KV state (Codex CLI sends it per session).
    * Align with Responses API support for `prompt_cache_key` ([OpenAI Platform][1]).
 
 2. **Session-scoped prompt cache managers**
 
-   * Instead of a single `PromptCacheManager` with a small fixed cache set , introduce `dict[prompt_cache_key] -> PromptCacheManager` with LRU eviction across sessions.
+   * Future optimization: instead of a single global prompt-cache manager, consider `dict[prompt_cache_key] -> PromptCacheManager` with LRU eviction across sessions.
 
 3. **Compaction**
 

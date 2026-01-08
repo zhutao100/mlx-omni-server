@@ -191,3 +191,28 @@
 - Reasoning now survives tool-call steps across `/chat/completions` and `/responses` (Phase 0 + Phase 1).
 - `/responses` now has a replay mechanism (`reasoning.encrypted_content`) and history reconstruction that preserves tool-call reasoning (Phase 1).
 - This provides the necessary transport and caching foundation for Phase 2, but **does not yet make replay deterministic across backends/templates**.
+
+## Phase 3 (partial) Implementation
+
+### Reference
+
+- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 3 — Long-session performance and stability (Codex-oriented)”.
+
+### What Was Implemented (Option B1: namespaced prompt cache)
+
+- `prompt_cache_key` is now a first-class request field:
+  - Chat: `src/mlx_omni_server/chat/schema.py` (`ChatCompletionRequest.prompt_cache_key`)
+  - Responses: `src/mlx_omni_server/responses/schema.py` (`ResponseRequest.prompt_cache_key`)
+- Prompt KV cache reuse is scoped by `prompt_cache_key`:
+  - LM: `src/mlx_omni_server/chat/mlx_lm/prompt_cache.py` namespaces cache keys and filters reuse/fork by session key.
+  - VLM: `src/mlx_omni_server/chat/mlx_vlm/prompt_cache.py` namespaces cache keys and filters reuse by session key.
+- Model wrappers pass `prompt_cache_key` into the prompt cache managers:
+  - LM: `src/mlx_omni_server/chat/mlx_lm/mlx_lm_model.py`
+  - VLM: `src/mlx_omni_server/chat/mlx_vlm/mlx_vlm_model.py`
+- Added tests:
+  - `tests/unit/chat/test_prompt_cache_session_key.py`
+
+### Notes / Tradeoffs
+
+- This intentionally keeps a single global prompt-cache manager with a small `max_caches` (global LRU eviction).
+- The plan’s “per-session prompt cache manager dict” remains a future optimization if concurrent sessions become common.

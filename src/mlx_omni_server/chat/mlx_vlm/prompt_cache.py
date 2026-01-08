@@ -14,6 +14,8 @@ from ...utils.logger import logger
 
 logger = logging.getLogger(__name__)
 
+CacheKey = tuple[str, str]
+
 
 def common_prefix_len(a: list[int], b: list[int]) -> int:
     min_len = min(len(a), len(b))
@@ -48,6 +50,7 @@ def tokens_key(tokens: list[int], media_hashes: list[str] | None = None) -> str:
 @dataclass
 class PromptCache:
     max_position_embeddings: int
+    session_key: str = ""
     tokens: list[int] = field(default_factory=list)
     bundle: PromptCacheBundle | None = None
     model_key: str = ""
@@ -176,7 +179,7 @@ class PromptCacheManager:
 
     def __init__(self, max_position_embeddings: int, max_caches: int):
         self.max_position_embeddings = max_position_embeddings
-        self.caches: "OrderedDict[str, PromptCache]" = OrderedDict()
+        self.caches: "OrderedDict[CacheKey, PromptCache]" = OrderedDict()
         self.max_caches = max_caches
         self.multimodal_cache_ratio = 0.3  # Reserve 30% of cache slots for multimodal content
 
@@ -229,7 +232,15 @@ class PromptCacheManager:
         # Force Python to finalize objects & free memory back to MLX
         gc.collect()
 
-    def get_or_create_cache(self, model, model_key: str, prompt: list[int], media_hashes: list[str] | None = None) -> Tuple[PromptCache, list[int], int]:
+    def get_or_create_cache(
+        self,
+        model,
+        model_key: str,
+        prompt: list[int],
+        media_hashes: list[str] | None = None,
+        *,
+        session_key: str | None = None,
+    ) -> Tuple[PromptCache, list[int], int]:
         """
         Returns (active_cache, suffix_tokens_to_process, num_cached_tokens).
         Behavior:
@@ -242,6 +253,7 @@ class PromptCacheManager:
         else:
             min_prefix_len = 100  # Standard threshold for text-only
 
+        cache_namespace = session_key or "default"
         best_cache = None
         best_key = None
         best_prefix_len = 0
@@ -249,6 +261,8 @@ class PromptCacheManager:
         logger.debug(f"Number of existing caches: {len(self.caches)}")
         # Find longest prefix match among existing caches
         for key, cache in self.caches.items():
+            if key[0] != cache_namespace:
+                continue
             # For multimodal content, require exact media hash match
             if media_hashes:
                 if not cache.is_multimodal:
@@ -286,7 +300,8 @@ class PromptCacheManager:
         logger.debug("No matching cache found; creating new.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
         new_cache.reset_prompt_cache(model, model_key, prompt, media_hashes)
-        key = tokens_key(prompt, media_hashes)
+        key = (cache_namespace, tokens_key(prompt, media_hashes))
+        new_cache.session_key = cache_namespace
         self.caches[key] = new_cache
         self._evict_if_needed()
         return new_cache, prompt, 0

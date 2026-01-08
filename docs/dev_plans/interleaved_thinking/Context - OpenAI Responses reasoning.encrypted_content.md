@@ -285,22 +285,21 @@ Below is a concrete implementation plan for **`zhutao100/mlx-omni-server`** to �
 
 ## Current gaps vs “OpenAI Responses + Codex CLI expectations”
 
-### A) `include` is rejected today (breaks encrypted reasoning flows)
+### A) `include` support is narrow (strict allowlist)
 
-The router explicitly returns `400` if `include` is present.
-But OpenAI Responses uses `include=["reasoning.encrypted_content"]` to return encrypted reasoning state for stateless continuation.
+The router supports `include=["reasoning.encrypted_content"]` and rejects unknown include values with a `400 invalid_request_error`.
+This is enough for Codex CLI’s encrypted reasoning flow, but it’s not a general “accept anything” pass-through.
 
-### B) The Responses streaming adapter ignores `delta.reasoning`
+### B) Responses streaming reasoning is captured (implemented)
 
-`ResponseStreamAdapter.on_chunk()` only extracts text from `delta` and tool call deltas; it doesn’t ingest `delta.reasoning` at all.
-So even though the model can produce reasoning deltas, nothing captures/serializes them into a Responses-compatible “reasoning state”.
+`ResponseStreamAdapter` captures `delta.reasoning` and emits a `type="reasoning"` output item (with optional `encrypted_content` when requested via `include`).
 
-### C) `prompt_cache_key` is dropped by the model wrapper
+### C) `prompt_cache_key` is plumbed and used to namespace prompt cache (implemented)
 
-The MLX wrapper treats `prompt_cache_key` (and `include`) as incompatible and drops them.
-For long Codex sessions, you want a **stable cache key** to maximize KV/prompt-cache reuse across turns.
+`prompt_cache_key` is accepted on `/responses` and `/chat/completions` and is used as a **namespace** for local prompt KV cache reuse.
+This prevents accidental cache mixing across concurrent sessions while keeping a small global cache size.
 
-### D) Missing “preserved thinking” bridge for DeepSeek/GLM tool use
+### D) Remaining: deterministic preserved-thinking injection across backends/templates
 
 * DeepSeek v3.2 “thinking mode” tool calling requires preserving `reasoning_content` in the assistant tool-call message across turns (otherwise tool continuation can fail).
 * GLM “preserved thinking” similarly requires returning unmodified thinking blocks when configured.

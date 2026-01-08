@@ -16,6 +16,8 @@ from ...utils.logger import logger
 
 logger = logging.getLogger(__name__)
 
+CacheKey = tuple[str, str]
+
 
 def common_prefix_len(a: list[int], b: list[int]) -> int:
     min_len = min(len(a), len(b))
@@ -39,6 +41,7 @@ def tokens_key(tokens: list[int]) -> str:
 @dataclass
 class PromptCache:
     max_position_embeddings: int
+    session_key: str = ""
     tokens: list[int] = field(default_factory=list)
     cache: list[Any] | None = field(default_factory=list)
     model_key: str = ""
@@ -129,6 +132,7 @@ class PromptCache:
         """
         logger.debug(f"Cloning prompt cache up to {prefix_len} tokens.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
+        new_cache.session_key = self.session_key
         new_cache.model_key = self.model_key
         new_cache.tokens = list(self.tokens[:prefix_len])
 
@@ -197,7 +201,7 @@ class PromptCacheManager:
 
     def __init__(self, max_position_embeddings: int, max_caches: int):
         self.max_position_embeddings = max_position_embeddings
-        self.caches: "OrderedDict[str, PromptCache]" = OrderedDict()
+        self.caches: "OrderedDict[CacheKey, PromptCache]" = OrderedDict()
         self.max_caches = max_caches
 
     def _evict_if_needed(self):
@@ -231,7 +235,13 @@ class PromptCacheManager:
         # Force Python to finalize objects & free memory back to MLX
         gc.collect()
 
-    def get_or_create_cache(self, model_cache, prompt: list[int]) -> Tuple[PromptCache, list[int], int]:
+    def get_or_create_cache(
+        self,
+        model_cache,
+        prompt: list[int],
+        *,
+        session_key: str | None = None,
+    ) -> Tuple[PromptCache, list[int], int]:
         """
         Returns (active_cache, suffix_tokens_to_process, num_cached_tokens).
         Behavior:
@@ -239,12 +249,15 @@ class PromptCacheManager:
           - If a cache shares a common prefix but is longer (divergence): fork via clone_up_to(prefix_len).
           - If no cache matches: create a new cache from scratch.
         """
+        cache_namespace = session_key or "default"
         best_cache = None
         best_key = None
         best_prefix_len = 0
 
         # find longest prefix match among existing caches
         for key, cache in self.caches.items():
+            if key[0] != cache_namespace:
+                continue
             prefix_len = common_prefix_len(cache.tokens, prompt)
             if prefix_len > best_prefix_len:
                 best_cache = cache
@@ -281,13 +294,15 @@ class PromptCacheManager:
                 logger.debug("Cache fork not supported; creating new cache from scratch.")
                 new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
                 new_cache.reset_prompt_cache(model_cache, prompt)
-                key = tokens_key(prompt)
-                self.caches[key] = new_cache
+                fork_key = (cache_namespace, tokens_key(prompt))
+                new_cache.session_key = cache_namespace
+                self.caches[fork_key] = new_cache
                 self._evict_if_needed()
                 return new_cache, prompt, 0
 
             suffix_tokens = prompt[best_prefix_len:]
-            new_key = tokens_key(prompt)
+            new_key = (cache_namespace, tokens_key(prompt))
+            forked.session_key = cache_namespace
             self.caches[new_key] = forked
             self._evict_if_needed()
             return forked, suffix_tokens, best_prefix_len
@@ -296,7 +311,8 @@ class PromptCacheManager:
         logger.debug("No matching cache found; creating new.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
         new_cache.reset_prompt_cache(model_cache, prompt)
-        key = tokens_key(prompt)
+        key = (cache_namespace, tokens_key(prompt))
+        new_cache.session_key = cache_namespace
         self.caches[key] = new_cache
         self._evict_if_needed()
         return new_cache, prompt, 0

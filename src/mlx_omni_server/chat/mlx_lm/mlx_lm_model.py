@@ -113,7 +113,6 @@ class MlxLmModel(BaseTextModel):
         }
         incompatible_params = {
             "include",
-            "prompt_cache_key",
         }
 
         sampler_kwargs = {}
@@ -241,8 +240,12 @@ class MlxLmModel(BaseTextModel):
 
         # Process prompt cache using the safe caller
         tokenized_prompt: list[int] = safe_encode_prompt(tokenizer, prompt)
-        active_cache, processed_prompt, cached_count = self._prompt_cache_manager.get_or_create_cache(
-            self._model_cache, tokenized_prompt
+        active_cache, processed_prompt, cached_count = (
+            self._prompt_cache_manager.get_or_create_cache(
+                self._model_cache,
+                tokenized_prompt,
+                session_key=request.prompt_cache_key,
+            )
         )
         generate_kwargs["prompt_cache"] = active_cache.cache
         # keep a reference to extend later
