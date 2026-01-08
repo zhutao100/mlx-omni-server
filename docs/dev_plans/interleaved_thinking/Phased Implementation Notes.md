@@ -76,3 +76,118 @@
   - non-stream tool-call reasoning survival
   - streamed final tool-call chunk reasoning survival
 - Ran: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest -q tests/unit` (pass).
+
+## Phase 1 Implementation
+
+### Reference
+
+- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 1 — Make `/responses` work with Codex CLI: `include=[\"reasoning.encrypted_content\"]` + reasoning replay”.
+
+### What Phase 1 Required (from the plan) vs What Was Implemented
+
+#### 1) Accept and validate `include`
+
+- **Plan:** Accept `include`, support `reasoning.encrypted_content`, and ensure it does not affect chat request hashing/caching.
+- **Implemented:**
+  - `ResponseRequest` now defines `include: list[str] | None` (`src/mlx_omni_server/responses/schema.py:143`).
+  - `/responses` validates `include` with an allowlist and rejects unknown values (`src/mlx_omni_server/responses/router.py:234`).
+  - `include` is removed before translating to `ChatCompletionRequest` so it does not affect request hashing/caching (`src/mlx_omni_server/responses/adapter.py:299`).
+
+#### 2) Add a Responses `reasoning` output item type
+
+- **Plan:** Extend the Responses schema with a discriminated `type="reasoning"` output item.
+- **Implemented:**
+  - Added `ResponseOutputReasoning` and extended `ResponseOutputItem` union (`src/mlx_omni_server/responses/schema.py:75`).
+
+#### 3) Implement seal/unseal for `reasoning.encrypted_content`
+
+- **Plan:** Provide an opaque replay token for reasoning with integrity validation.
+- **Implemented:**
+  - Added `src/mlx_omni_server/responses/reasoning_envelope.py` implementing:
+    - `seal`: JSON → zlib → base64url + HMAC-SHA256 signature.
+    - `unseal`: signature verification + decompress + JSON parse.
+  - Key behavior:
+    - Uses `MLX_OMNI_SERVER_REASONING_HMAC_KEY` when set; otherwise generates an **ephemeral process-local key** (tokens cannot be unsealed after restart without a configured key).
+
+#### 4) Emit non-stream reasoning output items
+
+- **Plan:** When chat completions contain reasoning, emit a `type="reasoning"` output item; include `encrypted_content` only when requested by `include`.
+- **Implemented:**
+  - `chat_response_to_response(...)` emits `type="reasoning"` when `choice.message.reasoning` exists (`src/mlx_omni_server/responses/adapter.py:609`).
+  - `encrypted_content` is only included when `include` contains `reasoning.encrypted_content` (`src/mlx_omni_server/responses/adapter.py:617`).
+
+#### 5) Capture `delta.reasoning` during streaming and emit reasoning output item events
+
+- **Plan:** Accumulate reasoning during streaming; emit a `type="reasoning"` output item in events and in the final `response.completed` payload.
+- **Implemented:**
+  - `ResponseStreamAdapter` captures `delta.reasoning` and accumulates it per choice (`src/mlx_omni_server/responses/adapter.py:969`).
+  - Tracks tool call IDs per choice (for envelope metadata) (`src/mlx_omni_server/responses/adapter.py:871`).
+  - On `on_done()`, emits `response.output_item.added` + `response.output_item.done` for `type="reasoning"` and includes it in `response.completed` (`src/mlx_omni_server/responses/adapter.py:1195`).
+
+#### 6) Parse reasoning input items and preserve reasoning via `previous_response_id` chaining
+
+- **Plan:** Accept `{"type":"reasoning","encrypted_content":"..."}` input items and preserve reasoning when rebuilding history from stored output items.
+- **Implemented:**
+  - Input parsing:
+    - `_convert_input_to_chat_messages(...)` recognizes `type="reasoning"` items, unseals them, and attaches reasoning onto the matching assistant tool-call step; also hydrates Phase 0 cache (`src/mlx_omni_server/responses/adapter.py:248`).
+  - History preservation:
+    - `response_output_items_to_chat_messages(...)` consumes reasoning items when reconstructing history, and reattaches reasoning to assistant tool-call messages; also hydrates Phase 0 cache (`src/mlx_omni_server/responses/adapter.py:545`).
+
+### Deviations / Clarifications vs the Phase 1 Plan
+
+- **`include` strictness:** The Phase 1 plan recommended “ignore unknown includes (warn)”. The implementation is stricter:
+  - Unknown include values return a 400 `invalid_request_error` (`src/mlx_omni_server/responses/router.py:237`).
+  - Rationale: fail fast on malformed clients; simplifies compatibility surface. If needed, this can be relaxed later to “ignore unknowns”.
+
+### Files Added / Changed
+
+- Added:
+  - `src/mlx_omni_server/responses/reasoning_envelope.py`
+- Changed:
+  - `src/mlx_omni_server/responses/router.py`
+  - `src/mlx_omni_server/responses/schema.py`
+  - `src/mlx_omni_server/responses/adapter.py`
+  - `tests/unit/responses/test_responses_router.py`
+
+### Verification
+
+- Added unit tests covering:
+  - non-stream reasoning item + envelope roundtrip
+  - streaming reasoning item events + envelope roundtrip
+  - parsing reasoning input items and attaching to assistant tool-call steps
+  - `previous_response_id` history reconstruction preserving tool-call reasoning
+- Ran: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest -q tests/unit` (pass).
+
+## Phase 2 Implementation
+
+### Reference
+
+- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 2 — Deterministic backend replay semantics (DeepSeek v3.2 + GLM 4.7)”.
+
+### What Phase 2 Required (from the plan) vs Current Implementation
+
+#### 1) ThinkingAdapter interface
+
+- **Plan:** Introduce a backend-aware `ThinkingAdapter` (extract + inject) and use it as the deterministic IR boundary.
+- **Current status:** **Not implemented.**
+  - There is no `ThinkingState` / adapter abstraction; reasoning remains a string field on `ChatMessage` (`src/mlx_omni_server/chat/schema.py:112`).
+
+#### 2) Deterministic prompt injection
+
+- **Plan:** If a tokenizer/template ignores `reasoning`, inject backend-specific `<think>...</think>` (or equivalent) into the assistant message *content* before `apply_chat_template`.
+- **Current status:** **Not implemented (still template-dependent).**
+  - GLM templates explicitly render `m.reasoning_content` inside `<think>...</think>` (`src/mlx_omni_server/chat/templates/glm4_chat_template.jinja:52`), so replay works there.
+  - For non-GLM templates/backends, there is no guarantee that `ChatMessage.reasoning` will reach the model unless the template explicitly references it.
+
+#### 3) Backend policy semantics (DeepSeek strictness, GLM preserve/clear)
+
+- **Plan:** Make preserve/clear semantics explicit and testable; optionally enforce DeepSeek strict behavior when tool-loop reasoning is missing.
+- **Current status:** **Not implemented.**
+  - Phase 0 provides best-effort reasoning reinjection via `tool_loop_reasoning_cache`, but no explicit “strict vs best-effort” policy exists yet (`src/mlx_omni_server/chat/generation_service.py:63`).
+  - GLM preserve/clear semantics are currently driven only by template parameters (where supported) and are not modeled as a first-class policy.
+
+### What Phase 0 + Phase 1 Already Unblocked (Relevant to Phase 2)
+
+- Reasoning now survives tool-call steps across `/chat/completions` and `/responses` (Phase 0 + Phase 1).
+- `/responses` now has a replay mechanism (`reasoning.encrypted_content`) and history reconstruction that preserves tool-call reasoning (Phase 1).
+- This provides the necessary transport and caching foundation for Phase 2, but **does not yet make replay deterministic across backends/templates**.
