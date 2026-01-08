@@ -28,12 +28,13 @@ class OutputItemState:
     choice_index: int
     index: int
     item_id: str
-    kind: Literal["message", "function_call"]
+    kind: Literal["message", "function_call", "reasoning"]
     status: str = "in_progress"
     text: str = ""
     arguments: str = ""
     function_name: Optional[str] = None
     call_id: Optional[str] = None
+    encrypted_content: Optional[str] = None
     done_emitted: bool = False
 
     def to_output_dict(self) -> Dict[str, Any]:
@@ -46,6 +47,15 @@ class OutputItemState:
                 "arguments": self.arguments,
                 "call_id": self.call_id or self.item_id,
             }
+        if self.kind == "reasoning":
+            payload: Dict[str, Any] = {
+                "id": self.item_id,
+                "type": "reasoning",
+                "status": self.status,
+            }
+            if self.encrypted_content is not None:
+                payload["encrypted_content"] = self.encrypted_content
+            return payload
         return {
             "id": self.item_id,
             "type": "message",
@@ -61,9 +71,14 @@ class OutputItemState:
         }
 
     def build_output_item_added_event(self, sequence: int) -> ResponseStreamEvent:
+        item_type = (
+            "function_call"
+            if self.kind == "function_call"
+            else ("reasoning" if self.kind == "reasoning" else "message")
+        )
         payload: Dict[str, Any] = {
             "id": self.item_id,
-            "type": "function_call" if self.kind == "function_call" else "message",
+            "type": item_type,
             "status": "in_progress",
         }
         if self.kind == "function_call":
@@ -72,7 +87,7 @@ class OutputItemState:
                 "arguments": "",
                 "call_id": self.call_id or self.item_id,
             })
-        else:
+        elif self.kind == "message":
             payload.update({"role": Role.ASSISTANT.value, "content": []})
 
         return ResponseStreamEvent(
@@ -720,6 +735,13 @@ class ResponseStreamAdapter:
         self._index_to_key: dict[int, str] = {}
         self._message_context: dict[int, str] = {}
         self._next_index = 0
+        self._reasoning_by_choice: dict[int, str] = {}
+        self._tool_call_ids_by_choice: dict[int, list[str]] = {}
+        self._tool_call_ids_seen_by_choice: dict[int, set[str]] = {}
+        include = self._request_echo.get("include") or []
+        self._include_reasoning_encrypted = (
+            isinstance(include, list) and "reasoning.encrypted_content" in include
+        )
 
     def _allocate_index(self, key: str) -> int:
         if key in self._key_to_index:
@@ -834,6 +856,49 @@ class ResponseStreamAdapter:
             state.text = existing_text + text
         return delta_fragment
 
+    @staticmethod
+    def _merge_accumulated_text(existing: str, incoming: str) -> str:
+        if not existing:
+            return incoming
+        if not incoming:
+            return existing
+        if incoming.startswith(existing):
+            return incoming
+        if existing.startswith(incoming):
+            return existing
+        return existing + incoming
+
+    def _track_tool_call_id(self, choice_index: int, call_id: str | None) -> None:
+        if not call_id:
+            return
+        seen = self._tool_call_ids_seen_by_choice.setdefault(choice_index, set())
+        if call_id in seen:
+            return
+        seen.add(call_id)
+        self._tool_call_ids_by_choice.setdefault(choice_index, []).append(call_id)
+
+    def _ensure_reasoning_item(
+        self, choice_index: int
+    ) -> tuple[list[ResponseStreamEvent], OutputItemState]:
+        key = f"choice-{choice_index}-reasoning"
+        state = self._items.get(key)
+        if state:
+            return [], state
+
+        index = self._allocate_index(key)
+        item_id = f"{self.response_id}-reasoning-{choice_index}"
+        state = OutputItemState(
+            key=key,
+            choice_index=choice_index,
+            index=index,
+            item_id=item_id,
+            kind="reasoning",
+        )
+        self._items[key] = state
+
+        events = [state.build_output_item_added_event(self._next_sequence())]
+        return events, state
+
     def _ensure_function_call_item(
         self, choice_index: int, call_index: int, tool_call: Any
     ) -> tuple[list[ResponseStreamEvent], OutputItemState]:
@@ -903,6 +968,14 @@ class ResponseStreamAdapter:
 
         for choice in chunk.choices:
             delta = choice.delta
+            delta_reasoning = getattr(delta, "reasoning", None) if delta else None
+            if isinstance(delta_reasoning, str) and delta_reasoning:
+                existing_reasoning = self._reasoning_by_choice.get(choice.index, "")
+                self._reasoning_by_choice[choice.index] = self._merge_accumulated_text(
+                    existing_reasoning,
+                    delta_reasoning,
+                )
+
             tool_calls = delta.tool_calls if delta and getattr(delta, "tool_calls", None) else []
 
             if tool_calls:
@@ -920,6 +993,7 @@ class ResponseStreamAdapter:
                     new_events, state = self._ensure_function_call_item(choice.index, call_idx, tool_call)
                     events.extend(new_events)
                     tool_states.append(state)
+                    self._track_tool_call_id(choice.index, state.call_id)
 
                     function = getattr(tool_call, "function", None)
                     if function and getattr(function, "name", None) and not state.function_name:
@@ -970,6 +1044,25 @@ class ResponseStreamAdapter:
                 events.extend(self._emit_message_done(state))
 
         return events
+
+    def _emit_reasoning_done(self, state: OutputItemState) -> list[ResponseStreamEvent]:
+        if state.done_emitted:
+            return []
+
+        state.status = "completed"
+        state.done_emitted = True
+
+        return [
+            ResponseStreamEvent(
+                event="response.output_item.done",
+                data={
+                    "type": "response.output_item.done",
+                    "sequence_number": self._next_sequence(),
+                    "output_index": state.index,
+                    "item": state.to_output_dict(),
+                },
+            )
+        ]
 
     def _emit_message_done(self, state: OutputItemState) -> list[ResponseStreamEvent]:
         if state.done_emitted:
@@ -1103,14 +1196,33 @@ class ResponseStreamAdapter:
         events: list[ResponseStreamEvent] = []
         events.extend(self._ensure_lifecycle_started())
 
+        created = self._created_at or int(time.time())
+        for choice_index, reasoning in sorted(self._reasoning_by_choice.items()):
+            if not reasoning:
+                continue
+            new_events, state = self._ensure_reasoning_item(choice_index)
+            events.extend(new_events)
+            if self._include_reasoning_encrypted:
+                tool_call_ids = self._tool_call_ids_by_choice.get(choice_index, [])
+                state.encrypted_content = seal(
+                    ReasoningEnvelope(
+                        model=self.model,
+                        created_at=created,
+                        tool_call_ids=list(tool_call_ids),
+                        reasoning=reasoning,
+                    )
+                )
+
         if self._items:
             for index in sorted(self._index_to_key.keys()):
                 key = self._index_to_key[index]
                 state = self._items[key]
                 if state.kind == "function_call":
                     events.extend(self._emit_function_call_done(state))
-                else:
+                elif state.kind == "message":
                     events.extend(self._emit_message_done(state))
+                else:
+                    events.extend(self._emit_reasoning_done(state))
         elif self._error is None:
             new_events, state = self._ensure_message_item(0)
             events.extend(new_events)

@@ -230,6 +230,103 @@ class MockReasoningToolCallModel(BaseTextModel):
         yield from ()
 
 
+class MockStreamReasoningToolCallModel(BaseTextModel):
+    def generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ) -> ChatCompletionResponse:
+        return ChatCompletionResponse(
+            id="resp-id",
+            created=123,
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "reasoning": "AB",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "shell",
+                                    "arguments": '{"command":["ls"]}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 2,
+                "total_tokens": 12,
+            },
+        )
+
+    def stream_generate(
+        self,
+        request: ChatCompletionRequest,
+        *,
+        should_cancel=None,
+    ):
+        chunk1 = ChatCompletionChunk(
+            id="resp-id",
+            created=123,
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(
+                        role=Role.ASSISTANT,
+                        reasoning="A",
+                        tool_calls=[
+                            ToolCall(
+                                id="call_1",
+                                function=FunctionCall(
+                                    name="shell",
+                                    arguments='{"command":["ls"]',
+                                ),
+                            )
+                        ],
+                    ),
+                    "finish_reason": None,
+                }
+            ],
+        )
+        yield chunk1
+
+        chunk2 = ChatCompletionChunk(
+            id="resp-id",
+            created=123,
+            model=request.model,
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(
+                        role=Role.ASSISTANT,
+                        reasoning="AB",
+                        tool_calls=[
+                            ToolCall(
+                                id="call_1",
+                                function=FunctionCall(
+                                    name="shell",
+                                    arguments="}",
+                                ),
+                            )
+                        ],
+                    ),
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        )
+        yield chunk2
+
+
 @pytest.fixture
 def response_payload():
     return {
@@ -456,6 +553,67 @@ async def test_responses_streaming_tool_call(mock_create_model, async_client):
     assert output_item["type"] == "function_call"
     assert output_item["arguments"] == '{"command":["ls"]}'
     assert output_item["name"] == "shell"
+
+
+@pytest.mark.asyncio
+@patch("mlx_omni_server.chat.generation_service._create_text_model")
+async def test_responses_streaming_reasoning_item_with_encrypted_content(
+    mock_create_model, async_client
+):
+    mock_create_model.return_value = MockStreamReasoningToolCallModel()
+
+    payload = {
+        "model": "test-model",
+        "input": "Hello",
+        "stream": True,
+        "include": ["reasoning.encrypted_content"],
+    }
+
+    events: list[tuple[str, dict]] = []
+    async with async_client.stream(
+        "POST",
+        "/v1/responses",
+        content=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    ) as response:
+        assert response.status_code == 200
+        current_event = None
+        async for line in response.aiter_lines():
+            if not line:
+                continue
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and current_event:
+                data = json.loads(line.split(":", 1)[1].strip())
+                events.append((current_event, data))
+                current_event = None
+
+    reasoning_added = [
+        data
+        for event, data in events
+        if event == "response.output_item.added" and data.get("item", {}).get("type") == "reasoning"
+    ]
+    assert reasoning_added
+
+    reasoning_done = [
+        data
+        for event, data in events
+        if event == "response.output_item.done" and data.get("item", {}).get("type") == "reasoning"
+    ]
+    assert reasoning_done
+
+    encrypted = reasoning_done[-1]["item"]["encrypted_content"]
+    envelope = unseal(encrypted)
+    assert envelope.model == "test-model"
+    assert envelope.created_at == 123
+    assert envelope.reasoning == "AB"
+    assert envelope.tool_call_ids == ["call_1"]
+
+    completed_event = next(data for event, data in events if event == "response.completed")
+    completed_reasoning = next(
+        item for item in completed_event["response"]["output"] if item["type"] == "reasoning"
+    )
+    assert completed_reasoning["encrypted_content"] == encrypted
 
 
 def test_responses_reject_conversation(client):
