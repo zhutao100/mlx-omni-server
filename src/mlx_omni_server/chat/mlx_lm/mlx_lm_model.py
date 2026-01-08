@@ -441,6 +441,23 @@ class MlxLmModel(BaseTextModel):
     ) -> Generator[ChatCompletionChunk, None, None]:
         try:
             chat_id = f"chatcmpl-{uuid.uuid4().hex[:10]}"
+            tool_call_index_by_id: dict[str, int] = {}
+            next_tool_call_index = 0
+
+            def ensure_tool_call_indexes(message: ChatMessage | None) -> None:
+                nonlocal next_tool_call_index
+                if message is None or not message.tool_calls:
+                    return
+
+                for tool_call in message.tool_calls:
+                    if tool_call.index is not None:
+                        continue
+                    if tool_call.id in tool_call_index_by_id:
+                        tool_call.index = tool_call_index_by_id[tool_call.id]
+                        continue
+                    tool_call_index_by_id[tool_call.id] = next_tool_call_index
+                    tool_call.index = next_tool_call_index
+                    next_tool_call_index += 1
 
             result: GenerateResult | None = None
             for result in self._stream_generate(request=request, should_cancel=should_cancel):
@@ -476,6 +493,7 @@ class MlxLmModel(BaseTextModel):
                     message = self._chat_tokenizer.decode_stream(delta_content, request.tools)
 
                 if message:
+                    ensure_tool_call_indexes(message)
                     choices = [
                         ChatCompletionChunkChoice(
                             index=0,
@@ -494,6 +512,7 @@ class MlxLmModel(BaseTextModel):
 
             final_message = self._chat_tokenizer.parse_buffer(
                 request.tools) or ChatMessage(role=Role.ASSISTANT, content="")
+            ensure_tool_call_indexes(final_message)
             finish_reason = "tool_calls" if final_message.tool_calls else "stop"
             # Send final chunk with finish reason
             choices = [

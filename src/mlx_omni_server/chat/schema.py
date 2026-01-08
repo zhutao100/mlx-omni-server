@@ -52,6 +52,7 @@ class FunctionCall(BaseModel):
 class ToolCall(BaseModel):
     """Tool call from model output."""
 
+    index: Optional[int] = Field(default=None, ge=0)
     id: str
     type: ToolType = ToolType.FUNCTION
     function: FunctionCall
