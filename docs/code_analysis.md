@@ -75,6 +75,7 @@ This component is functional and safe for concurrent use under the shared gate.
 
 This component is an adapter or translation layer, not a new ML capability.
 -   **Features:** Provides an OpenAI-compatible Responses API facade over chat generation, including non-stream and SSE streaming responses, plus basic response tracking endpoints (retrieve/delete/cancel/input_items).
+-   **Robustness:** Best-effort compatibility with clients that send unsupported tools (e.g., `tools[].type="web_search"`): such tools are ignored with a warning and the request continues.
 -   **Design:** Uses the **Adapter Pattern** (`ResponseRequest` ↔ `ChatCompletionRequest`, `ChatCompletionResponse`/chunks ↔ `ResponseResponse`/events) and a lightweight in-memory registry to support background mode, SSE replay (`GET ...?stream=true`), and `previous_response_id` chaining.
 -   **Concurrency:** Inherits the `chat` component's concurrency behavior (shared MLX gate + threadpool). Background Responses run as asyncio tasks and store their lifecycle events for later retrieval.
 

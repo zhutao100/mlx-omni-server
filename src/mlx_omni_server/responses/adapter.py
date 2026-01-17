@@ -19,6 +19,7 @@ from ..chat.schema import (
     ToolType,
 )
 from ..chat.tool_loop_reasoning_cache import tool_loop_reasoning_cache
+from ..utils.logger import logger
 from .reasoning_envelope import ReasoningEnvelope, seal, unseal
 from .schema import ResponseRequest, ResponseStreamEvent
 
@@ -407,11 +408,15 @@ def _normalize_tools(tools: Any) -> Any:
             normalized.append(tool)
             continue
 
+        tool_type = tool.get("type") or "function"
+        if tool_type == "web_search":
+            logger.warning("Dropping unsupported tool type 'web_search' from Responses request.")
+            continue
+
         if "function" in tool:
             normalized.append(tool)
             continue
 
-        tool_type = tool.get("type") or "function"
         if tool_type not in {"function", "custom"}:
             normalized.append(tool)
             continue

@@ -20,6 +20,21 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
         request.log_structured_request(verbose=True),
     )
 
+    if request.tools and any(getattr(tool, "type", None) == "web_search" for tool in request.tools):
+        message = "The /v1/chat/completions endpoint does not support tools of type 'web_search'."
+        logging.warning(message)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": "tools",
+                    "code": "invalid_request",
+                }
+            },
+        )
+
     if not request.stream:
         result = await chat_generation_service.generate_non_stream(
             request,

@@ -76,7 +76,14 @@ class CustomTool(BaseModel):
         extra = "allow"
 
 
-ChatCompletionTool = Union[Tool, CustomTool]
+class WebSearchTool(BaseModel):
+    type: Literal["web_search"] = "web_search"
+
+    class Config:
+        extra = "allow"
+
+
+ChatCompletionTool = Union[Tool, CustomTool, WebSearchTool]
 
 
 class ToolChoice(str, Enum):
@@ -352,7 +359,7 @@ class ChatCompletionRequest(BaseModel):
         if not self.tools:
             return self
 
-        normalized_tools: list[Tool] = []
+        normalized_tools: list[ChatCompletionTool] = []
         for tool in self.tools:
             if isinstance(tool, CustomTool):
                 params = _custom_tool_shim_parameters(existing=None)

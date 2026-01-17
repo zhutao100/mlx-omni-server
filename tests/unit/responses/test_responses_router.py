@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from unittest.mock import patch
 
@@ -1177,6 +1178,25 @@ def test_response_request_to_chat_request_tool_normalization():
     assert first_tool.type.value == "function"
     assert first_tool.function.name == "shell"
     assert first_tool.function.description == "run command"
+
+
+def test_response_request_to_chat_request_drops_web_search_tool(caplog):
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        tools=[
+            {"type": "web_search"},
+            {"type": "function", "name": "noop", "parameters": {"type": "object"}},
+        ],
+    )
+
+    with caplog.at_level(logging.WARNING):
+        chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.tools is not None
+    assert len(chat_request.tools) == 1
+    assert chat_request.tools[0].function.name == "noop"
+    assert any("web_search" in record.getMessage() for record in caplog.records)
 
 
 def test_response_request_to_chat_request_custom_tool_normalization_preserves_format():
