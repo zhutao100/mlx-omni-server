@@ -1,7 +1,7 @@
 import json
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Union
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
@@ -29,6 +29,54 @@ class Tool(BaseModel):
 
     class Config:
         extra = "allow"
+
+
+def _custom_tool_shim_parameters(existing: FunctionParameters | None) -> FunctionParameters:
+    if existing is None:
+        return FunctionParameters(
+            type="object",
+            properties={"input": {"type": "string"}},
+            required=["input"],
+        )
+
+    existing.type = "object"
+
+    properties: dict[str, Any] = dict(existing.properties or {})
+    input_property = properties.get("input")
+    if isinstance(input_property, dict):
+        coerced_input_property = dict(input_property)
+        coerced_input_property["type"] = "string"
+    else:
+        coerced_input_property = {"type": "string"}
+    properties["input"] = coerced_input_property
+    existing.properties = properties
+
+    required: list[str] = ["input"]
+    for item in existing.required or []:
+        if item != "input":
+            required.append(item)
+    existing.required = required
+    return existing
+
+
+class CustomToolSpec(BaseModel):
+    name: str = Field(..., max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    description: Optional[str] = None
+    format: Optional[Any] = None
+
+    class Config:
+        extra = "allow"
+
+
+class CustomTool(BaseModel):
+    type: Literal[ToolType.CUSTOM] = ToolType.CUSTOM
+    custom: CustomToolSpec
+
+    class Config:
+        extra = "allow"
+
+
+ChatCompletionTool = Union[Tool, CustomTool]
 
 
 class ToolChoice(str, Enum):
@@ -77,6 +125,7 @@ ToolChoiceType = Union[ToolChoice, SpecificToolChoice]
 
 class Role(str, Enum):
     SYSTEM = "system"
+    DEVELOPER = "developer"
     USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
@@ -272,7 +321,7 @@ class ChatCompletionRequest(BaseModel):
         le=20,
     )
     n: Optional[int] = Field(1, ge=1, le=10)
-    tools: Optional[List[Tool]] = None
+    tools: Optional[List[ChatCompletionTool]] = None
     tool_choice: Optional[ToolChoiceType] = None
     response_format: Optional[ResponseFormat] = None
 
@@ -291,6 +340,52 @@ class ChatCompletionRequest(BaseModel):
         if v is not None and (v < 0 or v > 1):
             raise ValueError("Top_p must be between 0 and 1")
         return v
+
+    @model_validator(mode="after")
+    def _normalize_openai_compat(self) -> "ChatCompletionRequest":
+        """Normalize OpenAI-compatible request quirks for cross-model compatibility."""
+
+        for message in self.messages:
+            if message.role == Role.DEVELOPER:
+                message.role = Role.SYSTEM
+
+        if not self.tools:
+            return self
+
+        normalized_tools: list[Tool] = []
+        for tool in self.tools:
+            if isinstance(tool, CustomTool):
+                params = _custom_tool_shim_parameters(existing=None)
+
+                extra: dict[str, Any] = dict(tool.model_extra or {})
+                tool_format = tool.custom.format
+                if tool_format is not None:
+                    extra.setdefault("format", tool_format)
+                if tool.custom.model_extra:
+                    for key, value in tool.custom.model_extra.items():
+                        extra.setdefault(key, value)
+
+                normalized_tools.append(
+                    Tool(
+                        type=ToolType.FUNCTION,
+                        function=Function(
+                            name=tool.custom.name,
+                            description=tool.custom.description,
+                            parameters=params,
+                        ),
+                        **extra,
+                    )
+                )
+                continue
+
+            if isinstance(tool, Tool) and tool.type == ToolType.CUSTOM:
+                tool.type = ToolType.FUNCTION
+                tool.function.parameters = _custom_tool_shim_parameters(tool.function.parameters)
+
+            normalized_tools.append(tool)
+
+        self.tools = normalized_tools
+        return self
 
     def get_extra_params(self) -> Dict[str, Any]:
         """Get all extra parameters that aren't part of the standard OpenAI API."""

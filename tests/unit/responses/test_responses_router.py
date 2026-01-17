@@ -1201,11 +1201,43 @@ def test_response_request_to_chat_request_custom_tool_normalization_preserves_fo
 
     assert chat_request.tools is not None
     tool = chat_request.tools[0]
-    assert tool.type.value == "custom"
+    assert tool.type.value == "function"
     assert tool.function.name == "apply_patch"
+    assert tool.function.parameters is not None
+    assert tool.function.parameters.required == ["input"]
     dumped = tool.model_dump(exclude_none=True)
     assert dumped["format"]["syntax"] == "lark"
     assert "definition" in dumped["format"]
+
+
+def test_response_request_to_chat_request_custom_tool_parameters_merge_adds_required_input():
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        tools=[
+            {
+                "type": "custom",
+                "name": "apply_patch",
+                "description": "Apply a patch to workspace files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            }
+        ],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.tools is not None
+    tool = chat_request.tools[0]
+    assert tool.type.value == "function"
+    assert tool.function.parameters is not None
+    assert tool.function.parameters.properties is not None
+    assert tool.function.parameters.properties["input"]["type"] == "string"
+    assert tool.function.parameters.properties["path"]["type"] == "string"
+    assert tool.function.parameters.required == ["input", "path"]
 
 
 def test_response_request_to_chat_request_with_history():

@@ -48,6 +48,7 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
 
         # Get and parse request body to check if streaming
         body = await self._get_request_body(request)
+        logger.debug(f"Processing request body: [\n{body}\n]")
         try:
             body_json = json.loads(body)
             if body_json.get("stream", False):
