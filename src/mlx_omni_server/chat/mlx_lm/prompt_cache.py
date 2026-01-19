@@ -1,10 +1,10 @@
+import copy
 import gc
-import logging
 import struct
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, Tuple
+from typing import Any
 
 from mlx_lm.models.cache import (
     can_trim_prompt_cache,
@@ -13,8 +13,6 @@ from mlx_lm.models.cache import (
 )
 
 from ...utils.logger import logger
-
-logger = logging.getLogger(__name__)
 
 CacheKey = tuple[str, str]
 
@@ -46,31 +44,33 @@ class PromptCache:
     cache: list[Any] | None = field(default_factory=list)
     model_key: str = ""
 
-    def extend_completion_cache(self, completion_tokens: list[int]):
-        self.tokens.extend(completion_tokens)
-
-    def reset_prompt_cache(self, model_cache, prompt_tokens: list[int]):
+    def reset_prompt_cache(self, model_cache) -> None:
         """
-        Build a fresh prompt cache for `prompt_tokens` using model_cache.
+        Build a fresh prompt cache structure using model_cache.
         """
         logger.debug("Resetting prompt cache from scratch.")
         # model_key to detect model swaps
         self.model_key = model_cache.model_id.name
         # build base cache(s)
         if getattr(model_cache, "model", None) is not None:
-            self.cache = make_prompt_cache(model_cache.model, max_kv_size=self.max_position_embeddings)
+            self.cache = make_prompt_cache(
+                model_cache.model,
+                max_kv_size=self.max_position_embeddings,
+            )
         else:
             logger.error("Model cache has no model attribute; setting empty cache.")
             self.cache = []
         # include draft_model if present
         if getattr(model_cache, "draft_model", None) is not None:
-            self.cache += make_prompt_cache(model_cache.draft_model, max_kv_size=self.max_position_embeddings)
+            self.cache += make_prompt_cache(
+                model_cache.draft_model, max_kv_size=self.max_position_embeddings
+            )
 
         # Tokens represent committed KV state; new cache starts empty and is
         # advanced transactionally as generation progresses.
         self.tokens = []
 
-    def get_prompt_cache(self, model_cache, prompt: list[int]) -> Tuple[list[int], int]:
+    def get_prompt_cache(self, model_cache, prompt: list[int]) -> tuple[list[int], int]:
         """
         Determine suffix of prompt that needs processing, attempting to reuse/trim
         this cache in-place if it is safe (this is used in 'extend' flows).
@@ -78,44 +78,41 @@ class PromptCache:
         """
         cache_len = len(self.tokens)
         prompt_len = len(prompt)
-        com_prefix = common_prefix_len(self.tokens, prompt)
-        prompt_cached_tokens = 0
+        prefix_len = common_prefix_len(self.tokens, prompt)
 
         # leave at least one token to process (so model gets some new input)
-        com_prefix = min(com_prefix, max(0, prompt_len - 1))
+        prefix_len = min(prefix_len, max(0, prompt_len - 1))
 
         # Reset if model changed or no common prefix
-        if self.model_key != getattr(model_cache.model_id, "name", self.model_key) or com_prefix == 0:
-            self.reset_prompt_cache(model_cache, prompt)
+        if (
+            self.model_key != getattr(model_cache.model_id, "name", self.model_key)
+            or prefix_len == 0
+        ):
+            self.reset_prompt_cache(model_cache)
             return prompt, 0
 
         # Case: cache is prefix of prompt -> process suffix
-        if com_prefix == cache_len:
+        if prefix_len == cache_len:
             logger.debug(f"Cache is prefix (cache_len={cache_len}); processing suffix.")
-            suffix = prompt[com_prefix:]
-            prompt_cached_tokens = com_prefix
-            return suffix, prompt_cached_tokens
+            return prompt[prefix_len:], prefix_len
 
         # Case: prompt shorter than cached tokens (should be handled by manager for branching),
         # or attempt to trim (here we support in-place trim)
-        if com_prefix < cache_len:
-            logger.debug(f"Common prefix ({com_prefix}) shorter than cache ({cache_len}). Attempting trim.")
-            if self.cache and can_trim_prompt_cache(self.cache):
-                num_to_trim = cache_len - com_prefix
-                logger.debug(f"Trimming {num_to_trim} tokens from cache (in-place).")
-                trimmed = trim_prompt_cache(self.cache, num_to_trim)
-                # trim_prompt_cache returns number trimmed (per layer), but state mutated in-place
-                self.tokens = self.tokens[:com_prefix]
-                suffix = prompt[com_prefix:]
-                prompt_cached_tokens = com_prefix
-                return suffix, prompt_cached_tokens
-            else:
-                logger.debug("Cache cannot be trimmed in-place. Resetting cache to prompt.")
-                self.reset_prompt_cache(model_cache, prompt)
-                return prompt, 0
+        logger.debug(
+            "Common prefix (%d) shorter than cache (%d). Attempting trim.",
+            prefix_len,
+            cache_len,
+        )
+        if self.cache and can_trim_prompt_cache(self.cache):
+            num_to_trim = cache_len - prefix_len
+            logger.debug("Trimming %d tokens from cache (in-place).", num_to_trim)
+            trim_prompt_cache(self.cache, num_to_trim)
+            # trim_prompt_cache mutates cache state in-place
+            self.tokens = self.tokens[:prefix_len]
+            return prompt[prefix_len:], prefix_len
 
-        # Fallback: return whole prompt
-        logger.debug("No reuse path found; returning full prompt.")
+        logger.debug("Cache cannot be trimmed in-place. Resetting cache.")
+        self.reset_prompt_cache(model_cache)
         return prompt, 0
 
     def clone_up_to(self, prefix_len: int, model_cache) -> "PromptCache":
@@ -126,7 +123,7 @@ class PromptCache:
           - If self.cache exists and is trimmable: construct new instances of each
             per-layer cache type, copy their state/meta_state, then call trim_prompt_cache
             on the cloned cache (so we avoid mutating the original).
-          - If cloning/trim unsupported -> fallback to recomputing via reset_prompt_cache(prefix_tokens).
+          - If cloning/trim unsupported -> fallback to recomputing via reset_prompt_cache().
 
         Returns a new PromptCache instance which is independent of self.
         """
@@ -139,7 +136,7 @@ class PromptCache:
         # If there is no underlying cache or trimming isn't supported, recompute
         if not self.cache:
             logger.debug("No underlying cache to clone; recomputing for prefix.")
-            new_cache.reset_prompt_cache(model_cache, new_cache.tokens)
+            new_cache.reset_prompt_cache(model_cache)
             return new_cache
 
         # If trimmable, try to clone per-layer objects carefully (avoid deepcopy of MX tensors)
@@ -147,30 +144,22 @@ class PromptCache:
             # create fresh instances of same types and copy states
             cloned_layers = []
             for layer_cache in self.cache:
-                # instantiate a new object of the same class
-                LayerType = type(layer_cache)
                 try:
-                    cloned_inst = LayerType()
-                except Exception:
-                    # If constructor requires args, fallback to deepcopy attempt
-                    import copy as _copy
-                    cloned_inst = _copy.deepcopy(layer_cache)
-
-                # copy state (state setter should accept the same object shape)
-                try:
-                    cloned_inst.state = layer_cache.state
+                    LayerType = type(layer_cache)
+                    from_state = getattr(LayerType, "from_state", None)
+                    if callable(from_state):
+                        cloned_inst = from_state(
+                            layer_cache.state,
+                            getattr(layer_cache, "meta_state", ""),
+                        )
+                    else:
+                        cloned_inst = copy.deepcopy(layer_cache)
                 except Exception as e:
-                    logger.debug("Failed to copy state via setter; attempting deepcopy as fallback: %s", e)
-                    import copy as _copy
-                    cloned_inst = _copy.deepcopy(layer_cache)
-
-                # copy meta_state if present
-                if hasattr(layer_cache, "meta_state"):
-                    try:
-                        cloned_inst.meta_state = layer_cache.meta_state
-                    except Exception:
-                        # ignore meta state failures - not critical
-                        pass
+                    logger.debug(
+                        "Failed to clone cache layer via from_state; falling back to deepcopy: %s",
+                        e,
+                    )
+                    cloned_inst = copy.deepcopy(layer_cache)
 
                 cloned_layers.append(cloned_inst)
 
@@ -182,13 +171,15 @@ class PromptCache:
                 new_cache.cache = cloned_layers
                 return new_cache
             else:
-                logger.debug("Cloned layers not trimmable or nothing to trim; recomputing prefix cache.")
-                new_cache.reset_prompt_cache(model_cache, new_cache.tokens)
+                logger.debug(
+                    "Cloned layers not trimmable or nothing to trim; recomputing prefix cache."
+                )
+                new_cache.reset_prompt_cache(model_cache)
                 return new_cache
 
         except Exception as e:
             logger.exception("Exception while cloning cache: %s. Falling back to recompute.", e)
-            new_cache.reset_prompt_cache(model_cache, new_cache.tokens)
+            new_cache.reset_prompt_cache(model_cache)
             return new_cache
 
 
@@ -209,7 +200,9 @@ class PromptCacheManager:
         Evict old cache entries if we exceed max_entries.
         Explicitly clears MLX cache tensors so memory is released quickly.
         """
+        did_evict = False
         while len(self.caches) > self.max_caches:
+            did_evict = True
             # Pop oldest (FIFO)
             evicted_key, evicted_cache = self.caches.popitem(last=False)
             logger.debug("Evicting prompt cache: %s", evicted_key)
@@ -232,8 +225,20 @@ class PromptCacheManager:
             # Drop the reference entirely
             del evicted_cache
 
-        # Force Python to finalize objects & free memory back to MLX
-        gc.collect()
+        if did_evict:
+            # Force Python to finalize objects & free memory back to MLX
+            gc.collect()
+
+    def _register_cache(
+        self,
+        cache_namespace: str,
+        prompt: list[int],
+        cache: PromptCache,
+    ) -> None:
+        key = (cache_namespace, tokens_key(prompt))
+        cache.session_key = cache_namespace
+        self.caches[key] = cache
+        self._evict_if_needed()
 
     def get_or_create_cache(
         self,
@@ -241,7 +246,7 @@ class PromptCacheManager:
         prompt: list[int],
         *,
         session_key: str | None = None,
-    ) -> Tuple[PromptCache, list[int], int]:
+    ) -> tuple[PromptCache, list[int], int]:
         """
         Returns (active_cache, suffix_tokens_to_process, num_cached_tokens).
         Behavior:
@@ -264,7 +269,9 @@ class PromptCacheManager:
                 best_key = key
                 best_prefix_len = prefix_len
 
-        if best_cache is not None and best_prefix_len > 100:  # set min length 100 for a worthy cache reuse.
+        if (
+            best_cache is not None and best_prefix_len > 100
+        ):  # set min length 100 for a worthy cache reuse.
             # Case A: common prefix is at least 80% of the cache.
             if best_prefix_len >= 0.8 * len(best_cache.tokens):
                 logger.debug(f"Re-using existing cache {best_key} (prefix match >= 80%).")
@@ -275,7 +282,10 @@ class PromptCacheManager:
                 return best_cache, suffix, cached_tokens
 
             # Case B: divergence -> fork a new cache from the prefix (do NOT mutate original)
-            logger.debug("Divergent prompt (common prefix=%d). Forking new branch.", best_prefix_len)
+            logger.debug(
+                "Divergent prompt (common prefix=%d). Forking new branch.",
+                best_prefix_len,
+            )
             if best_cache.cache and can_trim_prompt_cache(best_cache.cache):
                 try:
                     forked = best_cache.clone_up_to(best_prefix_len, model_cache)
@@ -293,26 +303,18 @@ class PromptCacheManager:
             if forked is None:
                 logger.debug("Cache fork not supported; creating new cache from scratch.")
                 new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
-                new_cache.reset_prompt_cache(model_cache, prompt)
-                fork_key = (cache_namespace, tokens_key(prompt))
-                new_cache.session_key = cache_namespace
-                self.caches[fork_key] = new_cache
-                self._evict_if_needed()
+                new_cache.reset_prompt_cache(model_cache)
+                self._register_cache(cache_namespace, prompt, new_cache)
                 return new_cache, prompt, 0
 
             suffix_tokens = prompt[best_prefix_len:]
-            new_key = (cache_namespace, tokens_key(prompt))
             forked.session_key = cache_namespace
-            self.caches[new_key] = forked
-            self._evict_if_needed()
+            self._register_cache(cache_namespace, prompt, forked)
             return forked, suffix_tokens, best_prefix_len
 
         # No cache to reuse -> create brand-new cache
         logger.debug("No matching cache found; creating new.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
-        new_cache.reset_prompt_cache(model_cache, prompt)
-        key = (cache_namespace, tokens_key(prompt))
-        new_cache.session_key = cache_namespace
-        self.caches[key] = new_cache
-        self._evict_if_needed()
+        new_cache.reset_prompt_cache(model_cache)
+        self._register_cache(cache_namespace, prompt, new_cache)
         return new_cache, prompt, 0

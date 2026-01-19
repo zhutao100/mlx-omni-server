@@ -1,18 +1,15 @@
 import gc
-import logging
 import struct
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 from mlx_lm.models.cache import can_trim_prompt_cache, trim_prompt_cache
 from mlx_vlm.models.cache import make_prompt_cache
 from mlx_vlm.prompt_cache import PromptCacheBundle
 
 from ...utils.logger import logger
-
-logger = logging.getLogger(__name__)
 
 CacheKey = tuple[str, str]
 
@@ -57,18 +54,14 @@ class PromptCache:
     media_hashes: list[str] = field(default_factory=list)  # New field for media files
     is_multimodal: bool = False  # Track if cache contains multimodal content
 
-    def extend_completion_cache(self, completion_tokens: list[int]):
-        self.tokens.extend(completion_tokens)
-
     def reset_prompt_cache(
         self,
         model,
         model_key: str,
-        prompt_tokens: list[int],
         media_hashes: list[str] | None = None,
     ):
         """
-        Build a fresh prompt cache for `prompt_tokens` using the model.
+        Build a fresh prompt cache structure using the model.
         """
         logger.debug("Resetting prompt cache from scratch.")
         # model_key to detect model swaps
@@ -93,7 +86,7 @@ class PromptCache:
         model_key: str,
         prompt: list[int],
         media_hashes: list[str] | None = None,
-    ) -> Tuple[list[int], int]:
+    ) -> tuple[list[int], int]:
         """
         Determine suffix of prompt that needs processing, attempting to reuse/trim
         this cache in-place if it is safe (this is used in 'extend' flows).
@@ -101,51 +94,41 @@ class PromptCache:
         """
         cache_len = len(self.tokens)
         prompt_len = len(prompt)
-        com_prefix = common_prefix_len(self.tokens, prompt)
-        prompt_cached_tokens = 0
+        prefix_len = common_prefix_len(self.tokens, prompt)
 
         # leave at least one token to process (so model gets some new input)
-        com_prefix = min(com_prefix, max(0, prompt_len - 1))
+        prefix_len = min(prefix_len, max(0, prompt_len - 1))
 
         # Reset if model changed or no common prefix
-        if self.model_key != model_key or com_prefix == 0:
-            self.reset_prompt_cache(model, model_key, prompt, media_hashes)
+        if self.model_key != model_key or prefix_len == 0:
+            self.reset_prompt_cache(model, model_key, media_hashes)
             return prompt, 0
 
         # Case: cache is prefix of prompt -> process suffix
-        if com_prefix == cache_len:
+        if prefix_len == cache_len:
             logger.debug(f"Cache is prefix (cache_len={cache_len}); processing suffix.")
-            suffix = prompt[com_prefix:]
-            prompt_cached_tokens = com_prefix
-            return suffix, prompt_cached_tokens
+            return prompt[prefix_len:], prefix_len
 
         # Case: prompt shorter than cached tokens (should be handled by manager for branching),
         # or attempt to trim (here we support in-place trim)
-        if com_prefix < cache_len:
-            logger.debug(
-                "Common prefix (%d) shorter than cache (%d). Attempting trim.",
-                com_prefix,
-                cache_len,
-            )
-            bundle = getattr(self, "bundle", None)
-            kv_cache = getattr(bundle, "kv_cache", None) if bundle is not None else None
-            if kv_cache and can_trim_prompt_cache(kv_cache):
-                num_to_trim = cache_len - com_prefix
-                logger.debug("Trimming %d tokens from VLM KV cache (in-place).", num_to_trim)
-                trim_prompt_cache(kv_cache, num_to_trim)
-                self.tokens = self.tokens[:com_prefix]
-                if bundle is not None:
-                    bundle.tokens_processed = len(self.tokens)
-                suffix = prompt[com_prefix:]
-                prompt_cached_tokens = com_prefix
-                return suffix, prompt_cached_tokens
+        logger.debug(
+            "Common prefix (%d) shorter than cache (%d). Attempting trim.",
+            prefix_len,
+            cache_len,
+        )
+        bundle = getattr(self, "bundle", None)
+        kv_cache = getattr(bundle, "kv_cache", None) if bundle is not None else None
+        if kv_cache and can_trim_prompt_cache(kv_cache):
+            num_to_trim = cache_len - prefix_len
+            logger.debug("Trimming %d tokens from VLM KV cache (in-place).", num_to_trim)
+            trim_prompt_cache(kv_cache, num_to_trim)
+            self.tokens = self.tokens[:prefix_len]
+            if bundle is not None:
+                bundle.tokens_processed = len(self.tokens)
+            return prompt[prefix_len:], prefix_len
 
-            logger.debug("VLM cache cannot be trimmed in-place. Resetting cache.")
-            self.reset_prompt_cache(model, model_key, prompt, media_hashes)
-            return prompt, 0
-
-        # Fallback: return whole prompt
-        logger.debug("No reuse path found; returning full prompt.")
+        logger.debug("VLM cache cannot be trimmed in-place. Resetting cache.")
+        self.reset_prompt_cache(model, model_key, media_hashes)
         return prompt, 0
 
 
@@ -188,7 +171,9 @@ class PromptCacheManager:
         Evict old cache entries if we exceed max_entries.
         Explicitly clears MLX cache tensors so memory is released quickly.
         """
+        did_evict = False
         while len(self.caches) > self.max_caches:
+            did_evict = True
             # Pop oldest (FIFO)
             evicted_key, evicted_cache = self.caches.popitem(last=False)
             logger.debug("Evicting prompt cache: %s", evicted_key)
@@ -229,8 +214,9 @@ class PromptCacheManager:
             # Drop the reference entirely
             del evicted_cache
 
-        # Force Python to finalize objects & free memory back to MLX
-        gc.collect()
+        if did_evict:
+            # Force Python to finalize objects & free memory back to MLX
+            gc.collect()
 
     def get_or_create_cache(
         self,
@@ -240,7 +226,7 @@ class PromptCacheManager:
         media_hashes: list[str] | None = None,
         *,
         session_key: str | None = None,
-    ) -> Tuple[PromptCache, list[int], int]:
+    ) -> tuple[PromptCache, list[int], int]:
         """
         Returns (active_cache, suffix_tokens_to_process, num_cached_tokens).
         Behavior:
@@ -283,7 +269,9 @@ class PromptCacheManager:
         logger.debug(f"Best cache tokens length: {len(best_cache.tokens) if best_cache else 'N/A'}")
         if best_cache is not None and best_prefix_len >= min_prefix_len:
             logger.debug(
-                "Re-using existing cache %s (common prefix=%d).", best_key, best_prefix_len
+                "Re-using existing cache %s (common prefix=%d).",
+                best_key,
+                best_prefix_len,
             )
             suffix, cached_tokens = best_cache.get_prompt_cache(
                 model,
@@ -299,7 +287,7 @@ class PromptCacheManager:
         # No cache to reuse -> create brand-new cache
         logger.debug("No matching cache found; creating new.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
-        new_cache.reset_prompt_cache(model, model_key, prompt, media_hashes)
+        new_cache.reset_prompt_cache(model, model_key, media_hashes)
         key = (cache_namespace, tokens_key(prompt, media_hashes))
         new_cache.session_key = cache_namespace
         self.caches[key] = new_cache

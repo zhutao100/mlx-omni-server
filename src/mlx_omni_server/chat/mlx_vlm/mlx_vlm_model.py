@@ -61,7 +61,7 @@ class MlxVlmModel(BaseTextModel):
         cache_config = get_vlm_cache_config(model_cache.model_id.name)
         self._prompt_cache_manager = PromptCacheManager(
             max_position_embeddings=self.context_length,
-            max_caches=cache_config.get("max_caches", 5)
+            max_caches=cache_config.get("max_caches", 5),
         )
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
@@ -128,7 +128,9 @@ class MlxVlmModel(BaseTextModel):
                     width, height = image.size
             except Exception:
                 logger.debug(
-                    "Failed to read image size for token expansion: %s", path, exc_info=True
+                    "Failed to read image size for token expansion: %s",
+                    path,
+                    exc_info=True,
                 )
                 return tokens
 
@@ -236,6 +238,7 @@ class MlxVlmModel(BaseTextModel):
                         tool_call_index_by_id[tool_call.id] = next_tool_call_index
                         tool_call.index = next_tool_call_index
                         next_tool_call_index += 1
+
                 result: GenerateResult | None = None
                 raw_completion = ""
 
@@ -356,7 +359,9 @@ class MlxVlmModel(BaseTextModel):
                 logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
                 raise
 
-    def _prepare_multimodal_request(self, request: ChatCompletionRequest) -> Tuple[list[dict[str, Any]], list[str], list[str]]:
+    def _prepare_multimodal_request(
+        self, request: ChatCompletionRequest
+    ) -> Tuple[list[dict[str, Any]], list[str], list[str]]:
         """Prepare multimodal request by processing messages with text, images, and audio
         Args:
             request: The chat completion request containing messages with multimodal content
@@ -378,7 +383,10 @@ class MlxVlmModel(BaseTextModel):
                 if message.role in ["system", "assistant"]:
                     # Handle simple string content for system and assistant messages
                     if isinstance(message.content, str):
-                        msg: dict[str, Any] = {"role": message.role, "content": message.content}
+                        msg: dict[str, Any] = {
+                            "role": message.role,
+                            "content": message.content,
+                        }
                         if message.role == Role.ASSISTANT and message.reasoning is not None:
                             msg["reasoning_content"] = message.reasoning
                         chat_messages.append(msg)
@@ -470,7 +478,9 @@ class MlxVlmModel(BaseTextModel):
                             audio_urls.extend(audios)
                             # Validate constraints
                             if len(audios) > 2:
-                                raise ValueError("Too many audio files in a single message (max: 2)")
+                                raise ValueError(
+                                    "Too many audio files in a single message (max: 2)"
+                                )
 
                         # Add text content if available, otherwise use empty string
                         if texts:
@@ -480,7 +490,9 @@ class MlxVlmModel(BaseTextModel):
                     else:
                         raise ValueError("Invalid message content format")
 
-            logger.debug(f"Extracted {len(image_urls)} image URLs and {len(audio_urls)} audio URLs from request")
+            logger.debug(
+                f"Extracted {len(image_urls)} image URLs and {len(audio_urls)} audio URLs from request"
+            )
             for image_url in image_urls:
                 if image_url.startswith("data:"):
                     logger.debug(f"Image data URL of length {len(image_url)}")
@@ -497,10 +509,11 @@ class MlxVlmModel(BaseTextModel):
                     logger.debug(f"Audio file path: {audio_url}")
             # Process images and audio files
             try:
-                image_paths, _ = asyncio.run(self.media_processor.process_image_urls(
-                    image_urls,
-                    resize=not self.disable_auto_resize
-                ))
+                image_paths, _ = asyncio.run(
+                    self.media_processor.process_image_urls(
+                        image_urls, resize=not self.disable_auto_resize
+                    )
+                )
             except Exception as e:
                 logger.error(f"Failed to process images: {e}")
                 raise ValueError(f"Failed to process images: {str(e)}")
@@ -524,16 +537,18 @@ class MlxVlmModel(BaseTextModel):
             logger.error(f"Failed to prepare multimodal request: {e}")
             raise RuntimeError(f"Failed to prepare multimodal request: {str(e)}")
 
-    def _format_response(self, result: Any, model: str, request: ChatCompletionRequest) -> ChatCompletionResponse:
+    def _format_response(
+        self, result: Any, model: str, request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
         """Format VLM response to match mlx-omni-server response format"""
         # Extract text from result
         response_text = result.text if hasattr(result, "text") else str(result)
         include_thinking_in_content = bool(getattr(request, "include_thinking_in_content", False))
 
         # Extract usage statistics if available
-        prompt_tokens = getattr(result, 'prompt_tokens', 0)
-        completion_tokens = getattr(result, 'generation_tokens', 0)
-        total_tokens = getattr(result, 'total_tokens', prompt_tokens + completion_tokens)
+        prompt_tokens = getattr(result, "prompt_tokens", 0)
+        completion_tokens = getattr(result, "generation_tokens", 0)
+        total_tokens = getattr(result, "total_tokens", prompt_tokens + completion_tokens)
 
         # Handle reasoning/thinking
         reasoning: str | None = None
@@ -573,6 +588,7 @@ class MlxVlmModel(BaseTextModel):
         prompt_tokens_details = None
         if cached_tokens > 0:
             from ..schema import PromptTokensDetails
+
             prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
         # Create response
@@ -580,17 +596,23 @@ class MlxVlmModel(BaseTextModel):
             id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
             created=int(time.time()),
             model=model,
-            choices=[ChatCompletionChoice(
-                index=0,
-                message=message,
-                finish_reason="tool_calls" if hasattr(message, 'tool_calls') and message.tool_calls else "stop"
-            )],
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=message,
+                    finish_reason=(
+                        "tool_calls"
+                        if hasattr(message, "tool_calls") and message.tool_calls
+                        else "stop"
+                    ),
+                )
+            ],
             usage=ChatCompletionUsage(
                 prompt_tokens=prompt_tokens + cached_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens + cached_tokens,
                 prompt_tokens_details=prompt_tokens_details,
-            )
+            ),
         )
 
         return response
@@ -598,7 +620,7 @@ class MlxVlmModel(BaseTextModel):
     async def cleanup(self):
         """Cleanup resources"""
         try:
-            if hasattr(self, 'media_processor'):
+            if hasattr(self, "media_processor"):
                 await self.media_processor.cleanup()
             gc.collect()
             logger.info("MlxVlmModel cleanup completed")
@@ -614,7 +636,9 @@ class MlxVlmModel(BaseTextModel):
         """Internal stream generation method that yields GenerateResult objects."""
         try:
             # Prepare all generation components
-            model, prompt_tokens, generate_kwargs, formatted_prompt = self._prepare_generation(request)
+            model, prompt_tokens, generate_kwargs, formatted_prompt = self._prepare_generation(
+                request
+            )
 
             # Initialize variables to track tokens
             prompt_tokens_len = len(prompt_tokens)
@@ -660,10 +684,7 @@ class MlxVlmModel(BaseTextModel):
 
             # Call the VLM model with streaming
             for response in stream_generate(
-                model,
-                tokenizer,  # type: ignore
-                formatted_prompt,
-                **generate_kwargs
+                model, tokenizer, formatted_prompt, **generate_kwargs  # type: ignore
             ):
                 token_id = getattr(response, "token", 0) or 0
                 generation_tokens = int(getattr(response, "generation_tokens", 0) or 0)
@@ -825,7 +846,6 @@ class MlxVlmModel(BaseTextModel):
             prompt_cache.reset_prompt_cache(
                 model,
                 model_key=model_key,
-                prompt_tokens=full_prompt_tokens,
                 media_hashes=media_hashes or None,
             )
             bundle = prompt_cache.bundle
@@ -833,11 +853,17 @@ class MlxVlmModel(BaseTextModel):
         # Prepare generation kwargs
         generate_kwargs = {
             "prompt_cache_bundle": bundle,
-            "max_tokens": request.max_completion_tokens or request.max_tokens or self._default_max_tokens,
-            "temperature": request.temperature if request.temperature is not None else 0.6,
+            "max_tokens": request.max_completion_tokens
+            or request.max_tokens
+            or self._default_max_tokens,
+            "temperature": (request.temperature if request.temperature is not None else 0.6),
             "top_p": request.top_p if request.top_p is not None else 1.0,
-            "frequency_penalty": request.frequency_penalty if request.frequency_penalty is not None else 0.0,
-            "presence_penalty": request.presence_penalty if request.presence_penalty is not None else 0.0,
+            "frequency_penalty": (
+                request.frequency_penalty if request.frequency_penalty is not None else 0.0
+            ),
+            "presence_penalty": (
+                request.presence_penalty if request.presence_penalty is not None else 0.0
+            ),
         }
         if cached_count > 0:
             input_ids = mx.array([prompt_tokens], dtype=mx.int32)
