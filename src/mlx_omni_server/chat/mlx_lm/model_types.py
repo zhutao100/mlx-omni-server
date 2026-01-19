@@ -21,6 +21,7 @@ def load_tools_handler(model_type: str, tokenizer) -> ChatTokenizer:
         "qwen3_moe": Qwen3ChatTokenizer,
         "glm4": Glm4ChatTokenizer,
         "glm4_moe": Glm4ChatTokenizer,
+        "glm4_moe_lite": Glm4ChatTokenizer,
         "minimax_m2": MinimaxM2ChatTokenizer,
         "seed_oss": SeedOssChatTokenizer
     }

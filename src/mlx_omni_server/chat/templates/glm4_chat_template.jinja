@@ -11,7 +11,8 @@ For complex tasks, use todo lists and subagents if available.
 # Tools
 
 You may call one or more functions to assist with the user query.
-- *ONLY* call functions that are provided below.
+- *ONLY* call functions that are explicitly provided below; e.g.,
+  - function `shell_command` is provided below, while function `cat` is not; if you intend to run `cat filename.txt`, run it via the function `shell_command`.
 - required parameters *MUST* be provided for each function.
 - when making shell commands, make sure to use BSD-based tools and syntax instead of GNU-based.
 

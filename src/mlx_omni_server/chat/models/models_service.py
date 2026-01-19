@@ -56,6 +56,7 @@ def load_lm_chat_template(model_type: str) -> str | None:
         "qwen3_moe": "qwen3_chat_template.jinja",
         "glm4": "glm4_chat_template.jinja",
         "glm4_moe": "glm4_chat_template.jinja",
+        "glm4_moe_lite": "glm4_chat_template.jinja",
     }
     template_name = template_files.get(model_type)
     if not template_name:
