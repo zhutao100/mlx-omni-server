@@ -234,6 +234,13 @@ def _convert_input_item_to_chat_messages(
                 if isinstance(tc, dict):
                     tool_calls.append(_coerce_tool_call(tc, idx))
 
+            if role == Role.ASSISTANT and not tool_calls and chat_content in (None, ""):
+                # Some Responses clients (e.g. Codex CLI) can include empty assistant
+                # message items between tool calls. Keeping them inserts extra template
+                # tokens (e.g. `<|assistant|></think>`) and can cause minor prompt-cache
+                # trims between rounds. Drop them as they carry no content.
+                return []
+
             messages.append(
                 ChatMessage(
                     role=role,
@@ -600,6 +607,8 @@ def response_output_items_to_chat_messages(
                         and part.get("text")
                     ):
                         text_segments.append(str(part["text"]))
+            if not text_segments:
+                continue
             messages.append(
                 ChatMessage(
                     role=Role.ASSISTANT,
@@ -1112,10 +1121,20 @@ class ResponseStreamAdapter:
                         events.extend(self._emit_function_call_done(state))
                 continue
 
+            delta_text = _extract_text_from_delta(delta)
+            existing_key = self._message_context.get(choice.index)
+            existing_state = self._items.get(existing_key) if existing_key else None
+
+            # Avoid creating empty assistant message items (e.g. when the upstream chat
+            # stream emits an empty delta such as the `</think>` boundary). Empty message
+            # output items can get echoed back by clients and introduce prompt/template
+            # drift between rounds.
+            if not delta_text and existing_state is None:
+                continue
+
             new_events, state = self._ensure_message_item(choice.index)
             events.extend(new_events)
 
-            delta_text = _extract_text_from_delta(delta)
             if delta_text:
                 delta_fragment = self._append_text_delta(state, delta_text)
                 if delta_fragment:
