@@ -19,7 +19,7 @@ class ToolLoopReasoningCache:
     restore missing assistant reasoning even if the client dropped it.
     """
 
-    def __init__(self, *, ttl_seconds: float = 600.0, max_entries: int = 1024) -> None:
+    def __init__(self, *, ttl_seconds: float = 3600.0, max_entries: int = 1024) -> None:
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be positive")
         if max_entries <= 0:

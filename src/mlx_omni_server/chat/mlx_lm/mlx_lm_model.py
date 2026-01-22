@@ -73,7 +73,9 @@ class MlxLmModel(BaseTextModel):
                 f"Invalid or missing max_position_embeddings in model config: {self._model_config}\n"
                 f"Use default max_position_embeddings: {max_context_length}"
             )
-        self._prompt_cache_manager = PromptCacheManager(max_position_embeddings=max_context_length, max_caches=3)
+        self._prompt_cache_manager = PromptCacheManager(
+            max_position_embeddings=max_context_length, max_caches=2
+        )
         self._prompt_cache_tokens_count = 0
 
     def _get_generation_params(

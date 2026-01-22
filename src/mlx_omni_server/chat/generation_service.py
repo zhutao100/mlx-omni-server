@@ -11,6 +11,7 @@ from typing import Any, AsyncGenerator, Awaitable, Callable, Literal
 from mlx_lm.generate import GenerationCancelled
 
 from ..inference.runtime import run_mlx
+from ..utils.logger import logger
 from .models.models import load_model
 from .models.models_service import ModelId
 from .schema import ChatCompletionRequest, ChatCompletionResponse, Role
@@ -91,6 +92,11 @@ def _restore_tool_loop_reasoning(request: ChatCompletionRequest) -> None:
         cached_reasoning = tool_loop_reasoning_cache.get(tool_call_id)
         if cached_reasoning is None:
             continue
+        logger.debug(
+            "Restoring cached reasoning for tool_call_id=%s: %s",
+            tool_call_id,
+            cached_reasoning,
+        )
         assistant_message.reasoning = cached_reasoning
 
 
