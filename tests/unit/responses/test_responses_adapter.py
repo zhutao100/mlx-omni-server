@@ -53,6 +53,86 @@ def test_response_request_to_chat_request_drops_empty_assistant_message_items():
     assert chat_request.messages[2].tool_call_id == "call_1"
 
 
+def test_response_request_to_chat_request_coalesces_assistant_message_between_tool_call_and_output():
+    request = ResponseRequest(
+        model="test-model",
+        input=[
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "shell_command",
+                "arguments": '{"command":["ls"]}',
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Running…"}],
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "done",
+            },
+        ],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert [message.role for message in chat_request.messages] == [
+        Role.ASSISTANT,
+        Role.TOOL,
+    ]
+    assert chat_request.messages[0].tool_calls is not None
+    assert [tool_call.id for tool_call in chat_request.messages[0].tool_calls] == ["call_1"]
+    assert chat_request.messages[0].content == "Running…"
+    assert chat_request.messages[1].tool_call_id == "call_1"
+
+
+def test_response_request_to_chat_request_coalesces_multiple_tool_calls_for_tool_output_order():
+    request = ResponseRequest(
+        model="test-model",
+        input=[
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "a",
+                "arguments": "{}",
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_2",
+                "name": "b",
+                "arguments": "{}",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "out1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_2",
+                "output": "out2",
+            },
+        ],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert [message.role for message in chat_request.messages] == [
+        Role.ASSISTANT,
+        Role.TOOL,
+        Role.TOOL,
+    ]
+    assert chat_request.messages[0].tool_calls is not None
+    assert [tool_call.id for tool_call in chat_request.messages[0].tool_calls] == [
+        "call_1",
+        "call_2",
+    ]
+    assert chat_request.messages[1].tool_call_id == "call_1"
+    assert chat_request.messages[2].tool_call_id == "call_2"
+
+
 def test_response_output_items_to_chat_messages_skips_empty_message_items():
     messages = response_output_items_to_chat_messages(
         [
@@ -77,6 +157,63 @@ def test_response_output_items_to_chat_messages_skips_empty_message_items():
     assert len(messages) == 1
     assert messages[0].role == Role.ASSISTANT
     assert messages[0].content == "hi"
+
+
+def test_response_output_items_to_chat_messages_coalesces_tool_call_and_message():
+    messages = response_output_items_to_chat_messages(
+        [
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "shell",
+                "arguments": '{"command":["ls"]}',
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Tool call ready"}],
+            },
+        ]
+    )
+
+    assert len(messages) == 1
+    assert messages[0].role == Role.ASSISTANT
+    assert messages[0].tool_calls is not None
+    assert [tool_call.id for tool_call in messages[0].tool_calls] == ["call_1"]
+    assert messages[0].content == "Tool call ready"
+
+
+def test_response_output_items_to_chat_messages_coalesces_multiple_tool_calls():
+    messages = response_output_items_to_chat_messages(
+        [
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "a",
+                "arguments": "{}",
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_2",
+                "name": "b",
+                "arguments": "{}",
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "ready"}],
+            },
+        ]
+    )
+
+    assert len(messages) == 1
+    assert messages[0].role == Role.ASSISTANT
+    assert messages[0].tool_calls is not None
+    assert [tool_call.id for tool_call in messages[0].tool_calls] == [
+        "call_1",
+        "call_2",
+    ]
+    assert messages[0].content == "ready"
 
 
 def test_response_stream_adapter_skips_empty_text_chunk_before_tool_call():

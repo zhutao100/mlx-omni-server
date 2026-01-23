@@ -263,6 +263,45 @@ def _convert_input_to_chat_messages(input_value: Any) -> list[ChatMessage]:
         tool_call_id_to_message: dict[str, ChatMessage] = {}
         pending_reasoning: list[ReasoningEnvelope] = []
 
+        def _has_non_empty_content(
+            content: str | list[MultimodalContentItem] | None,
+        ) -> bool:
+            if content is None:
+                return False
+            if isinstance(content, str):
+                return bool(content)
+            return bool(content)
+
+        def _merge_contents(
+            existing: str | list[MultimodalContentItem] | None,
+            incoming: str | list[MultimodalContentItem] | None,
+        ) -> str | list[MultimodalContentItem] | None:
+            if incoming is None:
+                return existing
+            if isinstance(incoming, str) and not incoming:
+                return existing
+
+            if existing is None:
+                return incoming
+            if isinstance(existing, str) and not existing:
+                return incoming
+
+            if isinstance(existing, str) and isinstance(incoming, str):
+                return existing + incoming
+
+            existing_items: list[MultimodalContentItem] = []
+            if isinstance(existing, str):
+                existing_items.append(MultimodalContentItem(type="text", text=existing))
+            else:
+                existing_items.extend(existing)
+
+            if isinstance(incoming, str):
+                existing_items.append(MultimodalContentItem(type="text", text=incoming))
+            else:
+                existing_items.extend(incoming)
+
+            return existing_items
+
         for idx, item in enumerate(input_value):
             envelope = _parse_reasoning_envelope(item)
             if envelope is not None:
@@ -276,19 +315,48 @@ def _convert_input_to_chat_messages(input_value: Any) -> list[ChatMessage]:
 
             new_messages = _convert_input_item_to_chat_messages(item, idx)
             for message in new_messages:
-                if message.role == Role.ASSISTANT and message.tool_calls:
-                    for tool_call in message.tool_calls:
-                        tool_call_id_to_message[tool_call.id] = message
-                    if message.reasoning is None:
+                appended = True
+                target_message = message
+                new_tool_calls = message.tool_calls or []
+
+                if (
+                    message.role == Role.ASSISTANT
+                    and messages
+                    and messages[-1].role == Role.ASSISTANT
+                ):
+                    prev = messages[-1]
+
+                    should_merge = bool(message.tool_calls) or (
+                        prev.tool_calls and _has_non_empty_content(message.content)
+                    )
+                    if should_merge:
+                        appended = False
+                        target_message = prev
+
+                        if new_tool_calls:
+                            prev.tool_calls = (prev.tool_calls or []) + list(new_tool_calls)
+
+                        if _has_non_empty_content(message.content):
+                            prev.content = _merge_contents(prev.content, message.content)
+
+                        if message.reasoning is not None and prev.reasoning is None:
+                            prev.reasoning = message.reasoning
+
+                if appended:
+                    messages.append(message)
+
+                if target_message.role == Role.ASSISTANT and new_tool_calls:
+                    for tool_call in new_tool_calls:
+                        tool_call_id_to_message[tool_call.id] = target_message
+
+                    if target_message.reasoning is None:
                         for pending in pending_reasoning:
                             if any(
                                 tool_call.id in pending.tool_call_ids
-                                for tool_call in message.tool_calls
+                                for tool_call in new_tool_calls
                             ):
-                                message.reasoning = pending.reasoning
+                                target_message.reasoning = pending.reasoning
                                 break
-
-            messages.extend(new_messages)
         return messages
 
     if isinstance(input_value, (ChatMessage, str, dict)):
@@ -577,23 +645,25 @@ def response_output_items_to_chat_messages(
             call_id = item.get("call_id") or item.get("id") or str(uuid4())
             name = item.get("name") or "tool"
             arguments = item.get("arguments") or ""
-            message = ChatMessage(
-                role=Role.ASSISTANT,
-                tool_calls=[
-                    ToolCall(
-                        id=call_id,
-                        type=ToolType.FUNCTION,
-                        function=FunctionCall(name=name, arguments=arguments),
-                    )
-                ],
+            tool_call = ToolCall(
+                id=call_id,
+                type=ToolType.FUNCTION,
+                function=FunctionCall(name=name, arguments=arguments),
             )
+
+            if messages and messages[-1].role == Role.ASSISTANT:
+                message = messages[-1]
+                message.tool_calls = (message.tool_calls or []) + [tool_call]
+            else:
+                message = ChatMessage(role=Role.ASSISTANT, tool_calls=[tool_call])
+                messages.append(message)
+
             tool_call_id_to_message[call_id] = message
             if message.reasoning is None:
                 for pending in pending_reasoning:
                     if call_id in pending.tool_call_ids:
                         message.reasoning = pending.reasoning
                         break
-            messages.append(message)
             continue
 
         if item_type == "message":
@@ -609,12 +679,22 @@ def response_output_items_to_chat_messages(
                         text_segments.append(str(part["text"]))
             if not text_segments:
                 continue
-            messages.append(
-                ChatMessage(
-                    role=Role.ASSISTANT,
-                    content="".join(text_segments),
-                )
-            )
+            content_text = "".join(text_segments)
+
+            if messages and messages[-1].role == Role.ASSISTANT and messages[-1].tool_calls:
+                message = messages[-1]
+                if message.content is None:
+                    message.content = content_text
+                elif isinstance(message.content, str):
+                    message.content += content_text
+                elif isinstance(message.content, list):
+                    message.content = list(message.content) + [
+                        MultimodalContentItem(type="text", text=content_text)
+                    ]
+                else:
+                    message.content = content_text
+            else:
+                messages.append(ChatMessage(role=Role.ASSISTANT, content=content_text))
 
     return messages
 
