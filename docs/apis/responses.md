@@ -4,6 +4,8 @@ This API is a shim over the existing Chat Completions implementation, exposing a
 
 Response IDs use the Responses namespace (`resp_...`) and do not expose the underlying Chat Completions `chatcmpl-...` IDs.
 
+> Note: Most routes are available with and without the `/v1` prefix.
+
 ## Create (non-stream)
 
 ```python
@@ -53,6 +55,20 @@ response = client.responses.create(
 )
 ```
 
+## Reasoning envelopes (`include=["reasoning.encrypted_content"]`)
+
+Some clients (notably tool-loop clients) need a way to carry “reasoning continuity” across turns without requiring the client to round-trip internal reasoning fields inside chat messages.
+
+If you pass:
+
+```python
+include=["reasoning.encrypted_content"]
+```
+
+the server will include a `type="reasoning"` output item with an `encrypted_content` token when the underlying model produced reasoning. You can send that same reasoning item back in a subsequent request `input` list.
+
+Operational note: to keep these tokens valid across server restarts, set the environment variable `MLX_OMNI_SERVER_REASONING_HMAC_KEY` (otherwise the server uses an ephemeral per-process key).
+
 ## Stateful chaining (`previous_response_id`)
 
 If `previous_response_id` is set, the server prepends the previous response's stored history to the current request (excluding the previous request's `instructions` system message).
@@ -77,7 +93,7 @@ If `background=true` (and `stream=false`), the server returns a queued Response 
 High-level Responses features that are not implemented are rejected with a `400` error (not silently accepted), including:
 
 - `conversation`
-- `include`
+- `include` values other than `reasoning.encrypted_content`
 
 ## Storage model
 

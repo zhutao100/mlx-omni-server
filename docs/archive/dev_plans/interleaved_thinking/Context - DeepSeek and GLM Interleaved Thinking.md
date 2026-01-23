@@ -1,3 +1,5 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 I’ll (1) pull the key protocol details from GLM-4.7 “Thinking Mode” docs, (2) map them against DeepSeek’s reasoning_content + replay-for-tools contract, and (3) propose a unified, implementable “de facto” spec with compatibility modes and conformance tests.
 
 

@@ -1,10 +1,12 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 # Phased Implementation Notes
 
 ## Phase 0 Implementation
 
 ### Reference
 
-- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 0 — Fix `/chat/completions` correctness for DeepSeek/GLM interleaved thinking (tools + replay)”.
+- Source plan: `docs/archive/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 0 — Fix `/chat/completions` correctness for DeepSeek/GLM interleaved thinking (tools + replay)”.
 
 ### What Phase 0 Required (from the plan) vs What Was Implemented
 
@@ -81,7 +83,7 @@
 
 ### Reference
 
-- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 1 — Make `/responses` work with Codex CLI: `include=[\"reasoning.encrypted_content\"]` + reasoning replay”.
+- Source plan: `docs/archive/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 1 — Make `/responses` work with Codex CLI: `include=[\"reasoning.encrypted_content\"]` + reasoning replay”.
 
 ### What Phase 1 Required (from the plan) vs What Was Implemented
 
@@ -162,7 +164,7 @@
 
 ### Reference
 
-- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 2 — Deterministic backend replay semantics (DeepSeek v3.2 + GLM 4.7)”.
+- Source plan: `docs/archive/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 2 — Deterministic backend replay semantics (DeepSeek v3.2 + GLM 4.7)”.
 
 ### What Phase 2 Required (from the plan) vs Current Implementation
 
@@ -196,7 +198,7 @@
 
 ### Reference
 
-- Source plan: `docs/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 3 — Long-session performance and stability (Codex-oriented)”.
+- Source plan: `docs/archive/dev_plans/interleaved_thinking/Phased Plan.md` → “Phase 3 — Long-session performance and stability (Codex-oriented)”.
 
 ### What Was Implemented (Option B1: namespaced prompt cache)
 

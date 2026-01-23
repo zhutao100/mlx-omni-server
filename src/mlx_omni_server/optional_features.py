@@ -52,9 +52,7 @@ def get_optional_extra(name: str) -> OptionalExtra:
 
 
 def install_instructions(extra: str) -> str:
-    return (
-        f"`pip install 'mlx-omni-server[{extra}]'` " f"(or from source: `pip install '.[{extra}]'`)"
-    )
+    return f"`pip install '.[{extra}]'`"
 
 
 @lru_cache(maxsize=None)

@@ -1,29 +1,57 @@
 # AGENTS.md
 
-## Project overview
+This file is a short operating guide for LLM/agent work in this repository.
 
-- Read `docs/code_analysis.md` for the Technical Overview and Architecture Analysis.
-- The `docs/.llm_analysis/` directory contains detailed component analyses.
+## Repo map (start here)
 
-## Program targeted use cases
+- Entry point: `src/mlx_omni_server/main.py` (FastAPI app + CLI args)
+- Router aggregation: `src/mlx_omni_server/routers.py`
+- Components:
+  - Chat: `src/mlx_omni_server/chat/`
+  - Responses adapter: `src/mlx_omni_server/responses/`
+  - Embeddings: `src/mlx_omni_server/embeddings/`
+  - Images (optional extra): `src/mlx_omni_server/images/`
+  - Speech-to-text (optional extra): `src/mlx_omni_server/stt/`
+  - Text-to-speech (optional extra): `src/mlx_omni_server/tts/`
+- Shared runtime contract: `src/mlx_omni_server/inference/runtime.py`
 
-- The program is targeted to run on Mac OS with Apple Silicon chips, and is optimized for local execution of LLMs.
-- The program is not designed to be exposed to the public internet or untrusted clients.
-  - The clients are trustable localhost or LAN applications that interact with the program via REST API calls.
-  - The clients are trusted not to have malicious intent, so security measures against such threats are not a priority.
-  - However, the clients may be unreliable and could send malformed or unexpected requests, so robust error handling is necessary.
-- The expected concurrency count is low (typically 1-5 simultaneous requests, 1 is the most common case), so the program is optimized for low-latency single requests rather than high-throughput batch processing.
+## Docs to read first (by task type)
 
-## Repository expectations
+- Triage / “what is this project?”: `README.md` → `docs/README.md`
+- API behavior questions: `docs/apis/` + matching router/service code under `src/mlx_omni_server/`
+- Concurrency / responsiveness issues: `docs/concurrency_contract.md` + `src/mlx_omni_server/inference/runtime.py`
+- Architecture / roadmap: `docs/code_analysis.md` and `docs/architecture_evaluation.md`
+- Model guidance: `docs/supported_models.md`
+- Deep internal notes: `docs/.llm_analysis/` (keep in sync if you change relevant code)
 
-- Keep the `docs/code_analysis.md` and the `docs/.llm_analysis/` directory synchronized with the latest codebase for accurate analyses.
+## Program constraints (still true)
 
-## Resources
+- Target: macOS + Apple Silicon; optimized for local MLX inference.
+- Trusted clients on localhost/LAN; not hardened for public internet exposure.
+- Expected concurrency is low (typically 1–5); optimize for predictable latency.
+- Prefer single-process by default (`--workers 1`) unless you explicitly accept the tradeoffs.
 
-- Some core dependency modules can be accessed locally, e.g.
-  - [mlx-lm](https://github.com/ml-explore/mlx-lm): ~/workspace/custom-builds/mlx-lm
-  - [mlx-vlm](https://github.com/zhutao100/mlx-vlm): ~/workspace/custom-builds/mlx-vlm
-  - [transformers](https://github.com/huggingface/transformers): ~/workspace/custom-builds/transformers
-  - [mflux](https://github.com/filipstrand/mflux): ~/workspace/custom-builds/mflux
-- When need to inspect model files, they are typically managed by huggingface CLI and stored in `~/.cache/huggingface/hub`.
-- When running python commands, use the virtual env `venv313` by pretending `PYENV_VERSION=venv313 pyenv exec ` to the commands.
+## Conventions and “source of truth”
+
+- **API contracts**: the code + tests are authoritative. Treat docs as summaries that must match implementation.
+- **Optional extras** (`images`, `stt`, `tts`): routes stay registered; if deps are missing, return `501` with an install hint (avoid import-time crashes).
+- **Concurrency contract**: never block the event loop; run MLX-backed work via the shared runtime helpers (see `docs/concurrency_contract.md`).
+
+## Workflows and commands
+
+Use the repo’s virtualenv when available:
+
+- Python commands: `PYENV_VERSION=venv313 pyenv exec python3 ...`
+- Tests: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest tests/unit`
+  - `tests/integration/` may download models and can be slow/heavy.
+- Formatting: `PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files`
+- Dev server (reload): `PYENV_VERSION=venv313 pyenv exec uvicorn mlx_omni_server.main:app --reload --port 10240`
+
+## Local resources (developer machine)
+
+- Core dependency repos (if you need to inspect upstream behavior):
+  - `~/workspace/custom-builds/mlx-lm`
+  - `~/workspace/custom-builds/mlx-vlm`
+  - `~/workspace/custom-builds/transformers`
+  - `~/workspace/custom-builds/mflux`
+- Hugging Face model cache is typically under `~/.cache/huggingface/hub`.

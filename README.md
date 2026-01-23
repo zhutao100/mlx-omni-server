@@ -8,7 +8,7 @@
 
 ![MLX Omni Server Banner](docs/banner.png)
 
-**MLX Omni Server** is a high-performance local inference server built on Apple's MLX framework, optimized for Apple Silicon (M-series) chips. It provides OpenAI-compatible API endpoints, enabling seamless integration with existing OpenAI SDK clients while delivering fast, private AI processing directly on your Mac.
+**MLX Omni Server** is a local inference server for Apple Silicon that exposes **OpenAI-compatible HTTP APIs** on top of the **MLX** ecosystem (LLM/VLM + embeddings, with optional image/audio modalities). It is optimized for low-latency, low-concurrency “local/LAN trusted client” usage.
 
 ## Fork vs Original Project
 
@@ -16,43 +16,36 @@ This repository is a fork of the [original MLX Omni Server](https://github.com/m
 
 ### Key Enhancements in This Fork
 
-- **Vision/Multimodal Support**: Added comprehensive Vision-Language Model (VLM) support through mlx_vlm integration for image processing capabilities.
-- **Responses API Endpoint**: Added support for OpenAI's Responses API (`/v1/responses`) as an alternative to chat completions with enhanced structured output capabilities, improved tool calling workflows, and better streaming event handling.
-- **Advanced Tool Parsing**: Enhanced tool calling support for Qwen3, GLM4, and Minimax M2 model families with sophisticated parsing logic including heuristic detection and malformed recovery mechanisms.
-- **Intelligent Caching**: Reworked prompt cache and chat completion cache systems with improved caching efficiency and memory management.
-- **Performance Improvements**: Enhanced streaming generation with better buffering and client disconnection handling.
+- **OpenAI Responses API** (`/v1/responses`) with SSE streaming and `include=["reasoning.encrypted_content"]`.
+- **Robust tool calling** (Qwen3 / GLM4 / Minimax M2-focused parsing + recovery).
+- **Vision/VLM support** via `mlx-vlm`.
+- **Unified concurrency contract** (shared MLX gate + threadpool offload) across endpoints.
 
 ### Differences from Original
 
-The original project provided dual API compatibility with both OpenAI and Anthropic APIs, while this fork focuses exclusively on OpenAI-compatible endpoints but with enhanced features and performance optimizations.
+The upstream project provided dual API compatibility (OpenAI + Anthropic). This fork focuses on **OpenAI-compatible** endpoints, with deeper support for Responses, tools, and multimodal workloads.
 
 For details on the original project, please refer to the [upstream repository](https://github.com/madroidmaq/mlx-omni-server).
 
 ## Features
 
-- **Apple Silicon Optimized**: Built on MLX framework, specifically tuned for M1/M2/M3/M4 chips.
-- **OpenAI API Compatible**: Drop-in replacement for OpenAI API endpoints.
-- **Comprehensive AI Capabilities**:
-  - **Chat & Text Generation**: Multi-turn conversations, streaming responses, function calling.
-  - **Audio Processing**: Text-to-Speech (TTS) and Speech-to-Text (STT) support.
-  - **Image Generation**: High-quality image creation with FLUX models.
-  - **Embeddings**: Text vectorization for semantic search and similarity.
-- **High Performance**: Local inference with hardware acceleration.
-- **Privacy-First**: All processing happens locally on your machine.
-- **Developer Friendly**: Works with official OpenAI SDK and other compatible clients.
-- **Easy Installation**: Simple pip install with minimal dependencies.
+- **OpenAI-compatible** routes and schemas (works with the official OpenAI Python SDK via `base_url=`).
+- **Chat + streaming** (`/v1/chat/completions`) and **Responses API** (`/v1/responses`).
+- **Vision** (VLM inputs via standard OpenAI “content parts”).
+- **Structured outputs** (JSON Schema) and **logprobs** where supported.
+- **Embeddings** (`/v1/embeddings`).
+- **Optional modalities** (install extras; routes remain registered and return `501` with an install hint if missing):
+  - **Images** (`/v1/images/generations`) via `mflux`
+  - **Speech-to-text** (`/v1/audio/transcriptions`) via `mlx-whisper`
+  - **Text-to-speech** (`/v1/audio/speech`) via `f5-tts-mlx` / `mlx-audio`
+- **Local-first**: models run on your Mac; nothing is sent to a hosted API.
 
 ## Supported API Endpoints
 
-The server implements OpenAI-compatible endpoints:
+The server implements these OpenAI-compatible endpoints (most routes are available with and without the `/v1` prefix):
 
 - **Chat completions**: `/v1/chat/completions`
 - **Responses**: `/v1/responses`
-  - Chat
-  - Tools, Function Calling
-  - Structured Output
-  - LogProbs
-  - Vision
 - **Audio**
   - `/v1/audio/speech` - Text-to-Speech
   - `/v1/audio/transcriptions` - Speech-to-Text
@@ -64,38 +57,51 @@ The server implements OpenAI-compatible endpoints:
 - **Embeddings**
   - `/v1/embeddings` - Create embeddings for text
 
-For detailed API documentation and examples, please see the [API documentation](docs/apis).
+For detailed API documentation and examples, see [`docs/README.md`](docs/README.md) and [`docs/apis/`](docs/apis/).
 
 ## Quick Start
 
 ### Prerequisites
 
-- macOS with Apple Silicon (M1/M2/M3/M4 chip)
-- Python 3.11 or higher
-- Internet connection for initial model downloads
+- macOS with Apple Silicon (M-series)
+- Python **3.11+**
+- `git` (some dependencies are installed from Git URLs)
+- Internet access for first-time model/dependency downloads (or pre-populate your local caches)
 
 ### Installation
 
 ```bash
-git clone https://github.com/zhutao100/mlx-omni-server.git
-cd mlx-omni-server
-# Core install (chat + responses + embeddings)
-pip install .
+# From PyPI
+python3 -m pip install .
 
 # Optional modalities (keeps routes, returns 501 if not installed)
-pip install ".[images]"  # image generation
-pip install ".[stt]"     # speech-to-text
-pip install ".[tts]"     # text-to-speech
-pip install ".[all]"     # all optional features
+python3 -m pip install ".[images]"  # image generation
+python3 -m pip install ".[stt]"     # speech-to-text
+python3 -m pip install ".[tts]"     # text-to-speech
+python3 -m pip install ".[all]"     # all optional features
+```
+
+From source:
+
+```bash
+git clone https://github.com/zhutao100/mlx-omni-server.git
+cd mlx-omni-server
+python3 -m pip install -e ".[all]"
 ```
 
 ### Start the Server
 
 ```bash
-mlx-omni-server
+mlx-omni-server --host 127.0.0.1 --port 10240
 ```
 
 The server starts on `http://localhost:10240` by default.
+
+### Sanity Check (cURL)
+
+```bash
+curl http://localhost:10240/v1/models
+```
 
 ### Python Client Example
 
@@ -108,7 +114,7 @@ client = OpenAI(
     api_key="not-needed"
 )
 
-# Simple chat request
+# Simple chat request (Chat Completions)
 response = client.chat.completions.create(
     model="mlx-community/gemma-3-1b-it-4bit-DWQ",
     messages=[{"role": "user", "content": "Hello! How are you?"}]
@@ -139,11 +145,35 @@ mlx-omni-server --help
 | `--log-dir` | `~/Library/Logs/mlx-omni-server` | Directory for on-disk logs (used with `--log-file`) |
 | `--log-file-format` | `jsonl` | On-disk log format: `text` or `jsonl` (used with `--log-file`) |
 
+## Configuration Notes
+
+- **Hugging Face downloads** are handled by `huggingface-hub` (use standard env vars like `HF_HOME`, `HF_TOKEN`, etc. as needed).
+- **Responses reasoning tokens**: set `MLX_OMNI_SERVER_REASONING_HMAC_KEY` to keep `reasoning.encrypted_content` stable across server restarts.
+- **Multi-worker** (`--workers > 1`) is **opt-in** and can be unsafe for MLX/unified-memory workloads; prefer `--workers 1` unless you understand the tradeoffs (see `docs/concurrency_contract.md`).
+
+## Limitations / Non-goals
+
+- Not a full OpenAI platform clone (no Assistants, Files, Fine-tuning, etc.).
+- Responses are tracked in-memory (TTL) and are not persisted across restarts.
+- Designed for **trusted localhost/LAN** clients; not hardened for untrusted/public internet exposure.
+
 ## Documentation
 
-- [API Reference](docs/apis)
-- [Supported Models](docs/supported_models.md)
-- [Development Guide](docs/development_guide.md)
+- Start here: [`docs/README.md`](docs/README.md)
+- API reference: [`docs/apis/`](docs/apis/)
+- Supported models: [`docs/supported_models.md`](docs/supported_models.md)
+- Development guide: [`docs/development_guide.md`](docs/development_guide.md)
+- Operations: [`docs/operations.md`](docs/operations.md)
+- Concurrency model: [`docs/concurrency_contract.md`](docs/concurrency_contract.md)
+- Architecture + roadmap: [`docs/architecture_evaluation.md`](docs/architecture_evaluation.md)
+
+## Next Steps (Roadmap)
+
+See `docs/architecture_evaluation.md` for details. Current priorities:
+
+- Add bounded backpressure around the shared MLX gate (explicit overload behavior).
+- Centralize model lifecycle/budgets (cache admission + eviction policies).
+- Improve observability around queueing/wait time/execution time.
 
 ## License
 

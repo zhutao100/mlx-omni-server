@@ -1,231 +1,114 @@
-# Audio
+# Audio (TTS + STT)
 
-## Create speech
+Audio routes are packaged as **optional extras**:
 
-> post https://localhost:8080/v1/audio/speech
+- TTS (`/v1/audio/speech`): `pip install ".[tts]"`
+- STT (`/v1/audio/transcriptions`): `pip install ".[stt]"`
 
-OpenAI's [createSpeech](https://platform.openai.com/docs/api-reference/audio/createSpeech) docs.
+If an extra is not installed, the route remains registered but returns `501 Not Implemented` with an install hint.
 
-### Sample
+> Note: audio routes are available with and without the `/v1` prefix (`/audio/...` and `/v1/audio/...`).
 
-<details>
-<summary>cURL Example</summary>
+## Text-to-Speech (TTS) — `POST /v1/audio/speech`
 
-```shell
+### Request notes
+
+- `model` is required.
+- `voice` is backend/model-specific.
+  - For `mlx-audio` models (for example `mlx-community/Kokoro-82M-4bit`), voices typically look like `af_*` (default is `af_sky`).
+  - For `lucasnewman/f5-tts-mlx`, `voice` is currently ignored.
+- `response_format` defaults to `wav`.
+  - `lucasnewman/f5-tts-mlx` only supports `response_format=wav`.
+
+### cURL example (mlx-audio / Kokoro)
+
+```bash
+curl -X POST "http://localhost:10240/v1/audio/speech" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mlx-community/Kokoro-82M-4bit",
+    "input": "Hello from MLX Omni Server",
+    "voice": "af_sky",
+    "response_format": "wav"
+  }' \
+  --output speech.wav
+```
+
+### cURL example (F5; wav-only)
+
+```bash
 curl -X POST "http://localhost:10240/v1/audio/speech" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "lucasnewman/f5-tts-mlx",
-    "input": "MLX project is awsome",
-    "voice": "alloy"
+    "input": "Hello from MLX Omni Server",
+    "response_format": "wav"
   }' \
-  --output ~/Desktop/mlx.wav
+  --output speech.wav
 ```
-</details>
 
-<details>
-<summary>Python Example</summary>
+### Python example (OpenAI SDK)
 
 ```python
-speech_file_path = "mlx_example.wav"
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:10240/v1", api_key="not-needed")
+
 response = client.audio.speech.create(
-    model="lucasnewman/f5-tts-mlx",
-    voice="alloy",  # Available voices: alloy, echo, fable, onyx, nova, shimmer
-    input="MLX project is awesome!",
+    model="mlx-community/Kokoro-82M-4bit",
+    input="Hello from MLX Omni Server",
+    voice="af_sky",
+    response_format="wav",
 )
-response.stream_to_file(speech_file_path)
+response.stream_to_file("speech.wav")
 ```
-</details>
 
-## Create transcription
+## Speech-to-Text (STT) — `POST /v1/audio/transcriptions`
 
-> post https://localhost:8080/v1/audio/transcriptions
+### Request notes
 
-OpenAI's [createTranscription](https://platform.openai.com/docs/api-reference/audio/createTranscription) docs.
+- This endpoint uses `multipart/form-data`.
+- `timestamp_granularities[]=word` requires `response_format=verbose_json`.
+- Supported `response_format`: `json`, `text`, `srt`, `vtt`, `verbose_json`.
 
-### Sample
+### cURL example (default JSON)
 
-<details>
-<summary>Default json sample</summary>
-
-```shell
+```bash
 curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
+  -F "file=@tests/test_audio.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo"
 ```
 
-```json
-{
-  "text": " MLX Project is awesome!"
-}
-```
+### cURL example (plain text)
 
-</details>
-
-<details>
-<summary>Python Example</summary>
-
-```python
-audio_file = open("speech.mp3", "rb")
-transcript = client.audio.transcriptions.create(
-    model="mlx-community/whisper-large-v3-turbo",
-    file=audio_file
-)
-
-print(transcript.text)
-```
-</details>
-
----
-
-<details>
-<summary>Text sample</summary>
-
-```shell
-curl -X POST "http://localhost:10240/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
+```bash
+curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
+  -F "file=@tests/test_audio.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "response_format=text"
 ```
 
-```text
-MLX Project is awesome!
-```
+### cURL example (word timestamps; verbose JSON)
 
-</details>
-
----
-
-<details>
-<summary>SRT sample</summary>
-
-```shell
-curl -X POST "http://localhost:10240/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
-  -F "model=mlx-community/whisper-large-v3-turbo" \
-  -F "response_format=srt"
-```
-
-```text
-1
-00:00:00,000 --> 00:00:03,000
-MLX Project is awesome!
-```
-
-</details>
-
----
-
-<details>
-<summary>Verbose json sample</summary>
-
-```shell
-curl -X POST "http://localhost:10240/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
-  -F "model=mlx-community/whisper-large-v3-turbo" \
-  -F "response_format=verbose_json"
-```
-
-```text
-{
-	"text": " MLX Project is awesome!",
-	"segments": [{
-		"id": 0,
-		"seek": 0,
-		"start": 0.0,
-		"end": 3.0,
-		"text": " MLX Project is awesome!",
-		"tokens": [50364, 21601, 55, 9849, 307, 3476, 0, 50514],
-		"temperature": 0.0,
-		"avg_logprob": -0.6914801067776151,
-		"compression_ratio": 0.7419354838709677,
-		"no_speech_prob": 0.04768477380275726
-	}],
-	"language": "en"
-}
-```
-
-</details>
-
----
-
-<details>
-<summary>Verbose word json sample</summary>
-
-```shell
-curl -X POST "http://localhost:10240/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
+```bash
+curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
+  -F "file=@tests/test_audio.wav" \
   -F "model=mlx-community/whisper-large-v3-turbo" \
   -F "timestamp_granularities[]=word" \
   -F "response_format=verbose_json"
 ```
 
-```text
-{
-	"text": " MLX project is awesome.",
-	"segments": [{
-		"id": 0,
-		"seek": 0,
-		"start": 0.0,
-		"end": 2.58,
-		"text": " MLX project is awesome.",
-		"tokens": [50364, 21601, 55, 1716, 307, 3476, 13, 50514],
-		"temperature": 0.0,
-		"avg_logprob": -0.7067226303948296,
-		"compression_ratio": 0.7419354838709677,
-		"no_speech_prob": 0.13033607602119446,
-		"words": [{
-			"word": " MLX",
-			"start": 0.0,
-			"end": 1.48,
-			"probability": 0.80322265625
-		}, {
-			"word": " project",
-			"start": 1.48,
-			"end": 1.88,
-			"probability": 0.52197265625
-		}, {
-			"word": " is",
-			"start": 1.88,
-			"end": 2.12,
-			"probability": 0.998046875
-		}, {
-			"word": " awesome.",
-			"start": 2.12,
-			"end": 2.58,
-			"probability": 0.96533203125
-		}]
-	}],
-	"language": "en"
-}
+### Python example (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:10240/v1", api_key="not-needed")
+
+with open("tests/test_audio.wav", "rb") as audio_file:
+    transcript = client.audio.transcriptions.create(
+        model="mlx-community/whisper-large-v3-turbo",
+        file=audio_file,
+    )
+print(transcript.text)
 ```
-
-</details>
-
----
-
-<details>
-
-<summary>VTT sample</summary>
-
-```shell
-curl -X POST "http://localhost:10240/v1/audio/transcriptions" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@mlx_example.wav" \
-  -F "model=mlx-community/whisper-large-v3-turbo" \
-  -F "response_format=vtt"
-```
-
-```text
-WEBVTT
-
-00:00.000 --> 00:03.000
-MLX Project is awesome!
-```
-
-</details>

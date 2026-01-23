@@ -1,3 +1,5 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 Research on how OpenAI utilizes the `reasoning.encrypted_content` field in their Responses API endpoint.
 
 ````markdown

@@ -1,3 +1,5 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 # Phase 2 Eval and Implementation Plan
 
 ## Context: What Phase 0 + Phase 1 already unlocked

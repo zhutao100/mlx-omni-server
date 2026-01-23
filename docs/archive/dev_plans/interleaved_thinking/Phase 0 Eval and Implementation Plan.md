@@ -1,9 +1,11 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 **Evaluation**
 - Phase ordering is sound: Phase 0 correctly targets the real blocker (“reasoning + tool_calls must travel together”), which is currently broken in non-stream (`src/mlx_omni_server/chat/mlx_lm/mlx_lm_model.py:384`) and in the final streamed tool-call chunk (`src/mlx_omni_server/chat/mlx_lm/mlx_lm_model.py:495`).
 - The same “reasoning gets dropped when tools are present” bug also exists in the VLM path (`src/mlx_omni_server/chat/mlx_vlm/mlx_vlm_model.py:525`) and its final streamed chunk (`src/mlx_omni_server/chat/mlx_vlm/mlx_vlm_model.py:276`); Phase 0 should cover both so `/chat/completions` is consistently correct.
 - The plan’s “compat aliasing” is more than client-facing: your GLM4 templates explicitly read `reasoning_content` (`src/mlx_omni_server/chat/templates/glm4_chat_template.jinja:54`), so Phase 0 must ensure `reasoning_content` is present in the prompt-construction path, not just in HTTP responses.
 - Correctness nits in the doc:
-  - Wrong module path: Phase 0 “key touched modules” references `tool_parsing_chat_tokenizer.py` (`docs/dev_plans/interleaved_thinking/Phased Plan.md:71`), but the actual implementation is `src/mlx_omni_server/chat/tools/chat_tokenizer.py`.
+  - Wrong module path: Phase 0 “key touched modules” references `tool_parsing_chat_tokenizer.py` (`docs/archive/dev_plans/interleaved_thinking/Phased Plan.md:71`), but the actual implementation is `src/mlx_omni_server/chat/tools/chat_tokenizer.py`.
 - The “conversation_fingerprint” cache key in Phase 0 is underspecified; given tool call IDs are already generated uniquely, a simpler `tool_call_id -> reasoning` cache is likely sufficient and less error-prone (and fits the repo’s “avoid over-engineering” expectation).
 
 **Phase 0 Detailed Implementation Plan**

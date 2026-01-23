@@ -4,7 +4,7 @@ MLX Omni Server is a local inference server built on Apple’s MLX ecosystem and
 
 Key project context that affects model support:
 
-- **Core install** (`pip install .`) supports: **chat/text + responses + embeddings**.
+- **Core install** (`pip install .`) supports: **chat/text + responses + embeddings + vision/VLM**.
 - **Optional installs** keep the routes registered but will return **501** if the modality isn’t installed:
   - `pip install ".[images]"` for image generation (via `mflux`)
   - `pip install ".[stt]"` for speech-to-text
@@ -29,7 +29,7 @@ These models run with the core install and are best paired with the **Responses 
 
 ## Vision-Language Models (VLMs) (Core if VLM deps are included in your setup)
 
-This fork adds **comprehensive VLM support** via `mlx_vlm` integration. VLMs can be used through `/v1/responses` (recommended for structured/streaming workflows) and vision-capable request formats.
+This fork adds **comprehensive VLM support** via `mlx-vlm` integration (part of the core install). VLMs can be used through `/v1/responses` (recommended for structured/streaming workflows) and vision-capable request formats.
 
 | Model Family | Example Model IDs | Description | Capabilities | Typical Use Cases |
 |---|---|---|---|---|
@@ -65,6 +65,7 @@ Served via `/v1/audio/speech`.
 | Model | Description | Strengths | Typical Use Cases |
 |---|---|---|---|
 | `lucasnewman/f5-tts-mlx` | MLX TTS model based on F5-TTS-style architecture. | Natural speech generation and good responsiveness for local inference. | Local voice responses, accessibility tooling, “talking assistant” demos. |
+| `mlx-community/Kokoro-82M-4bit` | `mlx-audio`-based TTS model family. | Lightweight, fast local speech generation. | Low-latency TTS, interactive assistants, demos. |
 
 ---
 
@@ -76,7 +77,7 @@ This project’s image generation stack is built around **`mflux`**, and the mod
 
 | Model | Description | Strengths | Typical Use Cases |
 |---|---|---|---|
-| `Z-Image-Turbo` | The default image model for this server’s `mflux` pipeline. | Fast, high-quality text-to-image generation optimized for local workflows. | Local image generation, creative tooling, product mockups, “prompt-to-image” endpoints. |
+| `filipstrand/Z-Image-Turbo-mflux-4bit` | The default image model for this server’s `mflux` pipeline. | Fast, high-quality text-to-image generation optimized for local workflows. | Local image generation, creative tooling, product mockups, “prompt-to-image” endpoints. |
 
 ---
 

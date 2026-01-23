@@ -2,7 +2,7 @@
 
 ## Scope (targeted use cases)
 
-This plan is scoped to the project’s stated goals (see `docs/stack_accessment.md`):
+This plan is scoped to the project’s stated goals (see `docs/stack_assessment.md`):
 
 - **macOS + Apple Silicon** local inference, optimized for MLX and unified memory.
 - **Localhost/LAN, trusted clients** (not hardened for the public internet).
@@ -80,9 +80,15 @@ Chat/embeddings/images have explicit in-process caches; STT/TTS mostly rely on u
 
 `uvicorn --workers N` creates **N processes**, each with its own caches and its own “global” locks. If the CLI exposes `workers`, it is easy to configure into GPU overcommit and fail unpredictably unless explicitly constrained.
 
-### 4. Dependency surface is monolithic vs. “optional modalities”
+### 4. Dependency surface: keep optional modalities truly optional
 
-The current packaging pulls in chat + VLM + embeddings + images + STT + TTS stacks together. This increases install friction and makes the “long tail” (audio/image) stability profile part of the base experience. `docs/stack_accessment.md` recommends isolating these via **install extras** and keeping modality backends behind small interfaces.
+This codebase already isolates the long-tail modality stacks behind install extras (images/STT/TTS). The main remaining work here is **discipline**, not a refactor:
+
+- avoid pulling optional backends into the core dependency set,
+- keep imports safe at module import time (routes should stay registered and return `501` with an install hint),
+- keep each modality’s “extra params” surface documented and tested.
+
+See `docs/stack_assessment.md` for the constraint-driven rationale.
 
 ### 5. “Unreliable clients” hardening is incomplete (limits + error shape)
 

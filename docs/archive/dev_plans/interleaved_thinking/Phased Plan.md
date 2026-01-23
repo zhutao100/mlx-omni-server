@@ -1,3 +1,5 @@
+> Archived planning document (historical). May be stale; start from `docs/README.md` for current docs.
+
 [Sub-Research 1: DeepSeek And GLM Interleaved Thinking](./Context%20-%20DeepSeek%20and%20GLM%20Interleaved%20Thinking.md)
 
 [Sub-Research 2: Codex CLI And OpenAI Responses API](./Context%20-%20OpenAI%20Responses%20reasoning.encrypted_content.md)
