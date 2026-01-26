@@ -82,22 +82,34 @@ def _restore_tool_loop_reasoning(request: ChatCompletionRequest) -> None:
         elif message.role == Role.TOOL and message.tool_call_id:
             referenced_tool_call_ids.add(message.tool_call_id)
 
-    for tool_call_id in referenced_tool_call_ids:
-        assistant_message = tool_call_to_assistant.get(tool_call_id)
-        if assistant_message is None:
-            continue
-        if assistant_message.reasoning is not None:
-            continue
+        for tool_call_id in referenced_tool_call_ids:
+            assistant_message = tool_call_to_assistant.get(tool_call_id)
+            if assistant_message is None:
+                continue
 
-        cached_reasoning = tool_loop_reasoning_cache.get(tool_call_id)
-        if cached_reasoning is None:
-            continue
-        logger.debug(
-            "Restoring cached reasoning for tool_call_id=%s: %s",
-            tool_call_id,
-            cached_reasoning,
-        )
-        assistant_message.reasoning = cached_reasoning
+            cached_reasoning = tool_loop_reasoning_cache.get(tool_call_id)
+            if cached_reasoning is None:
+                continue
+
+            current_reasoning = getattr(assistant_message, "reasoning", None)
+            if current_reasoning == cached_reasoning:
+                continue
+
+            if current_reasoning is None:
+                logger.debug(
+                    "Restoring cached reasoning for tool_call_id=%s: %s",
+                    tool_call_id,
+                    cached_reasoning,
+                )
+            else:
+                logger.warning(
+                    "Mismatch in reasoning for tool_call_id=%s:\ncached=[\n%s\n]\nroundtrip=[\n%s\n]\nOverriding with cached",
+                    tool_call_id,
+                    cached_reasoning,
+                    current_reasoning,
+                )
+
+            assistant_message.reasoning = cached_reasoning
 
 
 def _create_text_model(
