@@ -232,11 +232,10 @@ class MlxLmModel(BaseTextModel):
 
         enable_thinking = template_kwargs.get("enable_thinking", True)
         self._reasoning_decoder.enable_thinking = enable_thinking
-        if enable_thinking:
-            if prompt.endswith(f"{self._reasoning_decoder.thinking_start_tag}"):
-                self._reasoning_decoder.set_thinking_prefix(True)
-            else:
-                self._reasoning_decoder.set_thinking_prefix(False)
+        if enable_thinking and prompt.endswith(f"{self._reasoning_decoder.thinking_start_tag}"):
+            self._reasoning_decoder.set_thinking_prefix(True)
+        else:
+            self._reasoning_decoder.set_thinking_prefix(False)
 
         tokenizer: TokenizerWrapper = self._chat_tokenizer.tokenizer
 
@@ -481,10 +480,7 @@ class MlxLmModel(BaseTextModel):
                 raw_completion += result.text
 
                 created = int(time.time())
-                message = None
                 enable_thinking = self._reasoning_decoder.enable_thinking
-                delta_content: str | None = result.text
-                delta_reasoning: str | None = None
 
                 reasoning_result = self._reasoning_decoder.stream_decode(result.text)
                 if not reasoning_result:
@@ -493,28 +489,36 @@ class MlxLmModel(BaseTextModel):
                     )
                     continue
                 logger.debug(f"Stream reasoning result:\n{escape(str(reasoning_result))}")
-                delta_content = reasoning_result.get("delta_content")
-                if enable_thinking:
-                    delta_reasoning = reasoning_result.get("delta_reasoning")
+                delta_content: str | None = reasoning_result.get("delta_content")
+                delta_reasoning: str | None = (
+                    reasoning_result.get("delta_reasoning") if enable_thinking else None
+                )
 
+                reasoning_message: ChatMessage | None = None
                 if delta_reasoning is not None:
-                    # If we have a delta reasoning, we need to send it as a message
-                    message = ChatMessage(
+                    reasoning_message = ChatMessage(
                         role=Role.ASSISTANT,
-                        content=delta_content,
+                        content=None,
                         reasoning=delta_reasoning,
                     )
-                elif delta_content is not None:
-                    message = self._chat_tokenizer.decode_stream(delta_content, request.tools)
 
-                if message:
+                content_message: ChatMessage | None = None
+                if delta_content is not None:
+                    content_message = self._chat_tokenizer.decode_stream(
+                        delta_content, request.tools
+                    )
+
+                logprobs = result.logprobs
+                for message in (reasoning_message, content_message):
+                    if message is None:
+                        continue
                     ensure_tool_call_indexes(message)
                     choices = [
                         ChatCompletionChunkChoice(
                             index=0,
                             delta=message,
                             finish_reason=result.finish_reason,
-                            logprobs=result.logprobs,
+                            logprobs=logprobs,
                         )
                     ]
                     # Only yield if we have a message to send (avoid sending empty chunks when filtering XML)
@@ -524,14 +528,15 @@ class MlxLmModel(BaseTextModel):
                         model=request.model,
                         choices=choices,
                     )
+                    logprobs = None
 
-            final_message = self._chat_tokenizer.parse_buffer(
-                request.tools) or ChatMessage(role=Role.ASSISTANT, content="")
+            final_message = self._chat_tokenizer.parse_buffer(request.tools) or ChatMessage(
+                role=Role.ASSISTANT, content=""
+            )
             if final_message.tool_calls and self._reasoning_decoder.enable_thinking:
                 reasoning_result = self._reasoning_decoder.decode(raw_completion)
                 final_reasoning = reasoning_result.get("reasoning") if reasoning_result else None
                 if final_reasoning:
-                    final_message.reasoning = final_reasoning
                     for tool_call in final_message.tool_calls:
                         tool_loop_reasoning_cache.set(tool_call.id, final_reasoning)
             ensure_tool_call_indexes(final_message)

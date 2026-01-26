@@ -114,7 +114,7 @@ def test_mlx_lm_non_stream_tool_call_includes_reasoning(monkeypatch) -> None:
     assert tool_loop_reasoning_cache.get(call_id) == "abc"
 
 
-def test_mlx_lm_stream_final_tool_call_chunk_includes_reasoning(monkeypatch) -> None:
+def test_mlx_lm_stream_final_tool_call_chunk_does_not_repeat_reasoning(monkeypatch) -> None:
     model = _make_glm4_model()
     tool = _make_tool()
     request = ChatCompletionRequest(
@@ -147,10 +147,21 @@ def test_mlx_lm_stream_final_tool_call_chunk_includes_reasoning(monkeypatch) -> 
     monkeypatch.setattr(model, "_stream_generate", fake_stream_generate)
 
     streamed = list(model.stream_generate(request))
-    final_delta = streamed[-1].choices[0].delta
+
+    reasoning_deltas: list[str] = []
+    for chunk in streamed:
+        delta = chunk.choices[0].delta
+        if delta.reasoning is not None:
+            reasoning_deltas.append(delta.reasoning)
+
+    assert "".join(reasoning_deltas) == "abc"
+
+    final_choice = streamed[-1].choices[0]
+    final_delta = final_choice.delta
     assert final_delta.tool_calls
-    assert final_delta.reasoning == "abc"
-    assert final_delta.reasoning_content == "abc"
+    assert final_delta.reasoning is None
+    assert final_delta.reasoning_content is None
+    assert final_choice.finish_reason == "tool_calls"
 
     call_id = final_delta.tool_calls[0].id
     assert tool_loop_reasoning_cache.get(call_id) == "abc"

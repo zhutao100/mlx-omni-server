@@ -15,10 +15,17 @@ response = client.chat.completions.create(
     stream=True
 )
 
-for chunk in response:
-    if chunk.choices[0].delta.content:
-        print(chunk.choices[0].delta.content, end="", flush=True)
+	for chunk in response:
+	    if chunk.choices[0].delta.content:
+	        print(chunk.choices[0].delta.content, end="", flush=True)
 ```
+
+### Reasoning deltas (`reasoning_content`)
+
+Some model families support "thinking mode" and stream reasoning separately in `choices[].delta.reasoning_content`.
+
+- `delta.reasoning_content` is **incremental** (append-only): clients should concatenate it across chunks.
+- The final chunk only signals termination via `finish_reason` (for example, `"tool_calls"`) and does **not** resend already-streamed reasoning.
 
 <details>
 <summary><strong>cURL Example</strong></summary>

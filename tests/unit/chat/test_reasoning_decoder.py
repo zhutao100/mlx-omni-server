@@ -121,6 +121,18 @@ class TestReasoningDecoder:
         expected_text = f"<{decoder.thinking_tag}>I'm thinking about this problem.</{decoder.thinking_tag}>Here is the answer."
         assert decoder.accumulated_text == expected_text
 
+    def test_stream_decode_end_tag_inside_delta_is_incremental(self, decoder):
+        decoder.enable_thinking = True
+        decoder.set_thinking_prefix(False)
+
+        decoder.stream_decode(f"<{decoder.thinking_tag}>")
+        decoder.stream_decode("a")
+        decoder.stream_decode("b")
+        result = decoder.stream_decode(f"c</{decoder.thinking_tag}>FINAL")
+
+        assert result["delta_reasoning"] == "c"
+        assert result["delta_content"] == "FINAL"
+
     def test_parse_response_missing_start_tag(self, decoder):
         """Test parsing responses with missing start tag but with end tag"""
         # Prepare test data that mimics the real-world example with missing start tag

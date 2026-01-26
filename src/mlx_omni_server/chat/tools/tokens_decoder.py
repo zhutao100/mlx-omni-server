@@ -28,47 +28,88 @@ class ReasoningDecoder(TokensDecoder):
         self.accumulated_text = ""
         self.enable_thinking: bool = False
         self.add_thinking_prefix: bool = False
+        self._stream_buffer = ""
+        self._in_thinking = False
 
     def set_thinking_prefix(self, add_thinking_prefix: bool) -> None:
         self.add_thinking_prefix = add_thinking_prefix
         self.accumulated_text = ""
+        self._stream_buffer = ""
+        self._in_thinking = add_thinking_prefix
         if add_thinking_prefix:
             self.accumulated_text = self.thinking_start_tag
 
-    def _parse_stream_response(self, text: str) -> Dict[str, Any] | None:
+    def _split_partial_suffix(self, text: str, tag: str) -> tuple[str, str]:
+        if not text:
+            return "", ""
+
+        max_prefix_len = min(len(text), len(tag) - 1)
+        for suffix_len in range(max_prefix_len, 0, -1):
+            suffix = text[-suffix_len:]
+            if tag.startswith(suffix):
+                return text[:-suffix_len], suffix
+        return text, ""
+
+    def _parse_stream_response(self, text: str) -> dict[str, Any]:
         if not text:
             return {"delta_content": None, "delta_reasoning": None}
 
         self.accumulated_text += text
 
-        # Special case: text exactly equals the start tag
-        if text == self.thinking_start_tag:
-            return {"delta_content": None, "delta_reasoning": ""}
+        chunk = f"{self._stream_buffer}{text}"
+        self._stream_buffer = ""
 
-        # Special case: text exactly equals the end tag
-        if text == self.thinking_end_tag:
-            return {"delta_content": "", "delta_reasoning": None}
+        saw_start_tag = False
+        saw_end_tag = False
+        reasoning_parts: list[str] = []
+        content_parts: list[str] = []
 
-        # Check if accumulated text already contains the end tag
-        has_end_tag_before = self.thinking_end_tag in self.accumulated_text[: -len(text)]
-        has_end_tag_now = self.thinking_end_tag in self.accumulated_text
+        remaining = chunk
+        while remaining:
+            if self._in_thinking:
+                end_pos = remaining.find(self.thinking_end_tag)
+                if end_pos < 0:
+                    emit, buffer = self._split_partial_suffix(remaining, self.thinking_end_tag)
+                    if emit:
+                        reasoning_parts.append(emit)
+                    self._stream_buffer = buffer
+                    remaining = ""
+                    continue
 
-        # If text starts with thinking tag and end tag hasn't been encountered yet
-        if self.accumulated_text.strip().startswith(self.thinking_start_tag) and not has_end_tag_now:
-            # delta content as reasoning
-            return {"delta_content": None, "delta_reasoning": text}
-        # If current delta contains the end tag (from not having it to having it)
-        elif not has_end_tag_before and has_end_tag_now:
-            # Split the current delta
-            parts = self.accumulated_text.split(self.thinking_end_tag, 1)
-            return {"delta_content": parts[1] if parts[1] else None, "delta_reasoning": parts[0] if parts[0] else None}
-        # If end tag was already encountered before
-        elif has_end_tag_before:
-            # All content after the end tag is content
-            return {"delta_content": text, "delta_reasoning": None}
-        else:
-            # Other cases, possibly thinking mode not enabled or other situations
-            return {"delta_content": text, "delta_reasoning": None}
+                before = remaining[:end_pos]
+                if before:
+                    reasoning_parts.append(before)
+                remaining = remaining[end_pos + len(self.thinking_end_tag) :]
+                self._in_thinking = False
+                saw_end_tag = True
+                continue
+
+            start_pos = remaining.find(self.thinking_start_tag)
+            if start_pos < 0:
+                emit, buffer = self._split_partial_suffix(remaining, self.thinking_start_tag)
+                if emit:
+                    content_parts.append(emit)
+                self._stream_buffer = buffer
+                remaining = ""
+                continue
+
+            before = remaining[:start_pos]
+            if before:
+                content_parts.append(before)
+            remaining = remaining[start_pos + len(self.thinking_start_tag) :]
+            self._in_thinking = True
+            saw_start_tag = True
+
+        delta_reasoning = "".join(reasoning_parts) if reasoning_parts else None
+        delta_content = "".join(content_parts) if content_parts else None
+
+        if saw_start_tag and delta_reasoning is None and delta_content is None:
+            delta_reasoning = ""
+
+        if saw_end_tag and delta_reasoning is None and delta_content is None:
+            delta_content = ""
+
+        return {"delta_content": delta_content, "delta_reasoning": delta_reasoning}
 
     def stream_decode(self, text: str) -> Dict[str, Any] | None:
         """Parse tool calls from model output."""
