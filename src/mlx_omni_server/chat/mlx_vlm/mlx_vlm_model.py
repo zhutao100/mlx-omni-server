@@ -21,6 +21,7 @@ from ..schema import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionUsage,
+    ChatCompletionUsageDetails,
     ChatMessage,
     MultimodalContentItem,
     PromptTokensDetails,
@@ -354,6 +355,31 @@ class MlxVlmModel(BaseTextModel):
                     if cached_tokens > 0:
                         prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
+                    completion_tokens_details = None
+                    reasoning_text = None
+                    if self._reasoning_decoder.enable_thinking and raw_completion:
+                        reasoning_result = self._reasoning_decoder.decode(raw_completion)
+                        reasoning_text = (
+                            reasoning_result.get("reasoning") if reasoning_result else None
+                        )
+
+                    if isinstance(reasoning_text, str) and reasoning_text:
+                        try:
+                            reasoning_tokens = len(
+                                safe_encode_prompt(self._chat_tokenizer.tokenizer, reasoning_text)
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Failed to tokenize reasoning for usage chunk", exc_info=True
+                            )
+                            reasoning_tokens = 0
+                        reasoning_tokens = max(
+                            0, min(int(reasoning_tokens), int(result.generation_tokens))
+                        )
+                        completion_tokens_details = ChatCompletionUsageDetails(
+                            reasoning_tokens=reasoning_tokens
+                        )
+
                     yield ChatCompletionChunk(
                         id=chat_id,
                         created=int(time.time()),
@@ -373,6 +399,7 @@ class MlxVlmModel(BaseTextModel):
                             + result.generation_tokens
                             + cached_tokens,
                             prompt_tokens_details=prompt_tokens_details,
+                            completion_tokens_details=completion_tokens_details,
                         ),
                     )
             except Exception as e:
@@ -611,6 +638,20 @@ class MlxVlmModel(BaseTextModel):
 
             prompt_tokens_details = PromptTokensDetails(cached_tokens=cached_tokens)
 
+        completion_tokens_details = None
+        if isinstance(reasoning, str) and reasoning:
+            try:
+                reasoning_tokens = len(
+                    safe_encode_prompt(self._chat_tokenizer.tokenizer, reasoning)
+                )
+            except Exception:
+                logger.debug("Failed to tokenize reasoning for usage details", exc_info=True)
+                reasoning_tokens = 0
+            reasoning_tokens = max(0, min(int(reasoning_tokens), int(completion_tokens)))
+            completion_tokens_details = ChatCompletionUsageDetails(
+                reasoning_tokens=reasoning_tokens
+            )
+
         # Create response
         response = ChatCompletionResponse(
             id=f"chatcmpl-{uuid.uuid4().hex[:10]}",
@@ -632,6 +673,7 @@ class MlxVlmModel(BaseTextModel):
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens + cached_tokens,
                 prompt_tokens_details=prompt_tokens_details,
+                completion_tokens_details=completion_tokens_details,
             ),
         )
 

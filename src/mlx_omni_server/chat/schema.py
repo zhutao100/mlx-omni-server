@@ -211,6 +211,7 @@ class ChatCompletionUsage(BaseModel):
     completion_tokens: int
     total_tokens: int
     prompt_tokens_details: Optional[PromptTokensDetails] = None
+    completion_tokens_details: Optional[ChatCompletionUsageDetails] = None
 
 
 class ChatCompletionChoice(BaseModel):

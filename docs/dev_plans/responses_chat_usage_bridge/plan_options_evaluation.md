@@ -37,24 +37,24 @@ For a Responses-shaped downstream, your “normalized” mapping can be:
 
 ---
 
-## What `mlx-omni-server` does today (and the key pitfall)
+## What `mlx-omni-server` does now
 
 ### Current mapping behavior
 
-In `src/mlx_omni_server/responses/adapter.py`, `_build_usage_dict()` always produces a Responses `usage` object with:
+In `src/mlx_omni_server/responses/adapter.py`, `_build_usage_dict()` produces a Responses `usage` object with:
 
 * `input_tokens/output_tokens/total_tokens` from upstream usage if present, else **0**
 * `input_tokens_details.cached_tokens` from `prompt_tokens_details.cached_tokens` if present, else **0**
-* `output_tokens_details.reasoning_tokens` is **always 0** (hard-coded)
-  (See around lines ~730–770 in that file.)
+* `output_tokens_details.reasoning_tokens` from upstream `completion_tokens_details.reasoning_tokens` when present, else **0**
+  (clamped to `0 ≤ reasoning_tokens ≤ output_tokens`)
 
-### Streaming pitfall: usage will usually be all zeros
+### Streaming behavior: usage is requested upstream
 
-Your streaming Responses path ultimately emits `response.completed` with `include_usage=True` unconditionally (`on_done()` → `_build_response_dict(... include_usage=True ...)`). But the adapter only learns real token counts if it ever receives a Chat Completions chunk with `chunk.usage` (it stores it in `self._usage` in `on_chunk`). If no such chunk arrives, `self._usage` stays `None` and you fabricate zeros.
+The streaming Responses path emits `response.completed` with `include_usage=True` (`on_done()` → `_build_response_dict(... include_usage=True ...)`). The adapter learns token counts from the Chat Completions “usage chunk” (`chunk.usage` stored in `self._usage`).
 
-Right now, `response_request_to_chat_request()` does **not** set `stream_options.include_usage` for the upstream Chat Completions request (it just passes through `stream`). Unless the caller snuck `stream_options` through `extra=allow`, your local upstream will not emit that usage chunk → your final Responses usage is bogus zeros.
+`response_request_to_chat_request()` now forces `stream_options.include_usage=true` for streaming so the upstream can emit the final usage chunk when supported.
 
-This is exactly the case DeepSeek (and OpenAI) describe: you only get a populated usage chunk if `stream_options.include_usage` is enabled. ([DeepSeek API Docs][2])
+This matches the documented semantics: you only get a populated usage chunk if `stream_options.include_usage` is enabled. ([DeepSeek API Docs][2])
 
 ---
 
@@ -84,6 +84,8 @@ This is exactly the case DeepSeek (and OpenAI) describe: you only get a populate
 **Nice-to-have alignment:** in the MLX chat streamer, the “usage chunk” currently has a dummy `choices=[{delta:{role:assistant}}]`. OpenAI/DeepSeek both document “choices can be empty” (and DeepSeek says it *will always be empty* for that chunk). ([DeepSeek API Docs][2])
 Your adapter tolerates it, but if you’re chasing strict compatibility, consider emitting `choices=[]` for that usage chunk.
 
+**Status:** implemented (the Responses→Chat bridge requests `stream_options.include_usage=true` for streaming).
+
 ---
 
 ### Option B — **Best-effort reasoning token accounting**
@@ -109,6 +111,8 @@ Your adapter tolerates it, but if you’re chasing strict compatibility, conside
 * You already have a `ReasoningDecoder` and you already track reasoning text in the Responses adapter; the missing piece is a token-counting path.
 * This is optional; don’t block correctness of totals on this.
 
+**Status:** implemented (local MLX chat models populate `completion_tokens_details.reasoning_tokens`, and Responses usage maps it through).
+
 ---
 
 ### Option C — **Provider-superset normalization + raw passthrough**
@@ -132,8 +136,8 @@ Your adapter tolerates it, but if you’re chasing strict compatibility, conside
 
 ## Concrete recommendation for `mlx-omni-server`
 
-1. **Implement Option A immediately**: force `stream_options.include_usage=true` for upstream Chat Completions whenever serving Responses streaming. This prevents “usage=all zeros” and matches the documented streaming semantics for when `usage` is expected to appear. ([DeepSeek API Docs][2])
-2. **Then decide B** (reasoning tokens) based on whether any downstream clients actually consume `output_tokens_details.reasoning_tokens`. If yes, implement Option B; if not, keep it at 0.
+1. **Option A (implemented)**: force `stream_options.include_usage=true` for upstream Chat Completions whenever serving Responses streaming. ([DeepSeek API Docs][2])
+2. **Option B (implemented)**: populate and map `output_tokens_details.reasoning_tokens` when the upstream provides `completion_tokens_details.reasoning_tokens` (local MLX computes best-effort tokens).
 3. If your roadmap includes “Responses proxy in front of DeepSeek/GLM”, jump straight to Option C (or at least add the DeepSeek cache-split fallback) so cached tokens don’t silently disappear. ([DeepSeek API Docs][2])
 
 [1]: https://platform.openai.com/docs/api-reference/chat-streaming "Streaming | OpenAI API Reference"

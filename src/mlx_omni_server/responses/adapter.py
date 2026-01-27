@@ -443,6 +443,14 @@ def response_request_to_chat_request(response_request: ResponseRequest) -> ChatC
         payload["tools"] = _normalize_tools(payload["tools"])
 
     payload.setdefault("stream", response_request.stream)
+    if payload.get("stream"):
+        stream_options = payload.get("stream_options")
+        if isinstance(stream_options, dict):
+            stream_options = dict(stream_options)
+        else:
+            stream_options = {}
+        stream_options["include_usage"] = True
+        payload["stream_options"] = stream_options
 
     if max_output_tokens is not None:
         payload["max_completion_tokens"] = max_output_tokens
@@ -729,12 +737,16 @@ def _build_usage_dict(usage: ChatCompletionUsage | None) -> dict[str, Any]:
         }
 
     cached = usage.prompt_tokens_details.cached_tokens if usage.prompt_tokens_details else 0
+    reasoning_tokens = (
+        usage.completion_tokens_details.reasoning_tokens if usage.completion_tokens_details else 0
+    )
+    reasoning_tokens = max(0, min(int(reasoning_tokens), int(usage.completion_tokens)))
 
     return {
         "input_tokens": usage.prompt_tokens,
         "input_tokens_details": {"cached_tokens": cached},
         "output_tokens": usage.completion_tokens,
-        "output_tokens_details": {"reasoning_tokens": 0},
+        "output_tokens_details": {"reasoning_tokens": reasoning_tokens},
         "total_tokens": usage.total_tokens,
     }
 

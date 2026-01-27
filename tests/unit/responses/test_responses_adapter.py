@@ -1,5 +1,6 @@
 from mlx_omni_server.chat.schema import (
     ChatCompletionChunk,
+    ChatCompletionUsage,
     ChatMessage,
     FunctionCall,
     Role,
@@ -11,6 +12,20 @@ from mlx_omni_server.responses.adapter import (
     response_request_to_chat_request,
 )
 from mlx_omni_server.responses.schema import ResponseRequest
+
+
+def test_response_request_to_chat_request_enables_stream_usage_chunk():
+    request = ResponseRequest(
+        model="test-model",
+        stream=True,
+        input=[{"type": "message", "role": "user", "content": "Hello"}],
+    )
+
+    chat_request = response_request_to_chat_request(request)
+
+    assert chat_request.stream is True
+    assert chat_request.stream_options is not None
+    assert chat_request.stream_options.include_usage is True
 
 
 def test_response_request_to_chat_request_drops_empty_assistant_message_items():
@@ -260,3 +275,34 @@ def test_response_stream_adapter_skips_empty_text_chunk_before_tool_call():
     output = completed.data["response"]["output"]
 
     assert not any(item.get("type") == "message" for item in output)
+
+
+def test_response_stream_adapter_clamps_reasoning_tokens_from_upstream_usage():
+    adapter = ResponseStreamAdapter(response_id="resp_test", model="test-model")
+
+    usage_chunk = ChatCompletionChunk(
+        id="chatcmpl-test",
+        created=0,
+        model="test-model",
+        choices=[
+            {
+                "index": 0,
+                "delta": ChatMessage(role=Role.ASSISTANT),
+                "finish_reason": None,
+            }
+        ],
+        usage=ChatCompletionUsage(
+            prompt_tokens=1,
+            completion_tokens=5,
+            total_tokens=6,
+            completion_tokens_details={"reasoning_tokens": 10},
+        ),
+    )
+    adapter.on_chunk(usage_chunk)
+
+    events = adapter.on_done()
+    completed = next(event for event in events if event.event == "response.completed")
+    usage = completed.data["response"]["usage"]
+
+    assert usage["output_tokens"] == 5
+    assert usage["output_tokens_details"]["reasoning_tokens"] == 5
