@@ -311,8 +311,8 @@ class ChatCompletionRequest(BaseModel):
     model: str = Field(..., description="ID of the model to use")
     prompt_cache_key: Optional[str] = None
     messages: List[ChatMessage]
-    temperature: Optional[float] = Field(1.0, ge=0, le=2)
-    top_p: Optional[float] = Field(1.0, ge=0, le=1)
+    temperature: Optional[float] = Field(None, ge=0, le=2)
+    top_p: Optional[float] = Field(None, ge=0, le=1)
     max_tokens: Optional[int] = None
     max_completion_tokens: Optional[int] = None
     stream: Optional[bool] = False
