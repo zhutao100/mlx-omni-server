@@ -44,13 +44,22 @@ class NonStreamCacheEntry:
 
 
 @dataclass
+class NonStreamInFlightEntry:
+    future: asyncio.Future[NonStreamCacheEntry]
+    cancel_event: threading.Event = field(default_factory=threading.Event)
+    created_at: float = field(default_factory=time.time)
+    active_clients: int = 0
+    generation_task: asyncio.Task | None = None
+
+
+@dataclass
 class NonStreamResult:
     payload: Any
     is_error: bool
     from_cache: bool
 
 
-response_cache: dict[str, StreamCacheEntry | NonStreamCacheEntry] = {}
+response_cache: dict[str, StreamCacheEntry | NonStreamCacheEntry | NonStreamInFlightEntry] = {}
 CACHE_TTL = 300
 cache_lock = asyncio.Lock()
 
@@ -126,38 +135,14 @@ class ChatGenerationService:
         self._response_cache = response_cache
         self._cache_lock = cache_lock
 
-    async def generate_non_stream(
+    async def _run_non_stream_generation(
         self,
         request: ChatCompletionRequest,
-        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
-    ) -> NonStreamResult:
-        _restore_tool_loop_reasoning(request)
-        req_hash = make_request_hash(request)
-
-        async with self._cache_lock:
-            cached_entry = self._response_cache.get(req_hash)
-        if isinstance(cached_entry, NonStreamCacheEntry):
-            return NonStreamResult(
-                payload=cached_entry.payload,
-                is_error=cached_entry.is_error,
-                from_cache=True,
-            )
-
-        cancel_event = threading.Event()
-        watch_task: asyncio.Task[None] | None = None
-        if is_disconnected is not None:
-
-            async def watch_disconnect() -> None:
-                while not cancel_event.is_set():
-                    if await is_disconnected():
-                        cancel_event.set()
-                        return
-                    await asyncio.sleep(0.1)
-
-            watch_task = asyncio.create_task(
-                watch_disconnect(), name=f"watch-disconnect-{req_hash}"
-            )
-
+        req_hash: str,
+        entry: NonStreamInFlightEntry,
+    ) -> None:
+        cache_result = True
+        result_entry: NonStreamCacheEntry
         try:
             adapter_path = request.get_extra_params().get("adapter_path")
             draft_model = request.get_extra_params().get("draft_model")
@@ -168,20 +153,25 @@ class ChatGenerationService:
                     adapter_path,
                     draft_model,
                 )
-                return text_model.generate(request, should_cancel=cancel_event.is_set)
+                return text_model.generate(request, should_cancel=entry.cancel_event.is_set)
 
             completion: ChatCompletionResponse = await run_mlx(load_and_generate)
-            entry = NonStreamCacheEntry(payload=completion)
-            async with self._cache_lock:
-                self._response_cache[req_hash] = entry
-            return NonStreamResult(payload=completion, is_error=False, from_cache=False)
+            result_entry = NonStreamCacheEntry(payload=completion)
         except GenerationCancelled:
             # Best-effort cancellation: never cache cancelled work.
-            return NonStreamResult(
+            cache_result = False
+            result_entry = NonStreamCacheEntry(
                 payload={"error": "Request cancelled"},
                 is_error=True,
-                from_cache=False,
             )
+        except asyncio.CancelledError:
+            cache_result = False
+            entry.cancel_event.set()
+            result_entry = NonStreamCacheEntry(
+                payload={"error": "Request cancelled"},
+                is_error=True,
+            )
+            raise
         except Exception as exc:  # pylint: disable=broad-except
             logging.error(
                 "Error during non-streaming generation for %s: %s",
@@ -190,16 +180,132 @@ class ChatGenerationService:
                 exc_info=True,
             )
             error_payload = {"error": "Generation failed", "message": str(exc)}
-            entry = NonStreamCacheEntry(payload=error_payload, is_error=True)
-            async with self._cache_lock:
-                self._response_cache[req_hash] = entry
-            return NonStreamResult(payload=error_payload, is_error=True, from_cache=False)
+            result_entry = NonStreamCacheEntry(payload=error_payload, is_error=True)
         finally:
-            cancel_event.set()
+            if cache_result:
+                async with self._cache_lock:
+                    current = self._response_cache.get(req_hash)
+                    if current is entry:
+                        self._response_cache[req_hash] = result_entry
+            else:
+                async with self._cache_lock:
+                    current = self._response_cache.get(req_hash)
+                    if current is entry:
+                        del self._response_cache[req_hash]
+
+            if not entry.future.done():
+                entry.future.set_result(result_entry)
+
+    async def generate_non_stream(
+        self,
+        request: ChatCompletionRequest,
+        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+    ) -> NonStreamResult:
+        _restore_tool_loop_reasoning(request)
+        req_hash = make_request_hash(request)
+
+        loop = asyncio.get_running_loop()
+        in_flight_entry: NonStreamInFlightEntry | None = None
+        is_leader = False
+
+        async with self._cache_lock:
+            cached_entry = self._response_cache.get(req_hash)
+            if isinstance(cached_entry, NonStreamCacheEntry):
+                return NonStreamResult(
+                    payload=cached_entry.payload,
+                    is_error=cached_entry.is_error,
+                    from_cache=True,
+                )
+
+            if isinstance(cached_entry, NonStreamInFlightEntry):
+                if cached_entry.future.done():
+                    resolved = cached_entry.future.result()
+                    if resolved.payload == {"error": "Request cancelled"}:
+                        del self._response_cache[req_hash]
+                    else:
+                        self._response_cache[req_hash] = resolved
+                        return NonStreamResult(
+                            payload=resolved.payload,
+                            is_error=resolved.is_error,
+                            from_cache=True,
+                        )
+                elif cached_entry.cancel_event.is_set():
+                    del self._response_cache[req_hash]
+                else:
+                    cached_entry.active_clients += 1
+                    in_flight_entry = cached_entry
+
+            if in_flight_entry is None:
+                in_flight_entry = NonStreamInFlightEntry(
+                    future=loop.create_future(),
+                    active_clients=1,
+                )
+                self._response_cache[req_hash] = in_flight_entry
+                is_leader = True
+                task = asyncio.create_task(
+                    self._run_non_stream_generation(request, req_hash, in_flight_entry),
+                    name=f"generate-non-stream-{req_hash}",
+                )
+                task.add_done_callback(self._log_task_exception)
+                in_flight_entry.generation_task = task
+
+        assert in_flight_entry is not None
+        client_cancelled = asyncio.Event()
+        watch_task: asyncio.Task[None] | None = None
+        if is_disconnected is not None:
+
+            async def watch_disconnect() -> None:
+                while not client_cancelled.is_set():
+                    if await is_disconnected():
+                        client_cancelled.set()
+                        return
+                    if in_flight_entry.future.done():
+                        return
+                    await asyncio.sleep(0.1)
+
+            watch_task = asyncio.create_task(
+                watch_disconnect(), name=f"watch-disconnect-{req_hash}"
+            )
+
+        try:
+            if watch_task is None:
+                result_entry = await in_flight_entry.future
+            else:
+                done, _ = await asyncio.wait(
+                    [in_flight_entry.future, watch_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if (
+                    watch_task in done
+                    and client_cancelled.is_set()
+                    and in_flight_entry.future not in done
+                ):
+                    return NonStreamResult(
+                        payload={"error": "Request cancelled"},
+                        is_error=True,
+                        from_cache=False,
+                    )
+                result_entry = await in_flight_entry.future
+
+            return NonStreamResult(
+                payload=result_entry.payload,
+                is_error=result_entry.is_error,
+                from_cache=not is_leader,
+            )
+        finally:
             if watch_task is not None:
                 watch_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watch_task
+            async with self._cache_lock:
+                in_flight_entry.active_clients = max(0, in_flight_entry.active_clients - 1)
+                if in_flight_entry.active_clients == 0 and not in_flight_entry.future.done():
+                    in_flight_entry.cancel_event.set()
+                    if (
+                        in_flight_entry.generation_task
+                        and not in_flight_entry.generation_task.done()
+                    ):
+                        in_flight_entry.generation_task.cancel()
 
     async def stream_chat_completion(
         self,
@@ -355,6 +461,18 @@ class ChatGenerationService:
                                 del self._response_cache[key]
                                 logging.debug(
                                     "Cleaned up expired stream cache entry: %s",
+                                    key,
+                                )
+                            elif (
+                                isinstance(entry, NonStreamInFlightEntry)
+                                and entry.active_clients == 0
+                            ):
+                                entry.cancel_event.set()
+                                if entry.generation_task and not entry.generation_task.done():
+                                    entry.generation_task.cancel()
+                                del self._response_cache[key]
+                                logging.debug(
+                                    "Cleaned up expired non-stream in-flight entry: %s",
                                     key,
                                 )
                             elif isinstance(entry, NonStreamCacheEntry):

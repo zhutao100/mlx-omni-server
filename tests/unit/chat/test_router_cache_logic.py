@@ -10,6 +10,7 @@ import pytest
 from mlx_omni_server.chat.generation_service import (
     CACHE_TTL,
     NonStreamCacheEntry,
+    NonStreamInFlightEntry,
     StreamCacheEntry,
     _create_text_model,
     make_request_hash,
@@ -252,6 +253,76 @@ class TestNonStreamingCacheUnit:
             response1.json()["choices"][0]["message"]["content"]
             != response2.json()["choices"][0]["message"]["content"]
         )
+
+
+class TestNonStreamingInFlightDedup:
+    """Test that concurrent identical non-stream requests are singleflighted."""
+
+    @patch("mlx_omni_server.chat.generation_service._create_text_model")
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_share_in_flight_generation(
+        self,
+        mock_create_model,
+        async_client,
+        mock_request,
+    ):
+        started = threading.Event()
+        proceed = threading.Event()
+
+        class BlockingTextModel(MockTextModel):
+            def generate(
+                self,
+                request: ChatCompletionRequest,
+                *,
+                should_cancel=None,
+            ) -> ChatCompletionResponse:
+                started.set()
+                proceed.wait(timeout=5)
+                return super().generate(request, should_cancel=should_cancel)
+
+        mock_model = BlockingTextModel()
+        mock_create_model.return_value = mock_model
+
+        async def do_request():
+            return await async_client.post("/v1/chat/completions", json=mock_request.model_dump())
+
+        task1 = asyncio.create_task(do_request())
+
+        for _ in range(200):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set()
+
+        task2 = asyncio.create_task(do_request())
+
+        req_hash = make_request_hash(mock_request)
+        inflight_entry = None
+        for _ in range(200):
+            inflight_entry = response_cache.get(req_hash)
+            if (
+                isinstance(inflight_entry, NonStreamInFlightEntry)
+                and inflight_entry.active_clients >= 2
+            ):
+                break
+            await asyncio.sleep(0.01)
+
+        assert isinstance(inflight_entry, NonStreamInFlightEntry)
+        assert inflight_entry.active_clients == 2
+
+        proceed.set()
+        resp1, resp2 = await asyncio.gather(task1, task2)
+
+        assert mock_model.call_count == 1
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert resp1.json() == resp2.json()
+
+        replay_headers = {
+            resp1.headers.get("X-Idempotent-Replay"),
+            resp2.headers.get("X-Idempotent-Replay"),
+        }
+        assert replay_headers == {None, "true"}
 
 
 class TestNonStreamingErrorCaching:
