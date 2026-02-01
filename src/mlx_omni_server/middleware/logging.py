@@ -46,9 +46,15 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         if not self.should_log(request.url.path):
             return await call_next(request)
 
-        # Get and parse request body to check if streaming
         body = await self._get_request_body(request)
-        logger.debug(f"Processing request body: [\n{body}\n]")
+        request_id = str(time.time())
+
+        logger.info(
+            f"Request [{request_id}]: {request.method} {request.url}\n"
+            f"Headers:\n{json.dumps(dict(request.headers), indent=2)}\n"
+            f"Body:\n{escape(format_body(body))}",
+        )
+
         try:
             body_json = json.loads(body)
             if body_json.get("stream", False):
@@ -64,16 +70,6 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
                 return response
         except json.JSONDecodeError:
             pass
-
-        # Generate request ID for tracking
-        request_id = str(time.time())
-
-        # Log request
-        logger.info(
-            f"Request [{request_id}]: {request.method} {request.url}\n"
-            f"Headers:\n{json.dumps(dict(request.headers), indent=2)}\n"
-            f"Body:\n{escape(format_body(body))}",
-        )
 
         # Process the request and get response
         start_time = time.time()
