@@ -26,6 +26,11 @@ The server supports most routes with and without the `/v1` prefix. These pages d
 
 - Local dev workflow, formatting, and testing: [`development_guide.md`](development_guide.md)
 
+## Development plans
+
+- Active / forward-looking plans: [`dev_plans/`](dev_plans/)
+- Completed plans and historical research notes: [`archive/`](archive/)
+
 ## Architecture and roadmap
 
 - Technical overview (implementation-oriented): [`code_analysis.md`](code_analysis.md)
@@ -35,7 +40,3 @@ The server supports most routes with and without the `/v1` prefix. These pages d
 ## Internal notes (for maintainers)
 
 - Detailed component analyses and test notes: `.llm_analysis/`
-
-## Archived material
-
-- Historical plans and research notes: [`archive/`](archive/)

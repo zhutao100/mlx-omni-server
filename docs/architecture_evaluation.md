@@ -28,8 +28,8 @@ The project reads like a conventional FastAPI “modular routers + service layer
 **Health: Good (7/10).**
 The server now enforces a consistent operational contract across endpoints: “never block the event loop; gate MLX-backed compute; ensure request-scoped filesystem artifacts are unique.” The chat/responses path remains the most mature, but embeddings/images/STT/TTS now follow the same execution model.
 
-**Robustness: Improved, with remaining operational risks (7/10).**
-Phase 0 eliminates the most severe failure modes (event-loop freezes, unsafe parallel MLX work, shared filenames). Remaining risks are primarily about **bounded execution/backpressure**, **memory-aware lifecycle management**, **multi-worker safety**, and the **dependency/plugin surface** (audio/image stacks).
+**Robustness: Good, with remaining operational risks (7/10).**
+The baseline runtime contract is in place (threadpool offload + shared MLX gate + request-scoped artifacts). Remaining risks are primarily about **bounded execution/backpressure**, **memory-aware lifecycle management**, **multi-worker safety**, and the **dependency/plugin surface** (audio/image stacks).
 
 ---
 
@@ -105,55 +105,16 @@ Given the MLX gate is a central contention point, it should be measurable: queue
 
 ---
 
-## Supporting evidence (from current code)
+## Baseline (implemented)
 
-Phase 0 (shared “MLX gate + threadpool” contract) is implemented:
-
-* Shared MLX gate + threadpool helpers: `src/mlx_omni_server/inference/runtime.py:19`
-* Embeddings offload + gating: `src/mlx_omni_server/embeddings/router.py:20`
-* Images shared service + offload + gating: `src/mlx_omni_server/images/images.py:10`
-* Images UUID filenames: `src/mlx_omni_server/images/images_service.py:227`
-* URL-mode image TTL cleanup: `src/mlx_omni_server/images/images_service.py:44`
-* STT offload + gating: `src/mlx_omni_server/stt/whisper_model.py:135`
-* TTS request-scoped temp outputs: `src/mlx_omni_server/tts/tts_service.py:102`
-* Background tasks started at startup (chat cache + image cleanup): `src/mlx_omni_server/main.py:20`
-* Multi-worker mode is still exposed (`--workers`) and maps to `uvicorn workers=`: `src/mlx_omni_server/main.py:65`
+- Runtime/behavioral contract: `docs/concurrency_contract.md`
+- Archived Phase 0 checklist: `docs/archive/architecture_phase0_baseline.md`
 
 ---
 
 ## Architecture improvement plan
 
-### Phase 0 (done): correctness + responsiveness baseline
-
-1. **Eliminate event-loop blocking for embeddings/images/STT/TTS**
-
-   * Wrap *all* blocking inference/transcription/generation calls with `run_in_threadpool` (or `anyio.to_thread.run_sync`) from the async endpoints.
-   * Ensure cancellation propagates (if client disconnects, stop work where possible; otherwise stop streaming and release resources).
-
-2. **Fix TTS file race condition**
-
-   * Replace hardcoded `sample.wav` with request-scoped temp files (`tempfile.NamedTemporaryFile` / `TemporaryDirectory`) or fully in-memory buffers when feasible.
-   * Make cleanup exception-safe.
-
-3. **Fix image artifact collisions and clarify artifact lifecycle**
-
-   * Use request-scoped unique names (UUIDs) for any on-disk artifacts.
-   * Decide whether URL-mode images are long-lived cache artifacts or truly temporary files, and document/implement cleanup accordingly.
-
-4. **Introduce a shared MLX gating mechanism used everywhere**
-
-   * Minimum viable: reuse the same global `mlx_gate` (or a shared `asyncio.Semaphore(1)`) for **chat, embeddings, images, stt, tts**.
-   * This is conservative but immediately stabilizes the system under concurrent load.
-
-Deliverable: `docs/concurrency_contract.md` (1–2 pages) stating:
-
-* “No blocking on event loop”
-* “All MLX work goes through the gate”
-* “All request-scoped filesystem artifacts are unique”
-
----
-
-### Phase 1 (next, 1–2 weeks): make overload behavior explicit (bounded runtime + metrics)
+### Phase 1: make overload behavior explicit (bounded runtime + metrics)
 
 Evolve the existing runtime (`src/mlx_omni_server/inference/runtime.py`) into a small “inference runtime” layer used by all services.
 
@@ -184,7 +145,7 @@ This makes “robustness” a shared property, not something each component reim
 
 ---
 
-### Phase 2 (2–6 weeks): centralize lifecycle + budgets (predictable unified-memory behavior)
+### Phase 2: centralize lifecycle + budgets (predictable unified-memory behavior)
 
 Build a small lifecycle manager that sits above modality-specific services and makes “what is loaded” and “what can run” a deliberate policy.
 
@@ -208,7 +169,7 @@ Build a small lifecycle manager that sits above modality-specific services and m
 
 ---
 
-### Phase 3 (ongoing): dependency isolation + maintainability (from stack assessment)
+### Phase 3: dependency isolation + maintainability (from stack assessment)
 
 This phase is about reducing churn from the modality ecosystem without changing the core architecture.
 
@@ -224,12 +185,12 @@ This phase is about reducing churn from the modality ecosystem without changing 
 3. **Hardening & testing**
 
    * Add a smoke-test matrix per extra/backend (pin upgrades are coordinated).
-   * Add concurrency/load tests that reproduce:
+   * Add concurrency/load tests that cover:
 
-     * STT/TTS event loop freeze regression
-     * TTS file collision regression
-     * images filename collision regression
-     * images + chat mixed-load OOM regression
+     * event-loop blocking under concurrent load
+     * concurrent TTS requests (no cross-request artifact collisions)
+     * concurrent image generations (artifact uniqueness + cleanup)
+     * mixed-load unified-memory spikes / OOM scenarios
    * Add soak tests with cancellation/disconnect behaviors (especially for streaming).
 
 4. **Operational polish**
@@ -242,13 +203,6 @@ This phase is about reducing churn from the modality ecosystem without changing 
 
 ## Practical “definition of done” checkpoints
 
-* **DoD-1:** No endpoint calls a blocking ML library function on the event loop.
-* **DoD-2:** All MLX-backed compute goes through a shared gate (initially serialized).
-* **DoD-3:** TTS produces correct outputs under concurrent requests (no shared filenames, no cross-request artifact collisions).
-* **DoD-4:** Overload behavior is explicit: bounded queues + 429/503 (no unbounded waiting).
-* **DoD-5:** Running with `--workers > 1` is either safe-by-design or explicitly prevented.
-* **DoD-6:** You can explain (and measure) the scheduling policy: “what runs concurrently, why, and with what limits.”
-
----
-
-If you want, I can also draft the concrete module/API shape for the proposed `inference_runtime` (interfaces, suggested classes, where the gate lives, how jobs are represented, and how to retrofit each component with minimal diff).
+* **DoD-1:** Overload behavior is explicit: bounded queues + 429/503 (no unbounded waiting).
+* **DoD-2:** Running with `--workers > 1` is either safe-by-design or explicitly prevented.
+* **DoD-3:** You can explain (and measure) the scheduling policy: “what runs concurrently, why, and with what limits.”

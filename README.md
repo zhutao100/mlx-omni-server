@@ -163,9 +163,11 @@ mlx-omni-server --help
 - API reference: [`docs/apis/`](docs/apis/)
 - Supported models: [`docs/supported_models.md`](docs/supported_models.md)
 - Development guide: [`docs/development_guide.md`](docs/development_guide.md)
+- Development plans: [`docs/dev_plans/`](docs/dev_plans/)
 - Operations: [`docs/operations.md`](docs/operations.md)
 - Concurrency model: [`docs/concurrency_contract.md`](docs/concurrency_contract.md)
 - Architecture + roadmap: [`docs/architecture_evaluation.md`](docs/architecture_evaluation.md)
+- Archived notes: [`docs/archive/`](docs/archive/)
 
 ## Next Steps (Roadmap)
 

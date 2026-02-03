@@ -21,6 +21,7 @@ This file is a short operating guide for LLM/agent work in this repository.
 - API behavior questions: `docs/apis/` + matching router/service code under `src/mlx_omni_server/`
 - Concurrency / responsiveness issues: `docs/concurrency_contract.md` + `src/mlx_omni_server/inference/runtime.py`
 - Architecture / roadmap: `docs/code_analysis.md` and `docs/architecture_evaluation.md`
+- Active development plans: `docs/dev_plans/`
 - Model guidance: `docs/supported_models.md`
 - Deep internal notes: `docs/.llm_analysis/` (keep in sync if you change relevant code)
 
