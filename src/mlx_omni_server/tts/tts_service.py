@@ -1,8 +1,11 @@
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from f5_tts_mlx.generate import generate
-from mlx_audio.tts.generate import generate_audio
 from pydantic import BaseModel, Field  # , PrivateAttr
 from typing_extensions import override
 
@@ -59,26 +62,109 @@ class MlxAudioModel(TTSModelAdapter):
     @override
     def generate_audio(self, request: TTSRequest, output_path: str | Path) -> bool:
         self.path_or_hf_repo = request.model
+        model_id_lower = str(self.path_or_hf_repo).lower()
+        is_kokoro = "kokoro" in model_id_lower
+
         voice = request.voice if hasattr(request, "voice") else "af_sky"
-        lang_code = voice[:1]
+        lang_code = voice[:1] if is_kokoro else "en"
 
         extra_params = request.get_extra_params() or {}
+        for reserved_key in (
+            "text",
+            "model",
+            "voice",
+            "speed",
+            "lang_code",
+            "file_prefix",
+            "audio_format",
+            "join_audio",
+            "verbose",
+        ):
+            extra_params.pop(reserved_key, None)
+
+        file_prefix = str(output_path).rsplit(".", 1)[0]
+        audio_format = request.response_format.value
+
+        # Kokoro crashes the interpreter on shutdown in some environments (SIGBUS on macOS),
+        # so we run it in a subprocess and hard-exit there after writing the output.
+        if is_kokoro:
+            return self._generate_audio_subprocess(
+                model=str(self.path_or_hf_repo),
+                text=request.input,
+                voice=voice,
+                speed=request.speed,
+                lang_code=lang_code,
+                file_prefix=file_prefix,
+                audio_format=audio_format,
+                extra_params=extra_params,
+            )
+
+        from mlx_audio.tts.generate import generate_audio
 
         generate_audio(
             text=request.input,
-            model_path=self.path_or_hf_repo,
+            model=str(self.path_or_hf_repo),
             voice=voice,
             speed=request.speed,
             lang_code=lang_code,
-            file_prefix=str(output_path).rsplit(".", 1)[0],
-            audio_format=request.response_format.value,
-            sample_rate=24000,
+            file_prefix=file_prefix,
+            audio_format=audio_format,
             join_audio=True,
             verbose=False,
             **extra_params,
         )
 
         return Path(output_path).exists()
+
+    @staticmethod
+    def _generate_audio_subprocess(
+        *,
+        model: str,
+        text: str,
+        voice: str,
+        speed: float,
+        lang_code: str,
+        file_prefix: str,
+        audio_format: str,
+        extra_params: dict,
+    ) -> bool:
+        cmd = [
+            sys.executable,
+            "-m",
+            "mlx_omni_server.tts.mlx_audio_worker",
+            "--model",
+            model,
+            "--text",
+            text,
+            "--voice",
+            voice,
+            "--speed",
+            str(speed),
+            "--lang-code",
+            lang_code,
+            "--file-prefix",
+            file_prefix,
+            "--audio-format",
+            audio_format,
+            "--join-audio",
+            "--extra-params-json",
+            json.dumps(extra_params),
+        ]
+        env = {
+            **os.environ,
+            "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+            "PYTHONWARNINGS": "ignore::UserWarning:multiprocessing.resource_tracker",
+        }
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        expected = Path(f"{file_prefix}.{audio_format}")
+        if expected.exists():
+            return True
+        if result.returncode != 0 and (result.stdout or result.stderr):
+            raise RuntimeError(
+                "mlx-audio subprocess failed: "
+                f"returncode={result.returncode}, stdout={result.stdout!r}, stderr={result.stderr!r}"
+            )
+        return False
 
 
 class TTSService:
