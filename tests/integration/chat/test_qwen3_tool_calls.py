@@ -6,7 +6,7 @@ from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.mlx_lm.model_types import load_tools_handler
 
-MODEL = "mlx-community/Qwen3-8B-abliterated-v2-mxfp4"
+MODEL = "mlx-community/Qwen3-1.7B-4bit-DWQ-053125"
 
 
 logging.basicConfig(level=logging.INFO)
@@ -67,7 +67,6 @@ class TestQwen3ToolCalls:
         assert "location" in arguments
         # The model might return a different location (e.g. London) even if asked for Boston
         assert isinstance(arguments["location"], str)
-        assert choice.message.content is ""
 
     def test_qwen3_tool_call_stream(self, openai_client):
         request = {

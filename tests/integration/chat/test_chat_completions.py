@@ -133,7 +133,7 @@ class TestChatCompletions:
                 ],
                 stream=True,
                 stream_options={"include_usage": True},
-                max_tokens=200,
+                max_tokens=800,
             )
 
             # Validate streaming response
