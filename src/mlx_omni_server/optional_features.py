@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Mapping
 
+from fastapi import HTTPException
+
 
 @dataclass(frozen=True, slots=True)
 class OptionalExtra:
@@ -78,3 +80,12 @@ def not_installed_detail(extra: str, *, missing: tuple[str, ...] | None = None) 
         f"Install optional dependencies with {install_instructions(extra)}. "
         f"Missing: {missing_text}"
     )
+
+
+def ensure_extra_available(extra: str) -> None:
+    missing = missing_packages(extra)
+    if missing:
+        raise HTTPException(
+            status_code=501,
+            detail=not_installed_detail(extra, missing=missing),
+        )

@@ -1,8 +1,6 @@
 import gc
-import struct
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from hashlib import sha256
 from typing import Any
 
 from mlx_lm.models.cache import can_trim_prompt_cache, trim_prompt_cache
@@ -10,38 +8,14 @@ from mlx_vlm.models.cache import make_prompt_cache
 from mlx_vlm.prompt_cache import PromptCacheBundle
 
 from ...utils.logger import logger
+from ..prompt_cache_utils import common_prefix_len, hash_tokens_with_media
 
 CacheKey = tuple[str, str]
 
 
-def common_prefix_len(a: list[int], b: list[int]) -> int:
-    min_len = min(len(a), len(b))
-    for i in range(min_len):
-        if a[i] != b[i]:
-            return i
-    return min_len
-
-
 def tokens_key(tokens: list[int], media_hashes: list[str] | None = None) -> str:
-    """
-    Pack tokens as 4-byte little-endian ints then hash.
-    Optionally include media file hashes for multimodal content.
-    """
-    if not tokens:
-        return "empty"
-
-    # Create hash from tokens
-    b = b"".join(struct.pack("<I", int(t)) for t in tokens)
-    base_hash = sha256(b).hexdigest()
-
-    # For multimodal content, include media file hashes
-    if media_hashes:
-        # Order matters (media placeholders are positional).
-        media_hash_str = "|".join(media_hashes)
-        combined = f"{base_hash}:{media_hash_str}"
-        return sha256(combined.encode()).hexdigest()
-
-    return base_hash
+    """Stable cache key for a token sequence and optional media."""
+    return hash_tokens_with_media(tokens, media_hashes)
 
 
 @dataclass
@@ -288,7 +262,7 @@ class PromptCacheManager:
         logger.debug("No matching cache found; creating new.")
         new_cache = PromptCache(max_position_embeddings=self.max_position_embeddings)
         new_cache.reset_prompt_cache(model, model_key, media_hashes)
-        key = (cache_namespace, tokens_key(prompt, media_hashes))
+        key = (cache_namespace, hash_tokens_with_media(prompt, media_hashes))
         new_cache.session_key = cache_namespace
         self.caches[key] = new_cache
         self._evict_if_needed()

@@ -145,16 +145,38 @@ class ResponseRegistry:
         if record is None:
             return False
 
-        start = time.time()
-        while not record.finished:
-            if timeout_seconds is not None and time.time() - start > timeout_seconds:
-                return False
-            await asyncio.sleep(0.05)
+        if record.finished:
+            return True
+
+        deadline = None
+        if timeout_seconds is not None:
+            deadline = time.monotonic() + timeout_seconds
+
+        while True:
+            if record.finished:
+                return True
+
+            remaining = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+
+            # Periodically wake to detect deletion/pruning without busy-polling.
+            wait_timeout = 1.0 if remaining is None else min(remaining, 1.0)
+
+            async with record.condition:
+                if record.finished:
+                    return True
+                try:
+                    await asyncio.wait_for(record.condition.wait(), timeout=wait_timeout)
+                except asyncio.TimeoutError:
+                    pass
+
+            # Refresh record (also touches TTL). If removed, treat as missing.
             record = await self.get(response_id)
             if record is None:
                 return False
-
-        return True
 
     async def stream_events(
         self,

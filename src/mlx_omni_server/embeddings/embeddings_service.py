@@ -1,6 +1,4 @@
-import re
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import mlx.core as mx
 import numpy as np
@@ -16,58 +14,54 @@ class EmbeddingsService:
 
     def __init__(self):
         # Map of loaded models for caching
-        self._models: Dict[str, Tuple[Any, Any]] = {}
+        self._models: dict[str, tuple[Any, Any]] = {}
         # Default encoder for token counting
         try:
             self._default_tokenizer = tiktoken.get_encoding("cl100k_base")
-        except:
+        except Exception:
             # Fallback to another common encoding if cl100k_base is not available
             try:
                 self._default_tokenizer = tiktoken.get_encoding("p50k_base")
-            except:
+            except Exception:
                 logger.warning(
                     "Could not load any tiktoken encoding, token counts may be inaccurate"
                 )
                 self._default_tokenizer = None
 
-    def _get_model(self, model_id: str) -> Tuple[Any, Any]:
+    def _get_model(self, model_id: str) -> tuple[Any, Any]:
         """Get or load a model based on its ID"""
         if model_id not in self._models:
             logger.info(f"Loading embedding model: {model_id}")
             try:
                 model, processor = load(model_id)
                 self._models[model_id] = (model, processor)
-            except Exception as e:
-                logger.error(f"Error loading embedding model {model_id}: {str(e)}")
-                raise RuntimeError(f"Failed to load embedding model: {str(e)}")
+            except Exception as exc:
+                logger.error(f"Error loading embedding model {model_id}: {str(exc)}")
+                raise RuntimeError(f"Failed to load embedding model: {str(exc)}") from exc
 
         return self._models[model_id]
 
-    def _count_tokens(self, text: Union[str, List[str]]) -> int:
+    def _count_tokens(self, text: str | list[str]) -> int:
         """Count tokens in input text"""
         if self._default_tokenizer is None:
             # If no tokenizer is available, use a simple approximation
             if isinstance(text, str):
                 return len(text.split())
-            elif isinstance(text, list):
-                return sum(len(t.split()) for t in text)
-            return 0
+            return sum(len(t.split()) for t in text)
 
         try:
             if isinstance(text, str):
                 return len(self._default_tokenizer.encode(text))
-            elif isinstance(text, list):
-                return sum(len(self._default_tokenizer.encode(t)) for t in text)
-        except Exception as e:
-            logger.warning(f"Error counting tokens: {str(e)}. Using fallback method.")
+            return sum(len(self._default_tokenizer.encode(t)) for t in text)
+        except Exception as exc:
+            logger.warning(f"Error counting tokens: {str(exc)}. Using fallback method.")
             # Fallback to simple approximation
             if isinstance(text, str):
                 return len(text.split())
-            elif isinstance(text, list):
-                return sum(len(t.split()) for t in text)
+            return sum(len(t.split()) for t in text)
         return 0
 
-    def _ensure_float_list(self, embedding) -> List[float]:
+    def _ensure_float_list(self, embedding) -> list[float]:
         """Ensure embedding is a flat list of float values"""
         if isinstance(embedding, list):
             # Handle case where first element is itself a list or array

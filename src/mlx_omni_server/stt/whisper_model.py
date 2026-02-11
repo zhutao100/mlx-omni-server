@@ -35,7 +35,6 @@ class WhisperModel:
                 g.value for g in request.timestamp_granularities
             ]
 
-        print(f"word_timestamps: {word_timestamps}")
         result = transcribe(
             audio=audio_path,
             path_or_hf_repo=request.model,

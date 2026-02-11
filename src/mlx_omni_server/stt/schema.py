@@ -124,8 +124,6 @@ class STTRequestForm:
         if self.language and len(self.language) != 2:
             raise ValueError("Language code must be a 2-letter ISO-639-1 code")
 
-        print(f"timestamp_granularities: {self.timestamp_granularities}")
-
         # 验证 word 时间戳必须使用 verbose_json
         if (
             self.timestamp_granularities

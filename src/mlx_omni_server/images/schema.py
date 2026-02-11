@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..schema_utils import extract_extra_params
+
 
 class ImageSize(str, Enum):
     S256x256 = "256x256"
@@ -46,7 +48,8 @@ class ImageGenerationRequest(BaseModel):
 
     def get_extra_params(self) -> Dict[str, Any]:
         """Get all extra parameters that aren't part of the standard OpenAI API."""
-        standard_fields = {
+        standard_fields = frozenset(
+            {
             "prompt",
             "model",
             "n",
@@ -55,8 +58,9 @@ class ImageGenerationRequest(BaseModel):
             "size",
             "style",
             "user",
-        }
-        return {k: v for k, v in self.model_dump().items() if k not in standard_fields}
+            }
+        )
+        return extract_extra_params(self, standard_fields)
 
     @field_validator("prompt")
     def validate_prompt_length(cls, v, values):

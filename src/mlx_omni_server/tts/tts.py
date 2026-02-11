@@ -3,7 +3,7 @@ import io
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..optional_features import missing_packages, not_installed_detail
+from ..optional_features import ensure_extra_available
 from .schema import AudioFormat, TTSRequest
 
 router = APIRouter(tags=["text-to-speech"])
@@ -17,12 +17,7 @@ async def create_speech(request: TTSRequest):
     Returns:
         StreamingResponse: Audio file content in the requested format
     """
-    missing = missing_packages("tts")
-    if missing:
-        raise HTTPException(
-            status_code=501,
-            detail=not_installed_detail("tts", missing=missing),
-        )
+    ensure_extra_available("tts")
 
     from .tts_service import TTSService
 

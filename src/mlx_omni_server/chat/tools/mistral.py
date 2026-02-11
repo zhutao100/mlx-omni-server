@@ -1,11 +1,12 @@
 import json
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 from mlx_omni_server.chat.tools.tool_parser import GenericToolParser
 
+from ...utils.logger import logger
 from ..schema import ChatMessage, FunctionCall, Role, Tool, ToolCall
 from .chat_tokenizer import ChatTokenizer
 
@@ -87,7 +88,7 @@ class MistralChatTokenizer(ChatTokenizer):
                         tool_calls=None,
                     )
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                print(f"Error parsing tool call: {e}")
+                logger.debug("Error parsing tool call", exc_info=e)
                 return ChatMessage(
                     role=Role.ASSISTANT,
                     content=text,

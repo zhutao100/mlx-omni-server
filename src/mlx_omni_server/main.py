@@ -10,7 +10,7 @@ from .chat.generation_service import background_cache_cleanup
 from .middleware.logging import RequestResponseLoggingMiddleware
 from .optional_features import is_available
 from .routers import api_router
-from .utils.logger import configure_logging, default_log_dir
+from .utils.logger import configure_logging, default_log_dir, logger
 
 
 @asynccontextmanager
@@ -35,7 +35,9 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             # Images are an optional extra; avoid failing app startup if something is missing.
-            pass
+            logger.exception(
+                "Failed to initialize images background tasks; continuing without images."
+            )
     yield
     # Shutdown
     for task in background_tasks:

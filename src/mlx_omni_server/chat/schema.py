@@ -1,9 +1,11 @@
 import json
 import re
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Set, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+
+from ..schema_utils import extract_extra_params
 
 
 class ToolType(str, Enum):
@@ -357,6 +359,10 @@ class ChatCompletionRequest(BaseModel):
             if message.role == Role.DEVELOPER:
                 message.role = Role.SYSTEM
 
+        if self.model_extra and "draft-model" in self.model_extra:
+            draft_model = self.model_extra.pop("draft-model")
+            self.model_extra.setdefault("draft_model", draft_model)
+
         if not self.tools:
             return self
 
@@ -397,35 +403,36 @@ class ChatCompletionRequest(BaseModel):
 
     def get_extra_params(self) -> Dict[str, Any]:
         """Get all extra parameters that aren't part of the standard OpenAI API."""
-        standard_fields: Set[str] = {
-            "model",
-            "prompt_cache_key",
-            "messages",
-            "temperature",
-            "top_p",
-            "max_tokens",
-            "max_completion_tokens",
-            "stream",
-            "seed",
-            "stop",
-            "presence_penalty",
-            "frequency_penalty",
-            "logit_bias",
-            "logprobs",
-            "top_logprobs",
-            "n",
-            "tools",
-            "tool_choice",
-            "parallel_tool_calls",
-            "stream_options",
-            "response_format",
-            "user",
-            "metadata",
-            "modalities",
-            "store",
-            "draft-model",
-        }
-        return {k: v for k, v in self.model_dump().items() if k not in standard_fields}
+        standard_fields = frozenset(
+            {
+                "model",
+                "prompt_cache_key",
+                "messages",
+                "temperature",
+                "top_p",
+                "max_tokens",
+                "max_completion_tokens",
+                "stream",
+                "seed",
+                "stop",
+                "presence_penalty",
+                "frequency_penalty",
+                "logit_bias",
+                "logprobs",
+                "top_logprobs",
+                "n",
+                "tools",
+                "tool_choice",
+                "parallel_tool_calls",
+                "stream_options",
+                "response_format",
+                "user",
+                "metadata",
+                "modalities",
+                "store",
+            }
+        )
+        return extract_extra_params(self, standard_fields)
 
     def is_multimodal_request(self) -> bool:
         """Check if the request includes image or audio content"""

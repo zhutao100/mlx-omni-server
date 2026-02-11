@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from ..inference.runtime import run_mlx
-from ..optional_features import missing_packages, not_installed_detail
+from ..optional_features import ensure_extra_available
 from .schema import ImageGenerationRequest, ImageGenerationResponse
 
 router = APIRouter(tags=["images"])
@@ -27,12 +27,7 @@ async def create_image(request: ImageGenerationRequest) -> ImageGenerationRespon
     """
     Creates an image given a prompt.
     """
-    missing = missing_packages("images")
-    if missing:
-        raise HTTPException(
-            status_code=501,
-            detail=not_installed_detail("images", missing=missing),
-        )
+    ensure_extra_available("images")
 
     try:
         images = await run_mlx(get_images_service().generate_images, request)

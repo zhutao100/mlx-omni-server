@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 
+from ...utils.logger import logger
 from .models_service import ModelsService
 from .schema import Model, ModelDeletion, ModelList
 
@@ -18,7 +19,7 @@ def handle_model_error(e: Exception) -> None:
     """Handle model-related errors and raise appropriate HTTP exceptions"""
     if isinstance(e, ValueError):
         raise HTTPException(status_code=404, detail=str(e))
-    print(f"Error processing request: {str(e)}")
+    logger.exception("Error processing model request")
     raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -52,4 +53,3 @@ async def delete_model(request: Request) -> ModelDeletion:
         return models_service.delete_model(model_id)
     except Exception as e:
         handle_model_error(e)
-        raise

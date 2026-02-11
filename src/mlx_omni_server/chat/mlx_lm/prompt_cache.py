@@ -1,9 +1,7 @@
 import copy
 import gc
-import struct
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from hashlib import sha256
 from typing import Any
 
 from mlx_lm.models.cache import (
@@ -13,27 +11,14 @@ from mlx_lm.models.cache import (
 )
 
 from ...utils.logger import logger
+from ..prompt_cache_utils import common_prefix_len, hash_tokens
 
 CacheKey = tuple[str, str]
 
 
-def common_prefix_len(a: list[int], b: list[int]) -> int:
-    min_len = min(len(a), len(b))
-    for i in range(min_len):
-        if a[i] != b[i]:
-            return i
-    return min_len
-
-
 def tokens_key(tokens: list[int]) -> str:
-    """
-    Pack tokens as 4-byte little-endian ints then hash.
-    Works regardless of token id range.
-    """
-    if not tokens:
-        return "empty"
-    b = b"".join(struct.pack("<I", int(t)) for t in tokens)
-    return sha256(b).hexdigest()
+    """Stable cache key for a token sequence."""
+    return hash_tokens(tokens)
 
 
 @dataclass
@@ -235,7 +220,7 @@ class PromptCacheManager:
         prompt: list[int],
         cache: PromptCache,
     ) -> None:
-        key = (cache_namespace, tokens_key(prompt))
+        key = (cache_namespace, hash_tokens(prompt))
         cache.session_key = cache_namespace
         self.caches[key] = cache
         self._evict_if_needed()

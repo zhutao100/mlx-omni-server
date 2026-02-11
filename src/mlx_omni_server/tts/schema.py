@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Literal, Optional, TypeAlias, Union
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..schema_utils import extract_extra_params
+
 
 class AudioFormat(str, Enum):
     MP3 = "mp3"
@@ -29,8 +31,8 @@ class TTSRequest(BaseModel):
 
     def get_extra_params(self) -> Dict[str, Any]:
         """Get all extra parameters that aren't part of the standard OpenAI API."""
-        standard_fields = {"model", "input", "voice", "response_format", "speed"}
-        return {k: v for k, v in self.model_dump().items() if k not in standard_fields}
+        standard_fields = frozenset({"model", "input", "voice", "response_format", "speed"})
+        return extract_extra_params(self, standard_fields)
 
     @field_validator("speed")
     def validate_speed(cls, v):
