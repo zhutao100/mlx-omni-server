@@ -5,7 +5,7 @@ This document summarizes the project's configuration based on `pyproject.toml`.
 ## Core Project Information
 
 -   **Name:** `mlx-omni-server`
--   **Version:** 0.4.9
+-   **Version:** 0.5.0
 -   **Description:** An OpenAI-compatible API server using Apple's MLX framework.
 -   **Python Version:** >=3.11
 
