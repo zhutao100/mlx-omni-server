@@ -17,6 +17,15 @@ uv run mlx-omni-server --help
 python3 -m pip install -e ".[all]"
 ```
 
+### Option C: `pyenv` (repo-local workflow)
+
+If you have a local `pyenv` virtualenv configured for this repo (for example `venv313`), you can run commands like:
+
+```bash
+PYENV_VERSION=venv313 pyenv exec python3 -m pytest tests/unit
+PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files
+```
+
 Note: this repository uses dependency groups for dev tooling (tests/formatters). If you use `pip`, you may need to install dev tools separately (pytest, pre-commit, etc.).
 
 ## Run the server

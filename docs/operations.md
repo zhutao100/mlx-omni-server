@@ -34,6 +34,10 @@ The server is configured via CLI flags (see `mlx-omni-server --help`):
 - When `--log-file` is enabled, logs are written as rotating files under `--log-dir`.
   - Filenames are run-scoped and process-scoped: `mlx-omni-server-<run_id>-pid<PID>.(jsonl|log)`
   - Rotation defaults: ~20MB max per file, up to 5 backups.
+- The request/response logging middleware logs:
+  - request method/url + headers, plus a capped preview of textual request bodies,
+  - response status/headers, plus a capped preview of textual response bodies.
+  - For SSE (`text/event-stream`), binary media (for example `audio/*`), and attachments, it logs status/headers only (it does not buffer the full body).
 
 ## Environment variables
 
@@ -47,9 +51,9 @@ The server is configured via CLI flags (see `mlx-omni-server --help`):
 
 These features are packaged as optional extras. When an extra is not installed, the routes remain registered but return `501 Not Implemented` with an install hint:
 
-- Images: `mlx-omni-server[images]` (`/v1/images/generations`)
-- Speech-to-text: `mlx-omni-server[stt]` (`/v1/audio/transcriptions`)
-- Text-to-speech: `mlx-omni-server[tts]` (`/v1/audio/speech`)
+- Images (from repo): `pip install -e ".[images]"` (`/v1/images/generations`)
+- Speech-to-text (from repo): `pip install -e ".[stt]"` (`/v1/audio/transcriptions`)
+- Text-to-speech (from repo): `pip install -e ".[tts]"` (`/v1/audio/speech`)
 
 ### On-disk artifacts
 

@@ -1,6 +1,5 @@
 # MLX Omni Server
 
-[![PyPI](https://img.shields.io/pypi/v/mlx-omni-server.svg)](https://pypi.python.org/pypi/mlx-omni-server)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/zhutao100/mlx-omni-server)
 [![License](https://img.shields.io/github/license/zhutao100/mlx-omni-server)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
@@ -71,22 +70,17 @@ For detailed API documentation and examples, see [`docs/README.md`](docs/README.
 ### Installation
 
 ```bash
-# From PyPI
-python3 -m pip install .
-
-# Optional modalities (keeps routes, returns 501 if not installed)
-python3 -m pip install ".[images]"  # image generation
-python3 -m pip install ".[stt]"     # speech-to-text
-python3 -m pip install ".[tts]"     # text-to-speech
-python3 -m pip install ".[all]"     # all optional features
-```
-
-From source:
-
-```bash
+# This repo is not published to PyPI (the PyPI name `mlx-omni-server` points to a different project).
 git clone https://github.com/zhutao100/mlx-omni-server.git
 cd mlx-omni-server
+
+# Install core + all optional features (images/stt/tts)
 python3 -m pip install -e ".[all]"
+
+# Or install a subset (examples)
+# python3 -m pip install -e ".[images]"
+# python3 -m pip install -e ".[stt]"
+# python3 -m pip install -e ".[tts]"
 ```
 
 ### Start the Server

@@ -97,7 +97,7 @@ FastAPI/Pydantic give good schema validation, but robustness also needs explicit
 - upload / base64 payload size limits (413 instead of a 500)
 - timeouts on long-running requests
 - consistent OpenAI-style error payloads across endpoints (including overload/backpressure)
-- logging that won’t accidentally log huge/binary payloads
+- logging defaults are now capped and skip binary/streaming bodies; remaining gaps are redaction/sampling and configurable exclusions
 
 ### 6. Observability is not yet tied to the runtime contract
 
@@ -175,7 +175,7 @@ This phase is about reducing churn from the modality ecosystem without changing 
 
 1. **Split optional capabilities into install extras**
 
-   * Example: `mlx-omni-server[chat]`, `[embeddings]`, `[images]`, `[stt]`, `[tts]`.
+   * Example: split into extras like `[chat]`, `[embeddings]`, `[images]`, `[stt]`, `[tts]` (installable from source via `pip install -e ".[...]"`).
    * Code should degrade gracefully when a backend isn’t installed (e.g., return a clear 501/400 with guidance).
 
 2. **Keep modality backends behind narrow interfaces**
@@ -196,7 +196,7 @@ This phase is about reducing churn from the modality ecosystem without changing 
 4. **Operational polish**
 
    * Request limits (upload sizes, max base64 sizes), timeouts, and consistent OpenAI-style error payloads.
-   * Structured logging + request IDs (avoid logging large/binary payloads by default).
+   * Structured logging + request IDs (request IDs exist; body logging is capped and skips binary/streaming by default; remaining: redaction/sampling/exclusions).
    * Metrics/Tracing (minimal counters are enough): latencies by endpoint/model, queue wait time, model load time, error rates.
 
 ---

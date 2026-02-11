@@ -8,5 +8,6 @@ This directory contains active, forward-looking plans. Completed plans are moved
 
 ## Archived plans
 
+- [`../archive/dev_plans/code_simplification_consolidation.md`](../archive/dev_plans/code_simplification_consolidation.md): completed consolidation pass (logging, extras gating, prompt-cache + tokenizer dedupe).
 - [`../archive/dev_plans/responses_chat_usage_bridge/`](../archive/dev_plans/responses_chat_usage_bridge/): Responses ↔ Chat usage mapping / streaming usage bridging.
 - [`../archive/dev_plans/interleaved_thinking/`](../archive/dev_plans/interleaved_thinking/): historical notes and phased work around interleaved thinking and tool-loop replay.

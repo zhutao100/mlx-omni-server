@@ -36,17 +36,30 @@ This file is a short operating guide for LLM/agent work in this repository.
 
 - **API contracts**: the code + tests are authoritative. Treat docs as summaries that must match implementation.
 - **Optional extras** (`images`, `stt`, `tts`): routes stay registered; if deps are missing, return `501` with an install hint (avoid import-time crashes).
+  - Prefer runtime gating via `mlx_omni_server.optional_features.ensure_extra_available()` (centralizes `501` errors and install hints).
 - **Concurrency contract**: never block the event loop; run MLX-backed work via the shared runtime helpers (see `docs/concurrency_contract.md`).
+
+## Docs maintenance
+
+- Keep `README.md`, `docs/README.md`, and `docs/apis/` consistent with actual behavior.
+- Treat `docs/dev_plans/` as forward-looking only; move completed plans to `docs/archive/dev_plans/`.
+- If you change behavior that was previously documented as a “gap” or “issue”, remove/adjust it in docs to avoid stale TODO lists.
 
 ## Workflows and commands
 
 Use the repo’s virtualenv when available:
 
+- Packaging note: this repo is **not published to PyPI**; `pip install mlx-omni-server` installs a different project. Use source installs (`pip install -e ".[...]"`) or `uv sync`.
 - Python commands: `PYENV_VERSION=venv313 pyenv exec python3 ...`
 - Tests: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest tests/unit`
   - `tests/integration/` may download models and can be slow/heavy.
 - Formatting: `PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files`
 - Dev server (reload): `PYENV_VERSION=venv313 pyenv exec uvicorn mlx_omni_server.main:app --reload --port 10240`
+
+Alternative (reproducible dev install via `uv`):
+
+- `uv sync --all-extras --dev`
+- `uv run python -m pytest tests/unit`
 
 ## Local resources (developer machine)
 

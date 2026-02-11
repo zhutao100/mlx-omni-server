@@ -14,8 +14,8 @@ The server supports most routes with and without the `/v1` prefix. These pages d
 - Chat Completions: [`apis/chat.md`](apis/chat.md)
 - Responses API: [`apis/responses.md`](apis/responses.md)
 - Embeddings: [`apis/embeddings.md`](apis/embeddings.md)
-- Images: [`apis/images.md`](apis/images.md) (optional extra: `mlx-omni-server[images]`)
-- Audio (STT/TTS): [`apis/audio.md`](apis/audio.md) (optional extras: `mlx-omni-server[stt]`, `mlx-omni-server[tts]`)
+- Images: [`apis/images.md`](apis/images.md) (optional extra from repo: `pip install -e ".[images]"`)
+- Audio (STT/TTS): [`apis/audio.md`](apis/audio.md) (optional extras from repo: `pip install -e ".[stt]"`, `pip install -e ".[tts]"`)
 
 ## Operations
 
