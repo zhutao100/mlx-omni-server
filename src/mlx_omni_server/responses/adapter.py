@@ -55,6 +55,8 @@ class OutputItemState:
                 "type": "reasoning",
                 "status": self.status,
             }
+            payload["content"] = [{"type": "reasoning_text", "text": self.text or ""}]
+            payload["summary"] = []
             if self.encrypted_content is not None:
                 payload["encrypted_content"] = self.encrypted_content
             return payload
@@ -84,11 +86,20 @@ class OutputItemState:
             "status": "in_progress",
         }
         if self.kind == "function_call":
-            payload.update({
-                "name": self.function_name or "",
-                "arguments": "",
-                "call_id": self.call_id or self.item_id,
-            })
+            payload.update(
+                {
+                    "name": self.function_name or "",
+                    "arguments": "",
+                    "call_id": self.call_id or self.item_id,
+                }
+            )
+        elif self.kind == "reasoning":
+            payload.update(
+                {
+                    "content": [{"type": "reasoning_text", "text": ""}],
+                    "summary": [],
+                }
+            )
         elif self.kind == "message":
             payload.update({"role": Role.ASSISTANT.value, "content": []})
 
@@ -415,6 +426,41 @@ def _convert_response_content_to_chat_content(
     return multimodal or None
 
 
+def _apply_reasoning_to_thinking_params(payload: dict[str, Any]) -> None:
+    reasoning = payload.get("reasoning")
+    if not isinstance(reasoning, dict):
+        return
+
+    effort = reasoning.get("effort")
+    if effort is None:
+        return
+
+    normalized_effort = str(effort).strip().lower()
+    if not normalized_effort:
+        normalized_effort = "medium"
+
+    effort_to_budget = {
+        "minimal": 256,
+        "low": 512,
+        "medium": 1024,
+        "high": 2048,
+        "xhigh": 4096,
+    }
+
+    if normalized_effort not in effort_to_budget and normalized_effort != "none":
+        normalized_effort = "medium"
+
+    if "enable_thinking" not in payload:
+        payload["enable_thinking"] = normalized_effort != "none"
+
+    if (
+        normalized_effort != "none"
+        and "thinking_budget" not in payload
+        and normalized_effort in effort_to_budget
+    ):
+        payload["thinking_budget"] = effort_to_budget[normalized_effort]
+
+
 def response_request_to_chat_request(response_request: ResponseRequest) -> ChatCompletionRequest:
     payload = response_request.model_dump(exclude_none=True)
 
@@ -455,6 +501,7 @@ def response_request_to_chat_request(response_request: ResponseRequest) -> ChatC
     if max_output_tokens is not None:
         payload["max_completion_tokens"] = max_output_tokens
 
+    _apply_reasoning_to_thinking_params(payload)
     return ChatCompletionRequest.model_validate(payload)
 
 
@@ -827,6 +874,8 @@ def chat_response_to_response(
                 "type": "reasoning",
                 "status": "completed",
             }
+            item["content"] = [{"type": "reasoning_text", "text": message.reasoning}]
+            item["summary"] = []
             if include_reasoning_encrypted:
                 tool_call_ids = [
                     tool_call.id
@@ -1138,6 +1187,34 @@ class ResponseStreamAdapter:
             },
         )
 
+    def _build_reasoning_delta_event(
+        self, state: OutputItemState, delta_fragment: str
+    ) -> ResponseStreamEvent:
+        return ResponseStreamEvent(
+            event="response.reasoning_text.delta",
+            data={
+                "type": "response.reasoning_text.delta",
+                "sequence_number": self._next_sequence(),
+                "output_index": state.index,
+                "item_id": state.item_id,
+                "content_index": 0,
+                "delta": delta_fragment,
+            },
+        )
+
+    def _build_reasoning_done_event(self, state: OutputItemState) -> ResponseStreamEvent:
+        return ResponseStreamEvent(
+            event="response.reasoning_text.done",
+            data={
+                "type": "response.reasoning_text.done",
+                "sequence_number": self._next_sequence(),
+                "output_index": state.index,
+                "item_id": state.item_id,
+                "content_index": 0,
+                "text": state.text or "",
+            },
+        )
+
     def on_chunk(self, chunk: ChatCompletionChunk) -> list[ResponseStreamEvent]:
         events: list[ResponseStreamEvent] = []
         if chunk.created:
@@ -1152,11 +1229,19 @@ class ResponseStreamAdapter:
             delta = choice.delta
             delta_reasoning = getattr(delta, "reasoning", None) if delta else None
             if isinstance(delta_reasoning, str) and delta_reasoning:
+                new_events, reasoning_state = self._ensure_reasoning_item(choice.index)
+                events.extend(new_events)
                 existing_reasoning = self._reasoning_by_choice.get(choice.index, "")
-                self._reasoning_by_choice[choice.index] = self._merge_accumulated_text(
+                merged_reasoning = self._merge_accumulated_text(
                     existing_reasoning,
                     delta_reasoning,
                 )
+                self._reasoning_by_choice[choice.index] = merged_reasoning
+                delta_fragment = self._append_text_delta(reasoning_state, merged_reasoning)
+                if delta_fragment:
+                    events.append(
+                        self._build_reasoning_delta_event(reasoning_state, delta_fragment)
+                    )
 
             tool_calls = delta.tool_calls if delta and getattr(delta, "tool_calls", None) else []
 
@@ -1244,7 +1329,8 @@ class ResponseStreamAdapter:
         state.status = "completed"
         state.done_emitted = True
 
-        return [
+        events = [self._build_reasoning_done_event(state)]
+        events.append(
             ResponseStreamEvent(
                 event="response.output_item.done",
                 data={
@@ -1254,7 +1340,8 @@ class ResponseStreamAdapter:
                     "item": state.to_output_dict(),
                 },
             )
-        ]
+        )
+        return events
 
     def _emit_message_done(self, state: OutputItemState) -> list[ResponseStreamEvent]:
         if state.done_emitted:
@@ -1394,6 +1481,9 @@ class ResponseStreamAdapter:
                 continue
             new_events, state = self._ensure_reasoning_item(choice_index)
             events.extend(new_events)
+            delta_fragment = self._append_text_delta(state, reasoning)
+            if delta_fragment:
+                events.append(self._build_reasoning_delta_event(state, delta_fragment))
             if self._include_reasoning_encrypted:
                 tool_call_ids = self._tool_call_ids_by_choice.get(choice_index, [])
                 state.encrypted_content = seal(

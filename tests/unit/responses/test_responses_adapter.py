@@ -11,6 +11,7 @@ from mlx_omni_server.responses.adapter import (
     response_output_items_to_chat_messages,
     response_request_to_chat_request,
 )
+from mlx_omni_server.responses.reasoning_envelope import unseal
 from mlx_omni_server.responses.schema import ResponseRequest
 
 
@@ -306,3 +307,266 @@ def test_response_stream_adapter_clamps_reasoning_tokens_from_upstream_usage():
 
     assert usage["output_tokens"] == 5
     assert usage["output_tokens_details"]["reasoning_tokens"] == 5
+
+
+def test_response_request_to_chat_request_maps_reasoning_effort_to_thinking_params():
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        reasoning={"effort": "low"},
+    )
+
+    chat_request = response_request_to_chat_request(request)
+    extra = chat_request.get_extra_params()
+
+    assert extra["enable_thinking"] is True
+    assert extra["thinking_budget"] == 512
+
+
+def test_response_request_to_chat_request_does_not_override_explicit_thinking_params():
+    request = ResponseRequest(
+        model="test-model",
+        input="Hello",
+        reasoning={"effort": "none"},
+        enable_thinking=True,
+        thinking_budget=999,
+    )
+
+    chat_request = response_request_to_chat_request(request)
+    extra = chat_request.get_extra_params()
+
+    assert extra["enable_thinking"] is True
+    assert extra["thinking_budget"] == 999
+
+
+def test_response_stream_adapter_emits_reasoning_deltas_without_include():
+    adapter = ResponseStreamAdapter(
+        response_id="resp_test",
+        model="test-model",
+        request_echo={"include": []},
+    )
+
+    # Seed a message item so reasoning output_index is non-zero.
+    adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, content="hi"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+
+    events1 = adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="a"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+    events2 = adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="b"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+    done_events = adapter.on_done()
+
+    all_events = [*events1, *events2, *done_events]
+
+    reasoning_added = [
+        event
+        for event in all_events
+        if event.event == "response.output_item.added"
+        and event.data.get("item", {}).get("type") == "reasoning"
+    ]
+    assert reasoning_added
+    added_item = reasoning_added[0].data["item"]
+    assert added_item["content"] == [{"type": "reasoning_text", "text": ""}]
+    assert added_item["summary"] == []
+
+    deltas = [
+        event.data["delta"]
+        for event in all_events
+        if event.event == "response.reasoning_text.delta"
+    ]
+    assert deltas == ["a", "b"]
+    assert all(
+        event.data.get("content_index") == 0
+        for event in all_events
+        if event.event == "response.reasoning_text.delta"
+    )
+
+    reasoning_done = next(
+        event for event in done_events if event.event == "response.reasoning_text.done"
+    )
+    assert reasoning_done.data["content_index"] == 0
+    assert reasoning_done.data["text"] == "ab"
+
+    reasoning_output_index = reasoning_done.data["output_index"]
+    completed = next(event for event in done_events if event.event == "response.completed")
+    output = completed.data["response"]["output"]
+
+    assert output[reasoning_output_index]["type"] == "reasoning"
+    assert output[reasoning_output_index]["content"] == [{"type": "reasoning_text", "text": "ab"}]
+    assert output[reasoning_output_index]["summary"] == []
+    assert "encrypted_content" not in output[reasoning_output_index]
+
+
+def test_response_stream_adapter_reasoning_encrypted_content_remains_include_gated():
+    adapter = ResponseStreamAdapter(
+        response_id="resp_test",
+        model="test-model",
+        request_echo={"include": ["reasoning.encrypted_content"]},
+    )
+
+    adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="a"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+    adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="b"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+
+    done_events = adapter.on_done()
+    completed = next(event for event in done_events if event.event == "response.completed")
+    reasoning_item = next(
+        item for item in completed.data["response"]["output"] if item["type"] == "reasoning"
+    )
+
+    assert "encrypted_content" in reasoning_item
+    envelope = unseal(reasoning_item["encrypted_content"])
+    assert envelope.model == "test-model"
+    assert envelope.reasoning == "ab"
+
+
+def test_response_stream_adapter_emits_reasoning_delta_at_done_when_missing():
+    adapter = ResponseStreamAdapter(
+        response_id="resp_test",
+        model="test-model",
+        request_echo={"include": []},
+    )
+    adapter._reasoning_by_choice[0] = "ab"
+
+    events = adapter.on_done()
+
+    added_idx = next(
+        idx
+        for idx, event in enumerate(events)
+        if event.event == "response.output_item.added"
+        and event.data.get("item", {}).get("type") == "reasoning"
+    )
+    delta_idx = next(
+        idx for idx, event in enumerate(events) if event.event == "response.reasoning_text.delta"
+    )
+    assert added_idx < delta_idx
+
+    delta_event = events[delta_idx]
+    assert delta_event.data["delta"] == "ab"
+
+    done_event = next(event for event in events if event.event == "response.reasoning_text.done")
+    assert done_event.data["text"] == "ab"
+
+
+def test_response_stream_adapter_tool_call_interleaving_does_not_drop_reasoning():
+    adapter = ResponseStreamAdapter(response_id="resp_test", model="test-model")
+
+    events1 = adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="a"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+    events2 = adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(
+                        role=Role.ASSISTANT,
+                        tool_calls=[
+                            ToolCall(
+                                id="call_1",
+                                function=FunctionCall(name="shell", arguments="{}"),
+                            )
+                        ],
+                    ),
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        )
+    )
+    events3 = adapter.on_chunk(
+        ChatCompletionChunk(
+            id="chatcmpl-test",
+            created=123,
+            model="test-model",
+            choices=[
+                {
+                    "index": 0,
+                    "delta": ChatMessage(role=Role.ASSISTANT, reasoning="b"),
+                    "finish_reason": None,
+                }
+            ],
+        )
+    )
+    done_events = adapter.on_done()
+
+    reasoning_deltas = [
+        event.data["delta"]
+        for event in [*events1, *events2, *events3, *done_events]
+        if event.event == "response.reasoning_text.delta"
+    ]
+    assert reasoning_deltas == ["a", "b"]

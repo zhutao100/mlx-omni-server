@@ -605,17 +605,37 @@ async def test_responses_streaming_reasoning_item_with_encrypted_content(
     assert reasoning_done
 
     encrypted = reasoning_done[-1]["item"]["encrypted_content"]
+    assert reasoning_done[-1]["item"]["content"] == [{"type": "reasoning_text", "text": "AB"}]
+    assert reasoning_done[-1]["item"]["summary"] == []
     envelope = unseal(encrypted)
     assert envelope.model == "test-model"
     assert envelope.created_at == 123
     assert envelope.reasoning == "AB"
     assert envelope.tool_call_ids == ["call_1"]
 
+    reasoning_deltas = [
+        data["delta"] for event, data in events if event == "response.reasoning_text.delta"
+    ]
+    assert "".join(reasoning_deltas) == "AB"
+    assert all(
+        data.get("content_index") == 0
+        for event, data in events
+        if event == "response.reasoning_text.delta"
+    )
+    reasoning_text_done = [
+        data for event, data in events if event == "response.reasoning_text.done"
+    ]
+    assert reasoning_text_done
+    assert reasoning_text_done[-1]["content_index"] == 0
+    assert reasoning_text_done[-1]["text"] == "AB"
+
     completed_event = next(data for event, data in events if event == "response.completed")
     completed_reasoning = next(
         item for item in completed_event["response"]["output"] if item["type"] == "reasoning"
     )
     assert completed_reasoning["encrypted_content"] == encrypted
+    assert completed_reasoning["content"] == [{"type": "reasoning_text", "text": "AB"}]
+    assert completed_reasoning["summary"] == []
 
 
 def test_responses_reject_conversation(client):
@@ -708,6 +728,8 @@ def test_responses_non_stream_reasoning_item_with_encrypted_content(mock_create_
 
     reasoning_item = next(item for item in payload["output"] if item["type"] == "reasoning")
     assert "encrypted_content" in reasoning_item
+    assert reasoning_item["content"] == [{"type": "reasoning_text", "text": "secret-thought"}]
+    assert reasoning_item["summary"] == []
 
     envelope = unseal(reasoning_item["encrypted_content"])
     assert envelope.v == 1

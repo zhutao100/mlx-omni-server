@@ -76,6 +76,8 @@ class ResponseOutputReasoning(BaseModel):
     id: str
     type: Literal["reasoning"] = "reasoning"
     status: ResponseOutputItemStatus = ResponseOutputItemStatus.COMPLETED
+    content: Optional[list[dict[str, Any]]] = None
+    summary: Optional[list[dict[str, Any]]] = None
     encrypted_content: Optional[str] = None
 
 

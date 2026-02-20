@@ -65,9 +65,31 @@ If you pass:
 include=["reasoning.encrypted_content"]
 ```
 
-the server will include a `type="reasoning"` output item with an `encrypted_content` token when the underlying model produced reasoning. You can send that same reasoning item back in a subsequent request `input` list.
+When the underlying model produces reasoning, the server emits a `type="reasoning"` output item with the raw reasoning under `content`:
+
+```json
+{
+  "type": "reasoning",
+  "status": "completed",
+  "content": [{ "type": "reasoning_text", "text": "…" }],
+  "summary": []
+}
+```
+
+If you opt in via `include=["reasoning.encrypted_content"]`, the same reasoning item also includes an `encrypted_content` token suitable for replay in a later request `input` list.
 
 Operational note: to keep these tokens valid across server restarts, set the environment variable `MLX_OMNI_SERVER_REASONING_HMAC_KEY` (otherwise the server uses an ephemeral per-process key).
+
+### Streaming reasoning events
+
+For `stream=true` requests, reasoning is streamed using Responses-native SSE events:
+
+- `response.reasoning_text.delta` (with `content_index: 0`)
+- `response.reasoning_text.done` (with the full text, `content_index: 0`)
+
+### `reasoning.effort` mapping (request-side)
+
+If a Responses request includes `reasoning: {"effort": ...}`, the server maps it to local MLX thinking knobs (`enable_thinking` and `thinking_budget`) unless those are explicitly provided in the request.
 
 ## Stateful chaining (`previous_response_id`)
 
