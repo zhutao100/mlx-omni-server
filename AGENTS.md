@@ -56,16 +56,11 @@ Use the repo’s virtualenv when available:
 - Formatting: `PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files`
 - Dev server (reload): `PYENV_VERSION=venv313 pyenv exec uvicorn mlx_omni_server.main:app --reload --port 10240`
 
-Alternative (reproducible dev install via `uv`):
-
-- `uv sync --all-extras --dev`
-- `uv run python -m pytest tests/unit`
-
 ## Local resources (developer machine)
 
 - Core dependency repos (if you need to inspect upstream behavior):
-  - `~/workspace/custom-builds/mlx-lm`
-  - `~/workspace/custom-builds/mlx-vlm`
-  - `~/workspace/custom-builds/transformers`
-  - `~/workspace/custom-builds/mflux`
+  - `../mlx-lm`
+  - `../mlx-vlm`
+  - `../transformers`
+  - `../lm-format-enforcer`
 - Hugging Face model cache is typically under `~/.cache/huggingface/hub`.
