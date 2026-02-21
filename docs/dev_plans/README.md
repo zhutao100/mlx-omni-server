@@ -6,6 +6,7 @@ This directory contains active, forward-looking plans. Completed plans are moved
 
 ## Archived plans
 
+- [`../archive/dev_plans/align_penalty_parameters/`](../archive/dev_plans/align_penalty_parameters/): executed plan for aligning penalty parameters (`presence_penalty` / `frequency_penalty` / `repetition_penalty` / `logit_bias`) across backends and hardening extra-params handling.
 - [`../archive/dev_plans/code_simplification_consolidation.md`](../archive/dev_plans/code_simplification_consolidation.md): completed consolidation pass (logging, extras gating, prompt-cache + tokenizer dedupe).
 - [`../archive/dev_plans/responses_chat_usage_bridge/`](../archive/dev_plans/responses_chat_usage_bridge/): Responses ↔ Chat usage mapping / streaming usage bridging.
 - [`../archive/dev_plans/responses_chat_reasoning_bridge/`](../archive/dev_plans/responses_chat_reasoning_bridge/): executed plan for aligning Responses reasoning output items and streaming events with the Responses event model, while preserving tool-loop continuity.

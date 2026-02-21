@@ -163,6 +163,9 @@ class ResponseRequest(BaseModel):
     prompt_cache_key: Optional[str] = None
     presence_penalty: Optional[float] = None
     frequency_penalty: Optional[float] = None
+    logit_bias: Optional[dict[str, float]] = None
+    repetition_penalty: Optional[float] = Field(None, gt=0.0)
+    repetition_context_size: Optional[int] = Field(None, ge=1)
     stop: Optional[Union[str, list[str]]] = None
     stream: Optional[bool] = False
     response_format: Optional[dict[str, Any]] = None

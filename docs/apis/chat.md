@@ -44,6 +44,18 @@ Some model families support a “thinking mode” and stream reasoning separatel
 - `delta.reasoning_content` is incremental (append-only): clients should concatenate it across chunks.
 - The final chunk only signals termination via `finish_reason` and does not resend already-streamed reasoning.
 
+## Penalties and `logit_bias`
+
+This server supports both OpenAI-style additive penalties and HF-style repetition penalties:
+
+- `presence_penalty` / `frequency_penalty` (default `0`): additive, count-based penalties.
+- `repetition_penalty` (default `1.0`, disabled) and `repetition_context_size` (default `20`): multiplicative, sign-aware repetition penalty applied over a sliding window.
+- `logit_bias` (default `null`): additive per-token bias using OpenAI’s format (`{"token_id_as_string": bias}`).
+  - Non-integer / out-of-range token ids are dropped with a warning.
+  - Bias values are clamped to `[-100, 100]`.
+
+Migration note: older builds incorrectly treated `presence_penalty` as `repetition_penalty` for text-only models. If you used `presence_penalty` to reduce repetition, switch to `repetition_penalty`.
+
 ## Tool / function calling
 
 Tool calling is supported by several model families (for example Qwen3 / GLM4 / Minimax M2). Provide `tools` in the standard OpenAI format.

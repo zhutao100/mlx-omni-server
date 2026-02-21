@@ -102,18 +102,23 @@ Implementation note:
 
 * simplest correct version can use a per-call `Counter(tokens.tolist())`.
 * better version (recommended) is a **stateful processor** that incrementally updates counts based on newly appended tokens (safe because generation appends tokens monotonically).
+  * Important: `mlx_lm.generate_step()` does **not** pass the full prompt token history into `logits_processors` (it starts from the final prompt token). To preserve “include prompt tokens” semantics (and to work correctly with prompt caching), seed the processor with the full prompt token list from the server wrapper, then incrementally update using the tokens observed during generation.
 
-### 2.3 `build_logits_processors(request, tokenizer, structured_json: bool)`
+### 2.3 `build_logits_processors(request, tokenizer, *, prompt_tokens: list[int] | None = None)`
 
 A single builder used by both mlx-lm and mlx-vlm server wrappers:
 
 * Convert `logit_bias`
 * Decide `rep = None if repetition_penalty is None or repetition_penalty == 1.0 else repetition_penalty`
-* Create list:
+* Create list (deterministic order):
 
-  * repetition/logit_bias: use `mlx_lm.sample_utils.make_logits_processors(logit_bias=..., repetition_penalty=rep, repetition_context_size=...)`
-  * add presence/frequency processor if non-zero
-  * add `JsonLogitsProcessor(...)` last if `request.response_format.json_schema` is set
+  1. repetition penalty (if enabled)
+     * use `mlx_lm.sample_utils.make_logits_processors(repetition_penalty=rep, repetition_context_size=...)`
+  2. presence/frequency processor (if enabled)
+     * seed with `prompt_tokens` when available
+  3. `logit_bias` (if enabled)
+     * use `mlx_lm.sample_utils.make_logits_processors(logit_bias=...)`
+  4. structured constraints (`JsonLogitsProcessor`) **last** (if enabled)
 
 Return `processors: list[callable] | None`.
 
@@ -141,8 +146,7 @@ In `_get_generation_params()`:
 
 Whitelist should match `mlx_lm.generate.generate_step()` and `speculative_generate_step()` kwargs union, e.g.:
 
-* `max_kv_size`, `prompt_cache`, `prefill_step_size`, `kv_bits`, `kv_group_size`, `quantized_kv_start`,
-* `prompt_progress_callback`, `should_cancel`, `input_embeddings`,
+* `max_kv_size`, `prefill_step_size`, `kv_bits`, `kv_group_size`, `quantized_kv_start`,
 * `num_draft_tokens` (speculative)
 * (and anything else you *explicitly* support)
 
@@ -248,10 +252,10 @@ If MLX isn’t importable in CI, structure tests to:
 
 ## 8) Deliverables checklist
 
-* [ ] schema: add repetition fields + standard_fields update
-* [ ] shared module: bias normalization + presence/frequency processor + builder
-* [ ] mlx-lm: replace mapping; compose processors; whitelist extra params
-* [ ] mlx-vlm: route via processors; remove no-op kwargs
-* [ ] responses: pass-through repetition fields
-* [ ] tests: unit + smoke
-* [ ] docs: new params + migration note
+* [x] schema: add repetition fields + standard_fields update
+* [x] shared module: bias normalization + presence/frequency processor + builder
+* [x] mlx-lm: replace mapping; compose processors; whitelist extra params
+* [x] mlx-vlm: route via processors; remove no-op kwargs
+* [x] responses: pass-through repetition fields
+* [x] tests: unit (smoke test deferred; would require a tiny model fixture)
+* [x] docs: new params + migration note

@@ -13,6 +13,7 @@ from PIL import Image
 from rich.markup import escape
 
 from ...utils.logger import logger
+from ..logits_processors.penalties import build_logits_processors
 from ..models.models_service import MlxModelCache
 from ..schema import (
     ChatCompletionChoice,
@@ -920,13 +921,14 @@ class MlxVlmModel(BaseTextModel):
             or self._default_max_tokens,
             "temperature": (request.temperature if request.temperature is not None else 0.6),
             "top_p": request.top_p if request.top_p is not None else 1.0,
-            "frequency_penalty": (
-                request.frequency_penalty if request.frequency_penalty is not None else 0.0
-            ),
-            "presence_penalty": (
-                request.presence_penalty if request.presence_penalty is not None else 0.0
-            ),
         }
+        processors = build_logits_processors(
+            request,
+            tokenizer,
+            prompt_tokens=full_prompt_tokens,
+        )
+        if processors:
+            generate_kwargs["logits_processors"] = processors
         if cached_count > 0:
             input_ids = mx.array([prompt_tokens], dtype=mx.int32)
             generate_kwargs.update(

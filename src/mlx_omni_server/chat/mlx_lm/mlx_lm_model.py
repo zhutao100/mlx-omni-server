@@ -1,15 +1,15 @@
-import logging
 import time
 import uuid
 from typing import Any, Callable, Dict, Generator
 
 import mlx.core as mx
 from mlx_lm.generate import GenerationCancelled, GenerationResponse, stream_generate
-from mlx_lm.sample_utils import make_logits_processors, make_sampler
+from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.markup import escape
 
 from ...utils.logger import logger
+from ..logits_processors.penalties import build_logits_processors
 from ..models.models_service import MlxModelCache
 from ..schema import (
     ChatCompletionChoice,
@@ -33,7 +33,6 @@ from ..utils import (
     safe_decode_token,
     safe_encode_prompt,
 )
-from .json_logits_processor import JsonLogitsProcessor
 from .prompt_cache import PromptCache, PromptCacheManager
 
 
@@ -122,6 +121,7 @@ class MlxLmModel(BaseTextModel):
         model_kwargs = {}
         generate_kwargs = {}
         template_kwargs = {}
+        dropped_generate_kwargs: list[str] = []
 
         for key, value in params.items():
             if key in sampler_params:
@@ -131,9 +131,29 @@ class MlxLmModel(BaseTextModel):
             elif key in template_params:
                 template_kwargs[key] = value
             elif key in incompatible_params:
-                logging.warning(f"Generation parameter '{key} : {value}' is not supported, dropping.")
+                logger.warning(
+                    "Generation parameter '%s: %s' is not supported; dropping.", key, value
+                )
             else:
-                generate_kwargs[key] = value
+                # Whitelist generate_step / speculative_generate_step kwargs that we explicitly support.
+                if key in {
+                    "max_kv_size",
+                    "prefill_step_size",
+                    "kv_bits",
+                    "kv_group_size",
+                    "quantized_kv_start",
+                    "num_draft_tokens",
+                }:
+                    generate_kwargs[key] = value
+                else:
+                    dropped_generate_kwargs.append(key)
+
+        if dropped_generate_kwargs:
+            dropped_generate_kwargs.sort()
+            logger.warning(
+                "Dropping unsupported generation parameter(s): %s",
+                ", ".join(dropped_generate_kwargs),
+            )
 
         return {
             "sampler_kwargs": sampler_kwargs,
@@ -258,16 +278,13 @@ class MlxLmModel(BaseTextModel):
         )
 
         # Setup logits processors
-        if request.response_format and request.response_format.json_schema:
-            generate_kwargs["logits_processors"] = [
-                JsonLogitsProcessor(
-                    tokenizer, request.response_format
-                )
-            ]
-        elif request.presence_penalty:
-            generate_kwargs["logits_processors"] = make_logits_processors(
-                repetition_penalty=request.presence_penalty
-            )
+        processors = build_logits_processors(
+            request,
+            tokenizer,
+            prompt_tokens=tokenized_prompt,
+        )
+        if processors:
+            generate_kwargs["logits_processors"] = processors
 
         # Calculate max tokens for completion
         generate_kwargs["max_tokens"] = (

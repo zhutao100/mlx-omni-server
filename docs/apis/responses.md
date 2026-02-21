@@ -55,6 +55,16 @@ response = client.responses.create(
 )
 ```
 
+## Penalties and `logit_bias`
+
+The Responses API is a shim over Chat Completions, so the same knobs are supported and passed through:
+
+- `presence_penalty` / `frequency_penalty` (default `0` via Chat): additive, count-based penalties.
+- `repetition_penalty` (default `1.0`, disabled) and `repetition_context_size` (default `20`): HF-style repetition penalty.
+- `logit_bias` (default `null`): OpenAI-format token-id-as-string mapping.
+
+Migration note: older builds incorrectly treated `presence_penalty` as `repetition_penalty` for text-only models. If you used `presence_penalty` to reduce repetition, switch to `repetition_penalty`.
+
 ## Reasoning envelopes (`include=["reasoning.encrypted_content"]`)
 
 Some clients (notably tool-loop clients) need a way to carry “reasoning continuity” across turns without requiring the client to round-trip internal reasoning fields inside chat messages.

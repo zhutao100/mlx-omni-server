@@ -1,4 +1,4 @@
-## What `docs/dev_plans/align_penalty_parameters/context.md` is establishing
+## What `docs/archive/dev_plans/align_penalty_parameters/context.md` is establishing
 
 That context doc is essentially a taxonomy + “don’t mix semantics” warning:
 

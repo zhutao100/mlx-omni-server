@@ -324,6 +324,8 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = Field(0, ge=-2.0, le=2.0)
     frequency_penalty: Optional[float] = Field(0, ge=-2.0, le=2.0)
     logit_bias: Optional[Dict[str, float]] = None
+    repetition_penalty: Optional[float] = Field(1.0, gt=0.0)
+    repetition_context_size: Optional[int] = Field(20, ge=1)
     logprobs: Optional[bool] = False
     top_logprobs: Optional[int] = Field(
         None,
@@ -418,6 +420,8 @@ class ChatCompletionRequest(BaseModel):
                 "presence_penalty",
                 "frequency_penalty",
                 "logit_bias",
+                "repetition_penalty",
+                "repetition_context_size",
                 "logprobs",
                 "top_logprobs",
                 "n",
