@@ -368,7 +368,7 @@ class ChatCompletionRequest(BaseModel):
         if not self.tools:
             return self
 
-        normalized_tools: list[ChatCompletionTool] = []
+        normalized_tools: list[Tool] = []
         for tool in self.tools:
             if isinstance(tool, CustomTool):
                 params = _custom_tool_shim_parameters(existing=None)

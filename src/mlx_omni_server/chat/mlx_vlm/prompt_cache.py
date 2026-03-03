@@ -106,27 +106,6 @@ class PromptCache:
         return prompt, 0
 
 
-def get_vlm_cache_config(model_name: str) -> dict:
-    """
-    Get VLM-specific cache configuration based on model type.
-    """
-    vlm_models = {
-        "llava": {"max_caches": 5, "multimodal_ratio": 0.4},
-        "bakllava": {"max_caches": 4, "multimodal_ratio": 0.3},
-        "cogvlm": {"max_caches": 3, "multimodal_ratio": 0.5},
-        "qwen-vl": {"max_caches": 6, "multimodal_ratio": 0.4},
-        "paligemma": {"max_caches": 4, "multimodal_ratio": 0.3},
-    }
-
-    # Check if this is a VLM model
-    for vlm_key in vlm_models:
-        if vlm_key in model_name.lower():
-            return vlm_models[vlm_key]
-
-    # Default configuration for non-VLM models
-    return {"max_caches": 10, "multimodal_ratio": 0.1}
-
-
 class PromptCacheManager:
     """
     Manager that keeps multiple PromptCache branches (LRU-evicted) and selects
@@ -134,11 +113,10 @@ class PromptCacheManager:
     original caches) and reuses caches for append/extend flows.
     """
 
-    def __init__(self, max_position_embeddings: int, max_caches: int):
+    def __init__(self, max_position_embeddings: int, max_caches: int = 2):
         self.max_position_embeddings = max_position_embeddings
         self.caches: "OrderedDict[CacheKey, PromptCache]" = OrderedDict()
         self.max_caches = max_caches
-        self.multimodal_cache_ratio = 0.3  # Reserve 30% of cache slots for multimodal content
 
     def _evict_if_needed(self):
         """

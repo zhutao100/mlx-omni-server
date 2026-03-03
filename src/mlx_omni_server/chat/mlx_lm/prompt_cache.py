@@ -175,7 +175,7 @@ class PromptCacheManager:
     original caches) and reuses caches for append/extend flows.
     """
 
-    def __init__(self, max_position_embeddings: int, max_caches: int):
+    def __init__(self, max_position_embeddings: int, max_caches: int = 2):
         self.max_position_embeddings = max_position_embeddings
         self.caches: "OrderedDict[CacheKey, PromptCache]" = OrderedDict()
         self.max_caches = max_caches

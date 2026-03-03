@@ -34,7 +34,7 @@ from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import convert_prompt_to_str, safe_encode_prompt
 from .media_processor import MediaProcessor
-from .prompt_cache import PromptCache, PromptCacheManager, get_vlm_cache_config
+from .prompt_cache import PromptCache, PromptCacheManager
 
 
 class MlxVlmModel(BaseTextModel):
@@ -44,7 +44,17 @@ class MlxVlmModel(BaseTextModel):
         self._model_cache = model_cache
         self.media_processor = MediaProcessor()
         self.disable_auto_resize = kwargs.get("disable_auto_resize", False)
-        self.context_length = kwargs.get("context_length", 65536)
+        self._model_config = self._model_cache.model_config or {}
+        if "max_position_embeddings" in self._model_config and isinstance(
+            self._model_config["max_position_embeddings"], int
+        ):
+            max_context_length = self._model_config["max_position_embeddings"]
+        else:
+            max_context_length = 131072
+            logger.warning(
+                f"Invalid or missing max_position_embeddings in model config: {self._model_config}\n"
+                f"Use default max_position_embeddings: {max_context_length}"
+            )
 
         # Import here to avoid circular imports
         from .model_types import load_tools_handler
@@ -60,11 +70,7 @@ class MlxVlmModel(BaseTextModel):
         self.model_created = int(time.time())
 
         # Initialize prompt cache manager
-        cache_config = get_vlm_cache_config(model_cache.model_id.name)
-        self._prompt_cache_manager = PromptCacheManager(
-            max_position_embeddings=self.context_length,
-            max_caches=cache_config.get("max_caches", 5),
-        )
+        self._prompt_cache_manager = PromptCacheManager(max_position_embeddings=max_context_length)
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
         self._generation_lock = threading.Lock()
