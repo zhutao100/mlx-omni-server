@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
@@ -37,6 +38,11 @@ ChatTemplateFunc = Callable[[str], Optional[str]]
 _CHAT_TEMPLATES_BASE = ("chat", "templates")
 
 
+class ModelLabel(Enum):
+    LM = auto()
+    VLM = auto()
+
+
 def _load_chat_template_file(template_filename: str) -> str | None:
     resource_parts = (*_CHAT_TEMPLATES_BASE, template_filename)
     resource_identifier = "/".join(resource_parts)
@@ -54,6 +60,8 @@ def load_lm_chat_template(model_type: str) -> str | None:
     template_files = {
         "qwen3": "qwen3_chat_template.jinja",
         "qwen3_moe": "qwen3_chat_template.jinja",
+        "qwen3_5": "qwen3_5_chat_template.jinja",
+        "qwen3_5_moe": "qwen3_5_chat_template.jinja",
         "glm4": "glm4_chat_template.jinja",
         "glm4_moe": "glm4_chat_template.jinja",
         "glm4_moe_lite": "glm4_chat_template.jinja",
@@ -68,6 +76,8 @@ def load_vlm_chat_template(model_type: str) -> str | None:
     """Load chat template based on model type for VLM models."""
     template_files = {
         "glm4v_moe": "glm4v_chat_template.jinja",
+        "qwen3_5": "qwen3_5_chat_template.jinja",
+        "qwen3_5_moe": "qwen3_5_chat_template.jinja",
     }
     template_name = template_files.get(model_type)
     if not template_name:
@@ -183,6 +193,7 @@ class MlxModelCache:
     tokenizer: TokenizerType = field(init=False)
     draft_model: Optional[ModelModule] = None
     draft_tokenizer: Optional[TokenizerType] = None
+    model_label: ModelLabel = field(init=False)
 
     def __post_init__(self) -> None:
         self._load_model()
@@ -194,7 +205,7 @@ class MlxModelCache:
         tokenizer_config: Dict[str, Any] = {"trust_remote_code": True}
         chat_template = load_chat_template_func(self.model_type)
         if chat_template:
-            logger.debug("Applying chat template for model type '%s'", self.model_type)
+            logger.debug("Applying custom chat template for model type '%s'", self.model_type)
             tokenizer_config["chat_template"] = chat_template
         return tokenizer_config, chat_template
 
@@ -232,10 +243,9 @@ class MlxModelCache:
         self,
         loader_func: LoaderFunc,
         load_chat_template_func: ChatTemplateFunc,
-        model_label: str,
     ) -> None:
         """Generic loader for LM/VLM models."""
-        logger.info(f"Loading {model_label} model {self.model_id.name}")
+        logger.info(f"Loading {self.model_label.name} model: {self.model_id.name}")
         tokenizer_config, chat_template = self._setup_tokenizer_config(load_chat_template_func)
 
         loader_kwargs: Dict[str, Any] = {"adapter_path": self.model_id.adapter_path}
@@ -248,7 +258,7 @@ class MlxModelCache:
             self.model_id.name,
             **loader_kwargs,
         )
-        logger.info(f"Loaded {model_label} model: {self.model_id.name}")
+        logger.info(f"Loaded {self.model_label.name} model: {self.model_id.name}")
         self._load_draft_model(loader_func, tokenizer_config)
 
     def _load_model(self) -> None:
@@ -267,15 +277,17 @@ class MlxModelCache:
         lm_supported = _is_model_supported_by_module(self.model_type, MLX_LM_MODULE)
         vlm_supported = _is_model_supported_by_module(self.model_type, MLX_VLM_MODULE)
 
-        if vlm_supported:
-            self._load_model_generic(vlm_load, load_vlm_chat_template, "VLM")
-        else:  # LM preferred if both or fallback
+        if vlm_supported:  # Prefer VLM loader if both claim support, as VLMs are more specialized
+            self.model_label = ModelLabel.VLM
+            self._load_model_generic(vlm_load, load_vlm_chat_template)
+        else:
             if not lm_supported:
                 logger.warning(
                     "Model type '%s' not explicitly supported, attempting LM loader",
                     self.model_type or raw_model_type,
                 )
-            self._load_model_generic(lm_load, load_lm_chat_template, "LM")
+            self.model_label = ModelLabel.LM
+            self._load_model_generic(lm_load, load_lm_chat_template)  # type: ignore
 
 
 class ModelCacheScanner:

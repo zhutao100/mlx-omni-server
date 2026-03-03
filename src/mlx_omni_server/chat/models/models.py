@@ -1,6 +1,5 @@
 import gc
 from threading import Lock
-from typing import Optional
 
 from mlx.core import clear_cache
 
@@ -8,7 +7,7 @@ from ...utils.logger import logger
 from ..mlx_lm.mlx_lm_model import MlxLmModel
 from ..mlx_vlm.mlx_vlm_model import MlxVlmModel
 from ..text_models import BaseTextModel
-from .models_service import MlxModelCache, ModelId
+from .models_service import MlxModelCache, ModelId, ModelLabel
 
 
 class MlxModelCacheManager:
@@ -35,40 +34,36 @@ class MlxModelCacheManager:
                 self._model_cache is None
                 or self._model_cache.model_id != model_id
             ):
+                logger.info(f"Loading new model with ID: {model_id}")
                 # Release old models first
                 self._release()
 
-                # Create new caches
                 self._model_cache = MlxModelCache(model_id)
-
-                # Determine if this is a VLM or LM model based on the model config
-                if self._is_vlm_model(self._model_cache):
-                    self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
-                else:
-                    self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+                match self._model_cache.model_label:
+                    case ModelLabel.VLM:
+                        self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
+                    case ModelLabel.LM:
+                        self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+                    case _:
+                        raise ValueError(
+                            f"Unexpected model label: {self._model_cache.model_label} for model_id: {model_id}"
+                        )
             else:
                 if not self._mlx_model:
                     logger.error("Unexpected: model cache exists but model is missing.")
                     self._model_cache = MlxModelCache(model_id)
-                    # Determine if this is a VLM or LM model based on the model config
-                    if self._is_vlm_model(self._model_cache):
-                        self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
-                    else:
-                        self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+                    match self._model_cache.model_label:
+                        case ModelLabel.VLM:
+                            self._mlx_model = MlxVlmModel(model_cache=self._model_cache)
+                        case ModelLabel.LM:
+                            self._mlx_model = MlxLmModel(model_cache=self._model_cache)
+                        case _:
+                            raise ValueError(
+                                f"Unexpected model label: {self._model_cache.model_label} for model_id: {model_id}"
+                            )
 
             return self._mlx_model
 
-    def _is_vlm_model(self, model_cache: MlxModelCache) -> bool:
-        """Determine if the model is a VLM model based on its configuration."""
-        # Check if model is supported by mlx_vlm but not mlx_lm
-        from ..models.models_service import (
-            MLX_VLM_MODULE,
-            _is_model_supported_by_module,
-        )
-
-        vlm_supported = _is_model_supported_by_module(model_cache.model_type, MLX_VLM_MODULE)
-
-        return vlm_supported
 
     def _release(self):
         """Release current models and force memory cleanup."""

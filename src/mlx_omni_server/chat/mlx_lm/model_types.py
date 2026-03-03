@@ -19,6 +19,8 @@ def load_tools_handler(model_type: str, tokenizer) -> ChatTokenizer:
         "qwen2": HuggingFaceChatTokenizer,
         "qwen3": Qwen3ChatTokenizer,
         "qwen3_moe": Qwen3ChatTokenizer,
+        "qwen3_5": Qwen3ChatTokenizer,
+        "qwen3_5_moe": Qwen3ChatTokenizer,
         "glm4": Glm4ChatTokenizer,
         "glm4_moe": Glm4ChatTokenizer,
         "glm4_moe_lite": Glm4ChatTokenizer,
