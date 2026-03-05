@@ -2,14 +2,15 @@ import time
 import uuid
 from typing import Any, Callable, Dict, Generator
 
-import mlx.core as mx
 from mlx_lm.generate import GenerationCancelled, GenerationResponse, stream_generate
 from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.markup import escape
 
 from ...utils.logger import logger
+from ..generation_params import LM_GENERATE_STEP_PARAM_KEYS, split_generation_params
 from ..logits_processors.penalties import build_logits_processors
+from ..logprobs_utils import process_logprobs_for_token
 from ..models.models_service import MlxModelCache
 from ..schema import (
     ChatCompletionChoice,
@@ -27,12 +28,7 @@ from ..text_models import BaseTextModel, GenerateResult, GenerationParams
 from ..tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from ..tools.chat_tokenizer import ChatTokenizer
 from ..tools.tokens_decoder import ReasoningDecoder
-from ..utils import (
-    normalize_to_list,
-    normalize_token,
-    safe_decode_token,
-    safe_encode_prompt,
-)
+from ..utils import safe_encode_prompt
 from .prompt_cache import PromptCache, PromptCacheManager
 
 
@@ -79,86 +75,10 @@ class MlxLmModel(BaseTextModel):
     def _get_generation_params(
         self, request: ChatCompletionRequest
     ) -> GenerationParams:
-        params = request.get_extra_params()
-
-        # All params declare in `make_sampler`
-        sampler_params = {
-            "top_k",
-            "min_tokens_to_keep",
-            "min_p",
-            "xtc_probability",
-            "xtc_threshold",
-            "xtc_special_tokens",
-        }
-        # Knowned params using in model config
-        model_params = {
-            "adapter_path",
-            "draft_model",
-            # Additional config for `apply_chat_template`
-            "chat_template_config",
-        }
-        # Quick template params, same param will be overrided by `chat_template_config`
-        template_params = {
-            # Qwen3
-            "enable_thinking",
-            "thinking_budget",
-            # Claude
-            "thinking",
-            # Gemini
-            "thinkingConfig",
-            # Grok
-            "reasoning_effort",
-            # Others
-            "reasoning",
-        }
-        incompatible_params = {
-            "include",
-        }
-
-        sampler_kwargs = {}
-        model_kwargs = {}
-        generate_kwargs = {}
-        template_kwargs = {}
-        dropped_generate_kwargs: list[str] = []
-
-        for key, value in params.items():
-            if key in sampler_params:
-                sampler_kwargs[key] = value
-            elif key in model_params:
-                model_kwargs[key] = value
-            elif key in template_params:
-                template_kwargs[key] = value
-            elif key in incompatible_params:
-                logger.warning(
-                    "Generation parameter '%s: %s' is not supported; dropping.", key, value
-                )
-            else:
-                # Whitelist generate_step / speculative_generate_step kwargs that we explicitly support.
-                if key in {
-                    "max_kv_size",
-                    "prefill_step_size",
-                    "kv_bits",
-                    "kv_group_size",
-                    "quantized_kv_start",
-                    "num_draft_tokens",
-                }:
-                    generate_kwargs[key] = value
-                else:
-                    dropped_generate_kwargs.append(key)
-
-        if dropped_generate_kwargs:
-            dropped_generate_kwargs.sort()
-            logger.warning(
-                "Dropping unsupported generation parameter(s): %s",
-                ", ".join(dropped_generate_kwargs),
-            )
-
-        return {
-            "sampler_kwargs": sampler_kwargs,
-            "model_kwargs": model_kwargs,
-            "generate_kwargs": generate_kwargs,
-            "template_kwargs": template_kwargs,
-        }
+        return split_generation_params(
+            request.get_extra_params(),
+            supported_generate_params=LM_GENERATE_STEP_PARAM_KEYS,
+        )
 
     def _process_logprobs(
         self,
@@ -167,36 +87,12 @@ class MlxLmModel(BaseTextModel):
         top_k: int | None,
     ) -> Dict[str, Any] | None:
         """Process logprobs information from generation response to match OpenAI format."""
-        current_token = response.token
-        current_logprobs = response.logprobs
-
-        # Decode current token safely
-        token_str = normalize_token(safe_decode_token(tokenizer, current_token))
-        token_logprob = mx.clip(current_logprobs[current_token], a_min=-100, a_max=None).item()
-        token_bytes = token_str.encode("utf-8")
-
-        token_info = {
-            "token": token_str,
-            "logprob": token_logprob,
-            "bytes": list(token_bytes),
-        }
-
-        top_logprobs: list[Dict[str, Any]] = []
-        if top_k is not None:
-            top_indices = mx.argpartition(-current_logprobs, kth=top_k - 1)[:top_k]
-            top_probs = mx.clip(current_logprobs[top_indices], a_min=-100, a_max=None)
-
-            top_indices_list = normalize_to_list(top_indices, int)
-            top_probs_list = normalize_to_list(top_probs, float)
-
-            for idx, logprob in zip(top_indices_list, top_probs_list):
-                token = normalize_token(safe_decode_token(tokenizer, idx))
-                token_bytes = token.encode("utf-8")
-                top_logprobs.append(
-                    {"token": token, "logprob": logprob, "bytes": list(token_bytes)}
-                )
-
-        return {**token_info, "top_logprobs": top_logprobs}
+        return process_logprobs_for_token(
+            tokenizer,
+            token_id=int(response.token),
+            token_logprobs=response.logprobs,
+            top_k=top_k,
+        )
 
     def _prepare_generation(
         self,

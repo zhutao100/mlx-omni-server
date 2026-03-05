@@ -1,7 +1,5 @@
-import json
-import logging
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Any
 
 import regex
 from mlx_lm.tokenizer_utils import TokenizerWrapper
@@ -11,6 +9,10 @@ from mlx_omni_server.chat.tools.tool_parser import BaseToolParser
 
 from ...utils.logger import logger
 from ..schema import ChatMessage, Role, Tool, ToolChoice, ToolChoiceType
+from .template_utils import (
+    normalize_tool_calls_for_template,
+    normalize_tools_for_template,
+)
 
 
 class ChatTokenizer(ABC):
@@ -21,30 +23,6 @@ class ChatTokenizer(ABC):
     def __init__(self, tokenizer: TokenizerWrapper, thinking_tag: str = "think"):
         self.tokenizer = tokenizer
         self.thinking_tag: str = thinking_tag
-
-    def _ensure_dict_arguments(self, tools: list[Dict]) -> list[Dict]:
-        """Ensure that all tool arguments are in dict format rather than JSON strings.
-
-        This prevents unsafe JSON parsing in Jinja2 templates.
-        """
-        if not tools:
-            return tools
-
-        processed_tools = []
-        for tool in tools:
-            processed_tool = tool.copy()
-            if 'function' in processed_tool and 'arguments' in processed_tool['function']:
-                args = processed_tool['function']['arguments']
-                # If arguments is a JSON string, parse it to dict
-                if isinstance(args, str):
-                    try:
-                        processed_tool['function']['arguments'] = json.loads(args)
-                    except (json.JSONDecodeError, TypeError):
-                        # If parsing fails, leave as is but log warning
-                        logging.warning(f"Failed to parse tool arguments as JSON: {args[:100]}...")
-                # If arguments is already a dict, leave as is
-            processed_tools.append(processed_tool)
-        return processed_tools
 
     def encode(
         self,
@@ -62,7 +40,7 @@ class ChatTokenizer(ABC):
         if tools:
             # Convert tools to schema format and ensure arguments are dicts
             schema_tools = [tool.model_dump(exclude_none=True) for tool in tools]
-            schema_tools = self._ensure_dict_arguments(schema_tools)
+            schema_tools = normalize_tools_for_template(schema_tools)
 
         should_prefill = messages[-1].role == Role.ASSISTANT
 
@@ -76,18 +54,9 @@ class ChatTokenizer(ABC):
                     if item.get("type") == "text"
                 )
 
-            # Process tool calls in assistant messages to ensure arguments are dicts
-            if msg_dict.get("role") == "assistant" and "tool_calls" in msg_dict:
-                for tool_call in msg_dict["tool_calls"]:
-                    if "function" in tool_call and "arguments" in tool_call["function"]:
-                        args = tool_call["function"]["arguments"]
-                        if isinstance(args, str):
-                            try:
-                                tool_call["function"]["arguments"] = json.loads(args)
-                            except (json.JSONDecodeError, TypeError):
-                                logging.warning(f"Failed to parse tool call arguments as JSON: {args[:100]}...")
-
             conversation.append(msg_dict)
+
+        normalize_tool_calls_for_template(conversation)
 
         apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
         if not callable(apply_chat_template):
@@ -122,6 +91,9 @@ class ChatTokenizer(ABC):
                 prompt += self.tool_parser.tool_call_start_token
 
         return prompt
+
+    def _ensure_dict_arguments(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return normalize_tools_for_template(tools)
 
     @abstractmethod
     def decode_stream(self, delta_text: str, tools: list[Tool] | None = None) -> ChatMessage | None:

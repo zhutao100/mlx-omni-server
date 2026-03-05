@@ -209,6 +209,28 @@ class MlxModelCache:
             tokenizer_config["chat_template"] = chat_template
         return tokenizer_config, chat_template
 
+    def _apply_chat_template_override(self, chat_template: str) -> None:
+        if not chat_template:
+            return
+
+        candidates = [self.tokenizer]
+        inner_tokenizer = getattr(self.tokenizer, "tokenizer", None)
+        if inner_tokenizer is not None:
+            candidates.append(inner_tokenizer)
+
+        applied = False
+        for candidate in candidates:
+            try:
+                setattr(candidate, "chat_template", chat_template)
+                applied = True
+            except Exception:
+                continue
+
+        if not applied:
+            logger.warning(
+                "Unable to apply custom chat template for model type '%s'.", self.model_type
+            )
+
     def _load_draft_model(
         self,
         load_func: LoaderFunc,
@@ -252,12 +274,18 @@ class MlxModelCache:
         if loader_func is lm_load:
             loader_kwargs["tokenizer_config"] = tokenizer_config
         else:
-            loader_kwargs["trust_remote_code"] = True
+            # `mlx_vlm.utils.load()` does not accept a nested `tokenizer_config` dict.
+            # It forwards keyword arguments directly to `AutoProcessor.from_pretrained(...)`,
+            # so pass tokenizer-related overrides (e.g. `trust_remote_code`, `chat_template`)
+            # at the top level.
+            loader_kwargs.update(tokenizer_config)
 
         self.model, self.tokenizer = loader_func(
             self.model_id.name,
             **loader_kwargs,
         )
+        if chat_template:
+            self._apply_chat_template_override(chat_template)
         logger.info(f"Loaded {self.model_label.name} model: {self.model_id.name}")
         self._load_draft_model(loader_func, tokenizer_config)
 

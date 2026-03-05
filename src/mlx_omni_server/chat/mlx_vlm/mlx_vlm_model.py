@@ -7,13 +7,17 @@ import uuid
 from typing import Any, Callable, Generator, Tuple
 
 import mlx.core as mx
+from mlx_lm.generate import GenerationCancelled
+from mlx_lm.sample_utils import make_sampler
 from mlx_vlm import stream_generate
 from mlx_vlm.prompt_utils import apply_chat_template, get_chat_template
 from PIL import Image
 from rich.markup import escape
 
 from ...utils.logger import logger
+from ..generation_params import VLM_GENERATE_STEP_PARAM_KEYS, split_generation_params
 from ..logits_processors.penalties import build_logits_processors
+from ..logprobs_utils import process_logprobs_for_token
 from ..models.models_service import MlxModelCache
 from ..schema import (
     ChatCompletionChoice,
@@ -31,6 +35,10 @@ from ..schema import (
 from ..text_models import BaseTextModel, GenerateResult
 from ..tool_loop_reasoning_cache import tool_loop_reasoning_cache
 from ..tools.chat_tokenizer import ChatTokenizer
+from ..tools.template_utils import (
+    normalize_tool_calls_for_template,
+    normalize_tools_for_template,
+)
 from ..tools.tokens_decoder import ReasoningDecoder
 from ..utils import convert_prompt_to_str, safe_encode_prompt
 from .media_processor import MediaProcessor
@@ -74,6 +82,26 @@ class MlxVlmModel(BaseTextModel):
         self._prompt_cache_tokens_count = 0
         self._default_max_tokens = 1048576
         self._generation_lock = threading.Lock()
+
+    @staticmethod
+    def _coerce_bool_param(value: Any, *, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, int):
+            if value == 0:
+                return False
+            if value == 1:
+                return True
+            return default
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "y", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "n", "off"}:
+                return False
+        return default
 
     def _encode_prompt_tokens(
         self,
@@ -182,18 +210,24 @@ class MlxVlmModel(BaseTextModel):
                 last_token = 0
                 prompt_tokens_processed = 0
                 generation_tokens = 0
+                logprobs_result_list: list[dict[str, Any] | None] = []
 
-                for chunk in self._stream_generate(request=request):
+                for chunk in self._stream_generate(request=request, should_cancel=should_cancel):
                     if chunk.text:
                         text += chunk.text
                     if chunk.finish_reason is None:
                         last_token = chunk.token
+                        if request.logprobs:
+                            logprobs_result_list.append(chunk.logprobs)
                     prompt_tokens_processed = chunk.prompt_tokens
                     generation_tokens = chunk.generation_tokens
 
                 # Force garbage collection
                 gc.collect()
 
+                choice_logprobs = (
+                    {"content": logprobs_result_list} if logprobs_result_list else None
+                )
                 result = GenerateResult(
                     text=text,
                     token=last_token,
@@ -204,7 +238,9 @@ class MlxVlmModel(BaseTextModel):
                 )
 
                 # Convert to ChatCompletionResponse format
-                return self._format_response(result, request.model, request)
+                return self._format_response(
+                    result, request.model, request, choice_logprobs=choice_logprobs
+                )
 
             except ValueError as e:
                 logger.error(f"Validation error in VLM generation: {e}")
@@ -250,7 +286,7 @@ class MlxVlmModel(BaseTextModel):
                 result: GenerateResult | None = None
                 raw_completion = ""
 
-                for result in self._stream_generate(request=request):
+                for result in self._stream_generate(request=request, should_cancel=should_cancel):
                     if not result.text:
                         continue
                     raw_completion += result.text
@@ -427,122 +463,98 @@ class MlxVlmModel(BaseTextModel):
         Raises:
             ValueError: If there are too many images or audio files in a single message
         """
-        chat_messages = []
-        image_urls = []
-        audio_urls = []
+        chat_messages: list[dict[str, Any]] = []
+        image_urls: list[str] = []
+        audio_urls: list[str] = []
+
+        def _extract_text_only(content: Any) -> str:
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                texts: list[str] = []
+                for item in content:
+                    if isinstance(item, MultimodalContentItem) and item.type == "text":
+                        text = (item.text or "").strip()
+                        if text:
+                            texts.append(text)
+                    elif isinstance(item, dict) and item.get("type") == "text":
+                        text = str(item.get("text") or "").strip()
+                        if text:
+                            texts.append(text)
+                return " ".join(texts)
+            if content is None:
+                return ""
+            raise ValueError("Invalid message content format")
 
         try:
             # Process each message in the request
             for message in request.messages:
-                if message.role in ["system", "assistant"]:
-                    # Handle simple string content for system and assistant messages
-                    if isinstance(message.content, str):
-                        msg: dict[str, Any] = {
-                            "role": message.role,
-                            "content": message.content,
-                        }
-                        if message.role == Role.ASSISTANT and message.reasoning is not None:
-                            msg["reasoning_content"] = message.reasoning
-                        chat_messages.append(msg)
-                    # Handle list of content items (though this is unusual for system/assistant)
-                    elif isinstance(message.content, list):
-                        texts = []
-                        for item in message.content:
-                            if isinstance(item, MultimodalContentItem) and item.type == "text":
-                                text = getattr(item, "text", "").strip()
-                                if text:
-                                    texts.append(text)
-                            elif isinstance(item, dict) and item.get("type") == "text":
-                                text = item.get("text", "").strip()
-                                if text:
-                                    texts.append(text)
-                        if texts:
-                            msg = {"role": message.role, "content": " ".join(texts)}
-                            if message.role == Role.ASSISTANT and message.reasoning is not None:
-                                msg["reasoning_content"] = message.reasoning
-                            chat_messages.append(msg)
-                    continue
+                msg = message.model_dump(exclude_none=True)
+                role = msg.get("role", Role.USER)
 
-                if message.role == "user":
-                    # Case 1: Simple string content
+                if role == Role.USER:
                     if isinstance(message.content, str):
-                        chat_messages.append({"role": "user", "content": message.content})
+                        msg["content"] = message.content
+                        chat_messages.append(msg)
                         continue
 
-                    # Case 2: Content is a list of dictionaries or objects
                     if isinstance(message.content, list):
-                        # Initialize containers for this message
-                        texts = []
-                        images = []
-                        audios = []
+                        texts: list[str] = []
+                        images: list[str] = []
+                        audios: list[str] = []
 
-                        # Process each content item in the list
                         for item in message.content:
-                            # Handle MultimodalContentItem objects
                             if isinstance(item, MultimodalContentItem):
                                 if item.type == "text":
-                                    text = getattr(item, "text", "").strip()
+                                    text = (item.text or "").strip()
                                     if text:
                                         texts.append(text)
-                                elif item.type == "image_url":
-                                    url = getattr(item, "image_url", None)
-                                    if url:
-                                        # Handle ImageUrl objects
-                                        if hasattr(url, "url"):
-                                            url = url.url
-                                        images.append(url)
-                                elif item.type == "input_audio":
-                                    audio_input = getattr(item, "input_audio", None)
-                                    if audio_input and hasattr(audio_input, "data"):
-                                        audio_data = audio_input.data
-                                        audio_format = getattr(audio_input, "format", "mp3")
-                                        # Create data URL from audio data
-                                        audio_url = f"data:audio/{audio_format};base64,{audio_data}"
-                                        audios.append(audio_url)
-                            # Handle dictionary objects
+                                elif item.type == "image_url" and item.image_url is not None:
+                                    images.append(item.image_url.url)
+                                elif item.type == "input_audio" and item.input_audio is not None:
+                                    audio_data = item.input_audio.data
+                                    audio_format = item.input_audio.format or "mp3"
+                                    audios.append(f"data:audio/{audio_format};base64,{audio_data}")
                             elif isinstance(item, dict):
                                 if item.get("type") == "text":
-                                    text = item.get("text", "").strip()
+                                    text = str(item.get("text") or "").strip()
                                     if text:
                                         texts.append(text)
                                 elif item.get("type") == "image_url":
                                     url = item.get("image_url")
-                                    if url:
-                                        # Handle ImageUrl objects or URLs
-                                        if isinstance(url, dict) and "url" in url:
-                                            url = url["url"]
+                                    if isinstance(url, dict):
+                                        url = url.get("url")
+                                    if isinstance(url, str) and url:
                                         images.append(url)
                                 elif item.get("type") == "input_audio":
                                     audio_input = item.get("input_audio")
-                                    if audio_input and "data" in audio_input:
+                                    if isinstance(audio_input, dict) and "data" in audio_input:
                                         audio_data = audio_input["data"]
-                                        audio_format = audio_input.get("format", "mp3")
-                                        # Create data URL from audio data
-                                        audio_url = f"data:audio/{audio_format};base64,{audio_data}"
-                                        audios.append(audio_url)
+                                        audio_format = audio_input.get("format") or "mp3"
+                                        audios.append(
+                                            f"data:audio/{audio_format};base64,{audio_data}"
+                                        )
 
-                        # Add collected media to global lists
                         if images:
-                            image_urls.extend(images)
-                            # Validate constraints
                             if len(images) > 4:
                                 raise ValueError("Too many images in a single message (max: 4)")
+                            image_urls.extend(images)
 
                         if audios:
-                            audio_urls.extend(audios)
-                            # Validate constraints
                             if len(audios) > 2:
                                 raise ValueError(
                                     "Too many audio files in a single message (max: 2)"
                                 )
+                            audio_urls.extend(audios)
 
-                        # Add text content if available, otherwise use empty string
-                        if texts:
-                            chat_messages.append({"role": "user", "content": " ".join(texts)})
-                        else:
-                            chat_messages.append({"role": "user", "content": ""})
-                    else:
-                        raise ValueError("Invalid message content format")
+                        msg["content"] = " ".join(texts) if texts else ""
+                        chat_messages.append(msg)
+                        continue
+
+                    raise ValueError("Invalid message content format")
+
+                msg["content"] = _extract_text_only(message.content)
+                chat_messages.append(msg)
 
             logger.debug(
                 f"Extracted {len(image_urls)} image URLs and {len(audio_urls)} audio URLs from request"
@@ -592,7 +604,12 @@ class MlxVlmModel(BaseTextModel):
             raise RuntimeError(f"Failed to prepare multimodal request: {str(e)}")
 
     def _format_response(
-        self, result: Any, model: str, request: ChatCompletionRequest
+        self,
+        result: Any,
+        model: str,
+        request: ChatCompletionRequest,
+        *,
+        choice_logprobs: dict[str, Any] | None = None,
     ) -> ChatCompletionResponse:
         """Format VLM response to match mlx-omni-server response format"""
         # Extract text from result
@@ -673,6 +690,7 @@ class MlxVlmModel(BaseTextModel):
                         if hasattr(message, "tool_calls") and message.tool_calls
                         else "stop"
                     ),
+                    logprobs=choice_logprobs,
                 )
             ],
             usage=ChatCompletionUsage(
@@ -701,6 +719,8 @@ class MlxVlmModel(BaseTextModel):
     def _stream_generate(
         self,
         request: ChatCompletionRequest,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> Generator[GenerateResult, None, None]:
         """Internal stream generation method that yields GenerateResult objects."""
         try:
@@ -718,6 +738,11 @@ class MlxVlmModel(BaseTextModel):
             prompt_tokens_processed = prompt_tokens_len
             detokenizer = getattr(tokenizer, "detokenizer", None)
             last_detokenized_text = ""
+            want_logprobs = bool(request.logprobs)
+            top_k = request.top_logprobs if want_logprobs else None
+
+            if should_cancel is not None and should_cancel():
+                raise GenerationCancelled()
 
             def detokenized_text() -> str:
                 if detokenizer is None:
@@ -755,6 +780,9 @@ class MlxVlmModel(BaseTextModel):
             for response in stream_generate(
                 model, tokenizer, formatted_prompt, **generate_kwargs  # type: ignore
             ):
+                if should_cancel is not None and should_cancel():
+                    raise GenerationCancelled()
+
                 token_id = getattr(response, "token", 0) or 0
                 generation_tokens = int(getattr(response, "generation_tokens", 0) or 0)
                 response_prompt_tokens = getattr(response, "prompt_tokens", None)
@@ -789,13 +817,27 @@ class MlxVlmModel(BaseTextModel):
                     if isinstance(fallback_text, str):
                         delta_text = fallback_text
 
+                logprobs = None
+                if want_logprobs:
+                    response_logprobs = getattr(response, "logprobs", None)
+                    if response_logprobs is not None:
+                        try:
+                            logprobs = process_logprobs_for_token(
+                                tokenizer,
+                                token_id=int(token_id),
+                                token_logprobs=response_logprobs,
+                                top_k=top_k,
+                            )
+                        except Exception:
+                            logprobs = None
+
                 yield GenerateResult(
                     text=delta_text,
                     token=int(token_id) if isinstance(token_id, int) else 0,
                     finish_reason=None,
                     prompt_tokens=prompt_tokens_processed,
                     generation_tokens=max(last_committed_generation_tokens, generation_tokens),
-                    logprobs=None,  # TODO: Implement logprobs processing if needed
+                    logprobs=logprobs,
                 )
 
                 # Force garbage collection periodically
@@ -844,7 +886,34 @@ class MlxVlmModel(BaseTextModel):
         # Process multimodal request
         chat_messages, image_paths, audio_paths = self._prepare_multimodal_request(request)
 
-        enable_thinking = getattr(request, "enable_thinking", True)
+        params = split_generation_params(
+            request.get_extra_params(),
+            supported_generate_params=VLM_GENERATE_STEP_PARAM_KEYS,
+        )
+        model_kwargs = params.get("model_kwargs", {})
+        template_kwargs = params.get("template_kwargs") | model_kwargs.get(
+            "chat_template_config", {}
+        )
+        for reserved in (
+            "add_generation_prompt",
+            "return_messages",
+            "num_images",
+            "num_audios",
+            "tokenize",
+        ):
+            template_kwargs.pop(reserved, None)
+
+        if request.tools:
+            schema_tools = normalize_tools_for_template(
+                [tool.model_dump(exclude_none=True) for tool in request.tools]
+            )
+            template_kwargs["tools"] = schema_tools
+
+        normalize_tool_calls_for_template(chat_messages)
+        enable_thinking = self._coerce_bool_param(
+            template_kwargs.get("enable_thinking"), default=True
+        )
+        template_kwargs["enable_thinking"] = enable_thinking
         self._reasoning_decoder.enable_thinking = enable_thinking
 
         # Prepare the prompt using the chat template
@@ -856,7 +925,7 @@ class MlxVlmModel(BaseTextModel):
             return_messages=True,
             num_images=len(image_paths) if image_paths else 0,
             num_audios=len(audio_paths) if audio_paths else 0,
-            enable_thinking=enable_thinking,
+            **template_kwargs,
         )
         # Normalize return type: ensure template_messages is a list[dict]
         if isinstance(template_messages, str):
@@ -864,9 +933,9 @@ class MlxVlmModel(BaseTextModel):
         elif template_messages is None:
             template_messages = []
         for src, dst in zip(chat_messages, template_messages):
-            reasoning_content = src.get("reasoning_content")
-            if reasoning_content is not None and dst.get("role") == Role.ASSISTANT:
-                dst["reasoning_content"] = reasoning_content
+            for key in ("name", "reasoning_content", "tool_calls", "tool_call_id"):
+                if key in src:
+                    dst[key] = src[key]
 
         model_type = str(getattr(model.config, "model_type", "") or "").lower()
         if model_type in {"paligemma", "molmo", "florence2"}:
@@ -878,9 +947,14 @@ class MlxVlmModel(BaseTextModel):
                     template_messages,
                     add_generation_prompt=True,
                     tokenize=False,
-                    enable_thinking=enable_thinking,
+                    **template_kwargs,
                 )
             )
+
+        if request.tools and request.tool_choice == "required":
+            tool_start = getattr(self._chat_tokenizer.tool_parser, "tool_call_start_token", "")
+            if isinstance(tool_start, str) and tool_start:
+                formatted_prompt += tool_start
 
         full_prompt_tokens = self._encode_prompt_tokens(
             tokenizer,
@@ -925,9 +999,15 @@ class MlxVlmModel(BaseTextModel):
             "max_tokens": request.max_completion_tokens
             or request.max_tokens
             or self._default_max_tokens,
-            "temperature": (request.temperature if request.temperature is not None else 0.6),
-            "top_p": request.top_p if request.top_p is not None else 1.0,
-        }
+        } | params.get("generate_kwargs", {})
+        sampler_kwargs = {
+            "temp": (0.6 if request.temperature is None else request.temperature),
+            "top_p": (1.0 if request.top_p is None else request.top_p),
+            "min_p": 0.0,
+            "min_tokens_to_keep": 1,
+            "top_k": -1,
+        } | params.get("sampler_kwargs", {})
+        generate_kwargs["sampler"] = make_sampler(**sampler_kwargs)
         processors = build_logits_processors(
             request,
             tokenizer,
