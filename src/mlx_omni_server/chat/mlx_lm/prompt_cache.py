@@ -271,13 +271,24 @@ class PromptCacheManager:
                 "Divergent prompt (common prefix=%d). Forking new branch.",
                 best_prefix_len,
             )
+            # Ensure we always leave at least one token to process so downstream
+            # generation never receives an empty prompt.
+            prefix_len = best_prefix_len
+            if prompt:
+                prefix_len = min(prefix_len, max(0, len(prompt) - 1))
+                if prefix_len != best_prefix_len:
+                    logger.debug(
+                        "Adjusting fork prefix from %d to %d to leave at least one token to process.",
+                        best_prefix_len,
+                        prefix_len,
+                    )
             if best_cache.cache and can_trim_prompt_cache(best_cache.cache):
                 try:
-                    forked = best_cache.clone_up_to(best_prefix_len, model_cache)
+                    forked = best_cache.clone_up_to(prefix_len, model_cache)
                 except Exception:
                     logger.exception(
                         "Failed to clone prompt cache at prefix_len=%d; falling back to cold cache.",
-                        best_prefix_len,
+                        prefix_len,
                     )
                     forked = None
             else:
@@ -292,10 +303,10 @@ class PromptCacheManager:
                 self._register_cache(cache_namespace, prompt, new_cache)
                 return new_cache, prompt, 0
 
-            suffix_tokens = prompt[best_prefix_len:]
+            suffix_tokens = prompt[prefix_len:]
             forked.session_key = cache_namespace
             self._register_cache(cache_namespace, prompt, forked)
-            return forked, suffix_tokens, best_prefix_len
+            return forked, suffix_tokens, prefix_len
 
         # No cache to reuse -> create brand-new cache
         logger.debug("No matching cache found; creating new.")
