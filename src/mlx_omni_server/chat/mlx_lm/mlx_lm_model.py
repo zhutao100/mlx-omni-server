@@ -147,7 +147,7 @@ class MlxLmModel(BaseTextModel):
 
         enable_thinking = template_kwargs.get("enable_thinking", True)
         self._reasoning_decoder.enable_thinking = enable_thinking
-        if enable_thinking and prompt.endswith(f"{self._reasoning_decoder.thinking_start_tag}"):
+        if enable_thinking and prompt.rstrip().endswith(self._reasoning_decoder.thinking_start_tag):
             self._reasoning_decoder.set_thinking_prefix(True)
         else:
             self._reasoning_decoder.set_thinking_prefix(False)

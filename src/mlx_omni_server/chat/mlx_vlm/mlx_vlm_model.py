@@ -1034,8 +1034,8 @@ class MlxVlmModel(BaseTextModel):
                 }
             )
 
-        if enable_thinking and formatted_prompt.endswith(
-            f"{self._reasoning_decoder.thinking_start_tag}"
+        if enable_thinking and formatted_prompt.rstrip().endswith(
+            self._reasoning_decoder.thinking_start_tag
         ):
             self._reasoning_decoder.set_thinking_prefix(True)
         else:
