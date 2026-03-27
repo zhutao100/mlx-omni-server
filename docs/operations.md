@@ -38,12 +38,19 @@ The server is configured via CLI flags (see `mlx-omni-server --help`):
   - request method/url + headers, plus a capped preview of textual request bodies,
   - response status/headers, plus a capped preview of textual response bodies.
   - For SSE (`text/event-stream`), binary media (for example `audio/*`), and attachments, it logs status/headers only (it does not buffer the full body).
+  - When a body exceeds the cap, the preview includes both the head and tail (so end-of-payload issues are visible).
 
 ## Environment variables
 
 - `MLX_OMNI_SERVER_REASONING_HMAC_KEY`
   - Used to sign and validate `reasoning.encrypted_content` tokens for the Responses API.
   - If unset, the server uses a per-process ephemeral key; tokens become invalid after a restart.
+- Debugging artifacts (opt-in)
+  - `MLX_OMNI_SERVER_LOG_ARTIFACTS` (bool): enable both HTTP-body and prompt artifacts.
+  - `MLX_OMNI_SERVER_LOG_HTTP_BODY_ARTIFACTS` (bool): write full HTTP request/response bodies to artifacts.
+  - `MLX_OMNI_SERVER_LOG_PROMPT_ARTIFACTS` (bool): write full formatted prompts to artifacts (and avoid huge inline prompt debug logs).
+  - `MLX_OMNI_SERVER_LOG_ARTIFACTS_DIR`: override artifact directory (default: `<log_dir>/artifacts/<run_id>/`).
+  - `MLX_OMNI_SERVER_LOG_ARTIFACTS_GZIP` (bool): gzip artifacts (`.gz`).
 - Hugging Face (`huggingface-hub`)
   - Use standard variables like `HF_HOME`, `HF_TOKEN`, and `HF_HUB_ENABLE_HF_TRANSFER` as needed.
 

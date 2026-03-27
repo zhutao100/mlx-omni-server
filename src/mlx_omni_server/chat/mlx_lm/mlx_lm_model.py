@@ -1,3 +1,4 @@
+import hashlib
 import time
 import uuid
 from typing import Any, Callable, Dict, Generator
@@ -7,7 +8,9 @@ from mlx_lm.sample_utils import make_sampler
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 from rich.markup import escape
 
+from ...utils import log_artifacts
 from ...utils.logger import logger
+from ...utils.request_context import get_request_id
 from ..generation_params import LM_GENERATE_STEP_PARAM_KEYS, split_generation_params
 from ..logits_processors.penalties import build_logits_processors
 from ..logprobs_utils import process_logprobs_for_token
@@ -143,7 +146,27 @@ class MlxLmModel(BaseTextModel):
             tools=request.tools,
             **template_kwargs,
         )
-        logger.debug(f"Encoded prompt:\n{escape(prompt)}")
+        if log_artifacts.artifacts_enabled_prompt():
+            prompt_request_id = get_request_id() or f"no-request-{uuid.uuid4().hex}"
+            prompt_bytes = prompt.encode("utf-8", errors="replace")
+            gzip_enabled = log_artifacts.artifacts_gzip_enabled()
+            artifact_path = log_artifacts.prompt_artifact_path(request_id=prompt_request_id)
+            try:
+                written = log_artifacts.write_artifact_bytes(
+                    artifact_path,
+                    prompt_bytes,
+                    gzip_enabled=gzip_enabled,
+                )
+                logger.debug(
+                    "Encoded prompt artifact: %s (sha256=%s bytes=%d)",
+                    log_artifacts.redact_home_path(written),
+                    hashlib.sha256(prompt_bytes).hexdigest(),
+                    len(prompt_bytes),
+                )
+            except Exception:
+                logger.debug("Failed to write encoded prompt artifact", exc_info=True)
+        else:
+            logger.debug(f"Encoded prompt:\n{escape(prompt)}")
 
         enable_thinking = template_kwargs.get("enable_thinking", True)
         self._reasoning_decoder.enable_thinking = enable_thinking

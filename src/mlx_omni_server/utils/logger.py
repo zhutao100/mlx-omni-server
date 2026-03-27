@@ -54,6 +54,26 @@ def _generate_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
 
 
+_FALLBACK_RUN_ID = _generate_run_id()
+
+
+def configured_log_dir() -> Path:
+    """Return the configured log directory (or the default if unconfigured)."""
+    if _CONFIG_STATE and "log_dir" in _CONFIG_STATE:
+        try:
+            return Path(str(_CONFIG_STATE["log_dir"])).expanduser()
+        except Exception:
+            return default_log_dir()
+    return default_log_dir()
+
+
+def configured_run_id() -> str:
+    """Return the configured run id (or a per-process fallback if unconfigured)."""
+    if _CONFIG_STATE and "run_id" in _CONFIG_STATE:
+        return str(_CONFIG_STATE["run_id"])
+    return _FALLBACK_RUN_ID
+
+
 class OmniRichHandler(RichHandler):
     """Console handler optimized for real-time human inspection."""
 
