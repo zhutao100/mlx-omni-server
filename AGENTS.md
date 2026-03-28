@@ -50,17 +50,14 @@ This file is a short operating guide for LLM/agent work in this repository.
 Use the repo’s virtualenv when available:
 
 - Packaging note: this repo is **not published to PyPI**; `pip install mlx-omni-server` installs a different project. Use source installs (`pip install -e ".[...]"`) or `uv sync`.
-- Python commands: `PYENV_VERSION=venv313 pyenv exec python3 ...`
-- Tests: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest tests/unit`
-  - `tests/integration/` may download models and can be slow/heavy.
-- Formatting: `PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files`
-- Dev server (reload): `PYENV_VERSION=venv313 pyenv exec uvicorn mlx_omni_server.main:app --reload --port 10240`
+- Common local dev commands (install/run/format/test): `docs/development_guide.md`.
+- `tests/integration/` may download models and can be slow/heavy.
 
-## Local resources (developer machine)
+## Local-only developer config
 
-- Core dependency repos (if you need to inspect upstream behavior):
-  - `../mlx-lm`
-  - `../mlx-vlm`
-  - `../transformers`
-  - `../lm-format-enforcer`
-- Hugging Face model cache is typically under `~/.cache/huggingface/hub`.
+Use `config/local-resources.yaml` (gitignored; template: `config/local-resources.example.yaml`) to record machine-local resources and paths to external reference repos used during implementation/research, so we don’t hardcode local filesystem paths into docs or patches.
+
+- Create it via: `cp config/local-resources.example.yaml config/local-resources.yaml`
+- Do not guess external repo locations. Always resolve via `config/local-resources.yaml`; if missing, ask the operator to create it from the example template.
+- If you use `pyenv`, record the env name under `local_envs.pyenv_env_name` (avoid hardcoding it in docs/tests).
+- Before finalizing a patch, ensure no machine-local paths leak into tracked files (prefer `$HOME/...` or relative paths in docs/tests). Quick check: `rg -n "/Users/" .`

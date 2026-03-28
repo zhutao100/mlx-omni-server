@@ -1,0 +1,30 @@
+# Copy to: config/local-resources.yaml (gitignored; never commit).
+#
+# Purpose: record machine-local resources used during development/research so we
+# don’t hardcode local filesystem paths into docs/tests/patches.
+#
+# Note: the server does not read this file (it’s for humans/agents only).
+
+local_envs:
+  # Optional: if you use `pyenv`, record the env name you run commands under.
+  pyenv_env_name: ""
+  python_env_notes: ""
+  # Common default when HF_HOME is unset:
+  huggingface_models_cache_location: "$HOME/.cache/huggingface/hub"
+
+external_projects:
+  mlx-lm:
+    url: "https://github.com/zhutao100/mlx-lm"
+    local_path: "$HOME/path/to/mlx-lm"
+
+  mlx-vlm:
+    url: "https://github.com/zhutao100/mlx-vlm"
+    local_path: "$HOME/path/to/mlx-vlm"
+
+  transformers:
+    url: "https://github.com/huggingface/transformers"
+    local_path: "$HOME/path/to/transformers"
+
+  lm-format-enforcer:
+    url: "https://github.com/noamgat/lm-format-enforcer"
+    local_path: "$HOME/path/to/lm-format-enforcer"

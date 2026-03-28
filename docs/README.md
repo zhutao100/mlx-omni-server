@@ -25,6 +25,7 @@ The server supports most routes with and without the `/v1` prefix. These pages d
 ## Development
 
 - Local dev workflow, formatting, and testing: [`development_guide.md`](development_guide.md)
+- Local-only resources (paths to caches / reference repos): copy [`../config/local-resources.example.yaml`](../config/local-resources.example.yaml) → `../config/local-resources.yaml` (gitignored)
 
 ## Development plans
 

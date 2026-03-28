@@ -77,7 +77,7 @@
   - cache reinjection on tool-loop continuation
   - non-stream tool-call reasoning survival
   - streamed final tool-call chunk reasoning survival
-- Ran: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest -q tests/unit` (pass).
+- Ran (local pyenv env; see `config/local-resources.yaml`): `pyenv exec python3 -m pytest -q tests/unit` (pass).
 
 ## Phase 1 Implementation
 
@@ -158,7 +158,7 @@
   - streaming reasoning item events + envelope roundtrip
   - parsing reasoning input items and attaching to assistant tool-call steps
   - `previous_response_id` history reconstruction preserving tool-call reasoning
-- Ran: `PYENV_VERSION=venv313 pyenv exec python3 -m pytest -q tests/unit` (pass).
+- Ran (local pyenv env; see `config/local-resources.yaml`): `pyenv exec python3 -m pytest -q tests/unit` (pass).
 
 ## Phase 2 Implementation
 

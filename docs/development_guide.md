@@ -19,14 +19,26 @@ python3 -m pip install -e ".[all]"
 
 ### Option C: `pyenv` (repo-local workflow)
 
-If you have a local `pyenv` virtualenv configured for this repo (for example `venv313`), you can run commands like:
+If you have a local `pyenv` environment configured for this repo, record the env name in `config/local-resources.yaml` (`local_envs.pyenv_env_name`) and run commands via `pyenv exec`:
 
 ```bash
-PYENV_VERSION=venv313 pyenv exec python3 -m pytest tests/unit
-PYENV_VERSION=venv313 pyenv exec pre-commit run --all-files
+pyenv exec python3 -m pytest tests/unit
+pyenv exec pre-commit run --all-files
 ```
 
 Note: this repository uses dependency groups for dev tooling (tests/formatters). If you use `pip`, you may need to install dev tools separately (pytest, pre-commit, etc.).
+
+### Local-only developer config (paths and reference repos)
+
+If you need to reference machine-local resources (Hugging Face cache location, local clones of upstream repos, etc.), record them in `config/local-resources.yaml` (gitignored; template: `config/local-resources.example.yaml`):
+
+```bash
+cp config/local-resources.example.yaml config/local-resources.yaml
+```
+
+Use `config/local-resources.yaml` as the source of truth for *local* paths during implementation/research, but keep docs/tests/patches portable (prefer `$HOME/...` or relative paths). If the file is missing, create it from the template rather than guessing locations.
+
+This file is for humans/agents only; the server does not read it.
 
 ## Run the server
 
@@ -50,7 +62,13 @@ Pre-commit is the expected formatting entrypoint:
 pre-commit run --all-files
 ```
 
-Configured hooks include Black (via Darker) and isort (Black profile). Line length is `100`.
+Install the git hook so checks run automatically on `git commit`:
+
+```bash
+pre-commit install
+```
+
+Configured hooks include Black (via Darker), isort (Black profile), and a repo hygiene check that blocks committing `config/local-resources.yaml` and machine-local home paths (use `$HOME/...` or relative paths). Line length is `100`.
 
 ## Testing
 
