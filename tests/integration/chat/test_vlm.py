@@ -223,10 +223,6 @@ class TestVlmChatCompletions:
         with (
             patch("mlx_omni_server.chat.models.models.MlxModelCache") as mock_cache_cls,
             patch("mlx_omni_server.chat.models.models.MlxVlmModel") as mock_vlm_cls,
-            patch(
-                "mlx_omni_server.chat.models.models.MlxModelCacheManager._is_vlm_model",
-                return_value=True,
-            ),
         ):
 
             # Setup mocks

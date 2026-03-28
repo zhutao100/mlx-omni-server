@@ -161,14 +161,14 @@ class TestGlm4ToolParser:
         text = """
         <tool_call><function=read_file>
         <parameter=path>
-        /Users/taozhu/workspace/deeplearning/Watermark-Removal-Pytorch/_test/mmexport1533744568501.jpg
+        $HOME/path/to/example.jpg
         </parameter>
         </function>
         <|end_of_box|>
         Since the file is binary (JPEG), I'll need to use a tool that can display image information or describe its content. Let me check if we can get image dimensions and other metadata.
         <tool_call><function=run_shell_command>
         <parameter=command>
-        identify /Users/taozhu/workspace/deeplearning/Watermark-Removal-Pytorch/_test/mmexport1533744568501.jpg
+        identify $HOME/path/to/example.jpg
         </parameter>
         </function>
         <|end_of_box|>
