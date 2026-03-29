@@ -25,6 +25,8 @@ classifiers = [
 dependencies = [
     # core
     "fastapi>=0.116.1",
+    # required by fastapi to function
+    "python-multipart",
     "pydantic>=2.9.2",
     "uvicorn>=0.34.0",
     "rich>=13.9.4",
