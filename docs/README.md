@@ -37,7 +37,3 @@ The server supports most routes with and without the `/v1` prefix. These pages d
 - Technical overview (implementation-oriented): [`code_analysis.md`](code_analysis.md)
 - Architecture evaluation + prioritized improvement plan: [`architecture_evaluation.md`](architecture_evaluation.md)
 - Stack rationale (timeless, constraint-driven): [`stack_assessment.md`](stack_assessment.md)
-
-## Internal notes (for maintainers)
-
-- Detailed component analyses and test notes: `.llm_analysis/`

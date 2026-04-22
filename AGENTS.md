@@ -8,7 +8,6 @@
 - Architecture / roadmap: `docs/code_analysis.md` and `docs/architecture_evaluation.md`
 - Active development plans: `docs/dev_plans/`
 - Model guidance: `docs/supported_models.md`
-- Deep internal notes: `docs/.llm_analysis/` (keep in sync if you change relevant code)
 
 ## Program constraints
 
