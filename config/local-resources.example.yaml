@@ -28,3 +28,9 @@ external_projects:
   lm-format-enforcer:
     url: "https://github.com/noamgat/lm-format-enforcer"
     local_path: "$HOME/path/to/lm-format-enforcer"
+
+local_tools:
+  # Example entry for a local tool/script use during development.
+  tool_entry:
+    command: ""
+    note: ""

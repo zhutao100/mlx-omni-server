@@ -1,20 +1,5 @@
 # AGENTS.md
 
-This file is a short operating guide for LLM/agent work in this repository.
-
-## Repo map (start here)
-
-- Entry point: `src/mlx_omni_server/main.py` (FastAPI app + CLI args)
-- Router aggregation: `src/mlx_omni_server/routers.py`
-- Components:
-  - Chat: `src/mlx_omni_server/chat/`
-  - Responses adapter: `src/mlx_omni_server/responses/`
-  - Embeddings: `src/mlx_omni_server/embeddings/`
-  - Images (optional extra): `src/mlx_omni_server/images/`
-  - Speech-to-text (optional extra): `src/mlx_omni_server/stt/`
-  - Text-to-speech (optional extra): `src/mlx_omni_server/tts/`
-- Shared runtime contract: `src/mlx_omni_server/inference/runtime.py`
-
 ## Docs to read first (by task type)
 
 - Triage / “what is this project?”: `README.md` → `docs/README.md`
@@ -25,7 +10,7 @@ This file is a short operating guide for LLM/agent work in this repository.
 - Model guidance: `docs/supported_models.md`
 - Deep internal notes: `docs/.llm_analysis/` (keep in sync if you change relevant code)
 
-## Program constraints (still true)
+## Program constraints
 
 - Target: macOS + Apple Silicon; optimized for local MLX inference.
 - Trusted clients on localhost/LAN; not hardened for public internet exposure.
@@ -46,8 +31,6 @@ This file is a short operating guide for LLM/agent work in this repository.
 - If you change behavior that was previously documented as a “gap” or “issue”, remove/adjust it in docs to avoid stale TODO lists.
 
 ## Workflows and commands
-
-Use the repo’s virtualenv when available:
 
 - Packaging note: this repo is **not published to PyPI**; `pip install mlx-omni-server` installs a different project. Use source installs (`pip install -e ".[...]"`) or `uv sync`.
 - Common local dev commands (install/run/format/test): `docs/development_guide.md`.

@@ -23,10 +23,9 @@ If you have a local `pyenv` environment configured for this repo, record the env
 
 ```bash
 pyenv exec python3 -m pytest tests/unit
-pyenv exec pre-commit run --all-files
 ```
 
-Note: this repository uses dependency groups for dev tooling (tests/formatters). If you use `pip`, you may need to install dev tools separately (pytest, pre-commit, etc.).
+Note: this repository uses dependency groups for dev tooling (tests/formatters). If you use `pip`, you may need to install dev tools separately (pytest etc.).
 
 ### Local-only developer config (paths and reference repos)
 
@@ -54,34 +53,18 @@ mlx-omni-server --host 127.0.0.1 --port 10240
 uvicorn mlx_omni_server.main:app --reload --host 127.0.0.1 --port 10240
 ```
 
-## Formatting
-
-Pre-commit is the expected formatting entrypoint:
-
-```bash
-pre-commit run --all-files
-```
-
-Install the git hook so checks run automatically on `git commit`:
-
-```bash
-pre-commit install
-```
-
-Configured hooks include Black (via Darker), isort (Black profile), and a repo hygiene check that blocks committing `config/local-resources.yaml` and machine-local home paths (use `$HOME/...` or relative paths). Line length is `100`.
-
 ## Testing
 
 Run unit tests:
 
 ```bash
-python3 -m pytest tests/unit
+python3 -m pytest tests/unit -q
 ```
 
 Run the full test suite (includes integration tests):
 
 ```bash
-python3 -m pytest
+python3 -m pytest -q
 ```
 
 Notes:

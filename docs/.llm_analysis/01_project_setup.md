@@ -43,7 +43,6 @@ The server is structured around providing several types of AI services, each wit
 ## Development & Tooling
 
 -   **Testing:** `pytest`, `httpx`
--   **Code Quality:** `pre-commit`, `black`, `isort`
 -   **Build System:** `hatchling`
 
 This analysis provides a clear picture of a modular AI server built on a modern Python web stack, designed to leverage Apple's MLX for efficient machine learning inference on Apple Silicon. The project is well-structured, with clear separation of dependencies for different AI functionalities.
