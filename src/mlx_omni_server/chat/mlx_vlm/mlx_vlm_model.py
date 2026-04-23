@@ -861,6 +861,28 @@ class MlxVlmModel(BaseTextModel):
             logger.debug(f"    prompt tokens: {prompt_tokens_processed}")
             logger.debug(f"generation tokens: {last_committed_generation_tokens}")
 
+            # Keep the prompt-cache token list aligned with the actual generated text.
+            #
+            # Some backends can occasionally report token IDs that drift from the detokenized
+            # stream (e.g., due to special-token handling). Re-encoding the final prompt+output
+            # once at the end stabilizes prefix matching for the next request.
+            if active_cache is not None and last_committed_generation_tokens > 0:
+                try:
+                    final_text = detokenized_text()
+                    if final_text and final_text.startswith(last_detokenized_text):
+                        last_detokenized_text = final_text
+
+                    corrected = safe_encode_prompt(
+                        tokenizer,
+                        f"{formatted_prompt}{last_detokenized_text}",
+                    )
+                    active_cache.tokens = [int(t) for t in corrected]
+                    bundle = getattr(active_cache, "bundle", None)
+                    if bundle is not None:
+                        bundle.tokens_processed = len(active_cache.tokens)
+                except Exception:
+                    logger.debug("Failed to repair prompt cache tokens", exc_info=True)
+
         except Exception as e:
             logger.error(f"Error during stream generation: {escape(str(e))}", exc_info=True)
             raise
