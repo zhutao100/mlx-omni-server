@@ -81,6 +81,13 @@ def _restore_tool_loop_reasoning(request: ChatCompletionRequest) -> None:
     if not request.messages:
         return
 
+    def _normalize_reasoning(value: str | None) -> str | None:
+        if value is None:
+            return None
+        # Some clients reconstruct reasoning from streamed deltas and keep a trailing newline.
+        # Treat trailing newlines as insignificant for cache restoration / hashing stability.
+        return value.rstrip("\n")
+
     tool_call_to_assistant: dict[str, Any] = {}
     referenced_tool_call_ids: set[str] = set()
 
@@ -101,7 +108,10 @@ def _restore_tool_loop_reasoning(request: ChatCompletionRequest) -> None:
                 continue
 
             current_reasoning = getattr(assistant_message, "reasoning", None)
-            if current_reasoning == cached_reasoning:
+            if _normalize_reasoning(current_reasoning) == _normalize_reasoning(cached_reasoning):
+                # Keep the cached value for deterministic request hashing, but avoid noisy mismatch logs
+                # for newline-only differences.
+                assistant_message.reasoning = cached_reasoning
                 continue
 
             if current_reasoning is None:
